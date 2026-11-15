@@ -75,31 +75,36 @@ export function MyPipelines() {
     if (deleting.current) return; // a double click must not delete (and toast) twice
     deleting.current = true;
     setBusy(true);
-    const p = await getPipeline(m.id);
     try {
-      await deletePipeline(m.id);
+      const p = await getPipeline(m.id);
+      try {
+        await deletePipeline(m.id);
+      } catch (e) {
+        // Not deleted: say why, and no "Deleted" toast.
+        if (!(e instanceof AppError)) throw e;
+        setStoreError(e);
+        setConfirm(null);
+        return;
+      }
+      // Refresh BEFORE closing the dialog, so its close-focus lands on the updated list.
+      await refresh();
+      deletedRow.current = true; // the dialog's trigger row is gone: focus the list instead
+      setConfirm(null);
+      if (p)
+        toast({
+          severity: 'success',
+          message: `Deleted "${m.name}".`,
+          action: { label: 'Undo', onClick: () => void save(p) },
+        });
     } catch (e) {
-      // Not deleted: say why, and no "Deleted" toast.
+      // Reading the pipeline failed (storage blocked): say so; the button must not stay busy.
       if (!(e instanceof AppError)) throw e;
       setStoreError(e);
       setConfirm(null);
+    } finally {
       deleting.current = false;
       setBusy(false);
-      return;
     }
-    // Refresh BEFORE closing the dialog, so its close-focus lands on the updated list (the row it was
-    // opened from is gone).
-    await refresh();
-    deletedRow.current = true; // the dialog's trigger row is gone: focus the list instead
-    setConfirm(null);
-    deleting.current = false;
-    setBusy(false);
-    if (p)
-      toast({
-        severity: 'success',
-        message: `Deleted "${m.name}".`,
-        action: { label: 'Undo', onClick: () => void save(p) },
-      });
   };
 
   const rename = async (m: PipelineMeta, name: string) => {

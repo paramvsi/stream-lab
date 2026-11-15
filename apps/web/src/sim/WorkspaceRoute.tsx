@@ -45,6 +45,7 @@ export function WorkspaceRoute({ id }: { id: string }) {
   const [storeError, setStoreError] = useState<AppError | null>(null);
   const [conflict, setConflict] = useState(false);
   const [deleted, setDeleted] = useState(false);
+  const wasDeleted = useRef(false);
   // Shared with the delete handler and "Load newer version", which must cancel a pending autosave
   // (saving it would resurrect a deleted pipeline, or bounce the conflict to the other tab).
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -183,10 +184,16 @@ export function WorkspaceRoute({ id }: { id: string }) {
       onSavedElsewhere(id, (m) => {
         if (m.type === 'deleted') {
           cancelPending(); // never write a deleted pipeline back
+          // Nor from this tab's in-memory or rescue copies (only the deleting tab cleared its own).
+          unsaved.delete(id);
+          clearRescue(id);
+          wasDeleted.current = true;
           setDeleted(true);
         } else {
           setDeleted(false); // saved again elsewhere (e.g. Undo of the delete): it exists, and is newer
-          useSaveState.setState({ state: 'saved' }); // "Not saved" belonged to the deleted state
+          // "Not saved" that came from the deleted state goes; a failed save of our own stays.
+          if (wasDeleted.current) useSaveState.setState({ state: 'saved' });
+          wasDeleted.current = false;
           setConflict(true);
         }
       }),

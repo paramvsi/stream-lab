@@ -249,7 +249,7 @@ function upstreamSources(g: Graph, id: string): PipelineNode[] {
       if (e.target === cur && !seen.has(e.source)) {
         seen.add(e.source);
         const src = byId.get(e.source);
-        if (!src) continue;
+        if (!src || src.disabled) continue; // a disabled source sends nothing
         if (spec(src.type).category === 'Sources') out.push(src);
         stack.push(e.source);
       }

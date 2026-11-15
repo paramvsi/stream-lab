@@ -12,9 +12,23 @@ const CEL_TYPE = {
   timestamp: 'google.protobuf.Timestamp',
 } as const;
 
+/**
+ * Each field becomes a typed CEL variable. Optional fields are `dyn` so `x != null` works (the type checker can't
+ * say "string or null"). Names CEL can't declare (empty, duplicates, built-ins like `type`, `string`) are skipped:
+ * expressions can't use them, and duplicates are reported as NODE-DUP-FIELD by the node checks.
+ */
 export function celEnv(schema: Schema): Environment {
   const env = new Environment();
-  for (const f of schema) env.registerVariable(f.name, CEL_TYPE[f.type]);
+  const seen = new Set<string>();
+  for (const f of schema) {
+    if (!f.name || seen.has(f.name)) continue;
+    seen.add(f.name);
+    try {
+      env.registerVariable(f.name, f.required ? CEL_TYPE[f.type] : 'dyn');
+    } catch {
+      // Built-in name (type, string, list, map…): not usable in expressions.
+    }
+  }
   return env;
 }
 
@@ -52,6 +66,8 @@ const CEL_OUT: Record<string, string> = {
   int: 'a number',
   uint: 'a number',
   'google.protobuf.Timestamp': 'a timestamp',
+  'google.protobuf.Duration': 'a duration',
+  dyn: 'any value',
 };
 const plain = (t: string) => CEL_OUT[t] ?? t;
 
@@ -83,7 +99,13 @@ export function checkCel(
   }
   const r = celEnv(schema).check(expr);
   if (r.valid) {
-    if (want && r.type !== want && !(want === 'double' && (r.type === 'int' || r.type === 'uint')))
+    // dyn (an optional field, or dyn(...)) may be anything: accept it.
+    if (
+      want &&
+      r.type !== want &&
+      r.type !== 'dyn' &&
+      !(want === 'double' && (r.type === 'int' || r.type === 'uint'))
+    )
       return {
         code: 'CEL-TYPE',
         params: { expected: plain(want), actual: plain(r.type ?? 'unknown') },
@@ -115,7 +137,7 @@ export function checkCel(
   // Syntax and operator errors ("no such overload: double + string") read as expression errors at a column.
   let reason = (e.summary ?? e.message.split('\n')[0] ?? 'invalid expression').replace(/\.$/, '');
   // CEL does not mix decimals and whole numbers in arithmetic (amount * 2); say how to fix it.
-  if (/no such overload: (double \S+ int|int \S+ double)/.test(reason))
-    reason += ' (write 2.0 instead of 2 with decimal fields)';
+  if (/no such overload: .*double.*\bint\b|no such overload: .*\bint\b.*double/.test(reason))
+    reason += ' (with decimal fields, write numbers as decimals, e.g. 1.0)';
   return { code: 'CEL-PARSE', params: { c: from + 1, reason }, from, to };
 }

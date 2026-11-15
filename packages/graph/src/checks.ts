@@ -15,11 +15,26 @@ const LABELS: Record<string, string> = {
   steps: 'Steps',
   condition: 'Condition',
 };
-const label = (path: PropertyKey[]) => {
-  const last = [...path].reverse().find((p) => typeof p === 'string') as string | undefined;
-  if (!last) return 'This setting';
-  return LABELS[last] ?? last.replace(/([A-Z])/g, ' $1').replace(/^./, (c) => c.toUpperCase());
+const word = (k: string) => LABELS[k] ?? k.replace(/([A-Z])/g, ' $1').replace(/^./, (c) => c.toUpperCase());
+const ROW: Record<string, string> = {
+  schema: 'Field',
+  assignments: 'Field',
+  rules: 'Rule',
+  routes: 'Route',
+  aggregates: 'Aggregate',
+  steps: 'Step',
 };
+/** "name" → "Name"; ["schema", 0, "name"] → "Field 1 name" (two settings never share a label). */
+const label = (path: PropertyKey[]) => {
+  const [a, i, b] = path;
+  if (typeof a === 'string' && typeof i === 'number' && typeof b === 'string')
+    return `${ROW[a] ?? word(a)} ${i + 1} ${word(b).toLowerCase()}`;
+  const last = [...path].reverse().find((p) => typeof p === 'string') as string | undefined;
+  return last ? word(last) : 'This setting';
+};
+
+/** Names used more than once in a list (NODE-DUP-FIELD). */
+const dupes = (names: string[]) => [...new Set(names.filter((n, i) => n && names.indexOf(n) !== i))];
 
 const dur = (ms: number) =>
   ms >= 3600000
@@ -57,6 +72,14 @@ export function nodeIssues(n: PipelineNode, inputs: Record<string, Schema[]>, ct
       const origin = (i as { origin?: string }).origin;
       if (i.code === 'too_small' && (origin === 'string' || origin === 'array'))
         out.push(at({ code: 'NODE-REQUIRED', params: { field: label(i.path) }, field: i.path.join('.') }));
+      else if ((i.code === 'too_small' || i.code === 'too_big') && origin === 'number') {
+        const b = i as unknown as { minimum?: number; maximum?: number; inclusive?: boolean };
+        const rule =
+          i.code === 'too_small'
+            ? `${b.inclusive === false ? 'more than' : 'at least'} ${b.minimum}`
+            : `${b.inclusive === false ? 'less than' : 'at most'} ${b.maximum}`;
+        out.push(at({ code: 'NODE-RANGE', params: { field: label(i.path), rule }, field: i.path.join('.') }));
+      }
     }
   const required = new Set(out.map((i) => i.field));
 
@@ -73,6 +96,25 @@ export function nodeIssues(n: PipelineNode, inputs: Record<string, Schema[]>, ct
     const p = checkCel(expr, schema, want);
     if (p) out.push(at({ ...p, field }));
   };
+
+  // NODE-DUP-FIELD: two outputs of this node with one name.
+  const dup = (names: string[], field: string) =>
+    dupes(names).forEach((d) => out.push(at({ code: 'NODE-DUP-FIELD', params: { field: d }, field })));
+  if (n.type === 'Source')
+    dup(
+      (cfg.schema as { name: string }[]).map((f) => f.name),
+      'schema',
+    );
+  if (n.type === 'Map')
+    dup(
+      (cfg.assignments as { field: string }[]).map((a) => a.field),
+      'assignments',
+    );
+  if (n.type === 'Window')
+    dup(
+      (cfg.aggregates as { as: string }[]).map((a) => a.as),
+      'aggregates',
+    );
 
   switch (n.type) {
     case 'Filter':
@@ -121,11 +163,17 @@ export function nodeIssues(n: PipelineNode, inputs: Record<string, Schema[]>, ct
       const lateness = cfg.allowedLatenessMs as number;
       if (size > 0 && lateness > size * 10)
         out.push(at({ code: 'WM-LATENESS-BIG', params: { x: dur(lateness) }, field: 'allowedLatenessMs' }));
-      for (const src of ctx.upstreamSources)
-        if (src.type === 'Source' && !String((src.config as { eventTime?: string }).eventTime ?? '').trim())
+      // Each upstream Source needs an event-time field that exists in its schema and is a timestamp.
+      for (const src of ctx.upstreamSources) {
+        if (src.type !== 'Source') continue;
+        const c = src.config as { eventTime?: string; schema?: { name: string; type: string }[] };
+        const t = String(c.eventTime ?? '').trim();
+        const f = c.schema?.find((x) => x.name === t);
+        if (!t || !f || f.type !== 'timestamp')
           out.push(
             at({ code: 'WIN-NO-TIME', params: { source: src.label?.trim() || src.type }, field: 'kind' }),
           );
+      }
       break;
     }
     case 'Lookup': {

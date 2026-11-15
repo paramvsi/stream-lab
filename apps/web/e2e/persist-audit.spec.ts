@@ -315,3 +315,40 @@ test('R5 a saved pipeline\'s failed edit survives "Manage storage" and Back (sti
   await expect(nodes(page)).toHaveCount(2);
   await expect(page.getByRole('status').filter({ hasText: /^Not saved$/ })).toBeVisible();
 });
+
+/* ---------- audit 6 ---------- */
+
+test('S2 another tab saving does not turn our own failed save into "Saved"', async ({ page, context }) => {
+  await openBlank(page);
+  await addNode(page, 'Source');
+  await saved(page);
+  await fillStorage(page);
+  await addNode(page, 'Sink');
+  await expect(page.getByRole('status').filter({ hasText: /^Not saved$/ })).toBeVisible();
+  const other = await context.newPage();
+  await other.goto(page.url());
+  await expect(other.locator('.react-flow__node')).toHaveCount(1);
+  await addNode(other, 'Filter');
+  await expect(page.getByText('This pipeline is open in another tab')).toBeVisible();
+  await expect(page.getByRole('status').filter({ hasText: /^Not saved$/ })).toBeVisible();
+});
+
+test("S3 a pipeline deleted in another tab does not come back from this tab's unsaved copy", async ({
+  page,
+  context,
+}) => {
+  await openBlank(page);
+  await addNode(page, 'Source');
+  await saved(page);
+  await fillStorage(page);
+  await addNode(page, 'Sink'); // fails: kept in memory
+  await expect(page.getByRole('status').filter({ hasText: /^Not saved$/ })).toBeVisible();
+  const list = await context.newPage();
+  await list.goto('/#/pipelines');
+  await list.getByRole('button', { name: 'Delete Untitled pipeline' }).click();
+  await list.getByRole('button', { name: 'Delete pipeline' }).click();
+  await expect(page.getByText('This pipeline was deleted in another tab.')).toBeVisible();
+  await page.getByRole('button', { name: 'Close', exact: true }).click();
+  await page.goBack();
+  await expect(page.getByText('This pipeline is not saved in this browser')).toBeVisible();
+});

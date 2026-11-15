@@ -10,7 +10,7 @@ Rules for implementers:
 4. Every code needs a test that triggers it and asserts the message, placement and actions (`TESTING.md`).
 5. "Board" is the design artboard that shows it. `W…/WX…` are in the Website canvas, `D…/X…/G…` in the Desktop canvas.
 
-Total: **136 codes** (128 from the handover + `CONN-SSH-HOSTKEY`, `API-4XX`, `COPY-FAILED` added in M0, `SIM-DUP-EDGE`, `SIM-PORT-TAKEN`, `SIM-REDO-EMPTY`, `PIPELINE-NOT-FOUND`, `PIPELINE-DELETED-ELSEWHERE` added in M1).
+Total: **138 codes** (128 from the handover + `CONN-SSH-HOSTKEY`, `API-4XX`, `COPY-FAILED` added in M0, `SIM-DUP-EDGE`, `SIM-PORT-TAKEN`, `SIM-REDO-EMPTY`, `PIPELINE-NOT-FOUND`, `PIPELINE-DELETED-ELSEWHERE` added in M1; `NODE-DUP-FIELD`, `NODE-RANGE` added in M2).
 
 
 ## Desktop · Connections
@@ -172,6 +172,8 @@ Total: **136 codes** (128 from the handover + `CONN-SSH-HOSTKEY`, `API-4XX`, `CO
 | Code | When | How we detect it | Severity | Placement | Message | Actions | Board |
 |---|---|---|---|---|---|---|---|
 | `NODE-REQUIRED` | Required setting empty | Per-node zod schema | error | field + node badge | {field} is required. | — | W10-* |
+| `NODE-DUP-FIELD` | Two outputs of one node share a name (Map field set twice, aggregate names, Source schema) | Per-node check | error | field + node badge | "{field}" is used twice. Each output field needs its own name. | — | W10-Map (not drawn) |
+| `NODE-RANGE` | A number setting is outside its range (Top-N N ≥ 1, TTL > 0, percentages 0–100) | Per-node zod schema | error | field + node badge | {field} must be {rule}. | — | W10-* (not drawn) |
 | `CEL-PARSE` | Filter/Validate/Route/Map expression does not parse | cel-js parse on keystroke (debounce 200 ms) | error | inline in expression editor + node badge | Expression error at column {c}: {reason}. | — | WX01 |
 | `CEL-UNKNOWN-FIELD` | Expression uses a field not on the input edge | Type-check against input schema | error | inline + quick fix | Unknown field "{f}". Fields here: {list}. | Replace with suggestion | WX01 |
 | `CEL-TYPE` | Expression type wrong (Filter not boolean, Map type mismatch) | Type-check | error | inline | This must return {expected}; it returns {actual}. | — | W10-Filter |

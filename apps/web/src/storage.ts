@@ -79,7 +79,13 @@ export async function deletePipeline(id: string): Promise<void> {
   } catch (e) {
     throw await storeError(e);
   }
+  // A rescue copy must never bring a deleted pipeline back; other tabs must stop autosaving it.
+  clearRescue(id);
+  announce({ type: 'deleted', id, tab: TAB });
 }
+
+/** Pipelines whose first save failed (storage full/blocked): open from memory, with the banner (not "Saved"). */
+export const unsaved = new Map<string, Pipeline & { scenario?: string }>();
 
 /* ---------- unload rescue (SIM-20) ---------- */
 
@@ -97,25 +103,30 @@ export function writeRescue(p: Pipeline & { scenario?: string }) {
   return true;
 }
 
-export function takeRescue(id: string): (Pipeline & { scenario?: string }) | null {
+/** Read the rescue copy WITHOUT removing it; call clearRescue only once it is safely back in IndexedDB. */
+export function peekRescue(id: string): (Pipeline & { scenario?: string }) | null {
   try {
     const raw = localStorage.getItem(RESCUE(id));
-    localStorage.removeItem(RESCUE(id));
     return raw ? (JSON.parse(raw) as Pipeline & { scenario?: string }) : null;
   } catch {
     return null;
   }
 }
 
+export function clearRescue(id: string) {
+  try {
+    localStorage.removeItem(RESCUE(id));
+  } catch {
+    // nothing to clear when storage is blocked
+  }
+}
+
 /* ---------- multi-tab (SIM-TAB-CONFLICT) ---------- */
 
 export const TAB = Math.random().toString(36).slice(2);
-export interface SavedMsg {
-  type: 'saved';
-  id: string;
-  updatedAt: string;
-  tab: string;
-}
+export type SavedMsg =
+  | { type: 'saved'; id: string; updatedAt: string; tab: string }
+  | { type: 'deleted'; id: string; tab: string };
 
 let channel: BroadcastChannel | null = null;
 function chan() {
@@ -126,12 +137,12 @@ function chan() {
 function announce(m: SavedMsg) {
   chan()?.postMessage(m);
 }
-/** Calls `fn` when ANOTHER tab saves pipeline `id`. */
+/** Calls `fn` when ANOTHER tab saves or deletes pipeline `id`. */
 export function onSavedElsewhere(id: string, fn: (m: SavedMsg) => void): () => void {
   const c = chan();
   if (!c) return () => {};
   const h = (e: MessageEvent<SavedMsg>) => {
-    if (e.data?.type === 'saved' && e.data.id === id && e.data.tab !== TAB) fn(e.data);
+    if (e.data && e.data.id === id && e.data.tab !== TAB) fn(e.data);
   };
   c.addEventListener('message', h);
   return () => c.removeEventListener('message', h);

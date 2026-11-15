@@ -43,7 +43,12 @@ export function SiteShell({
                 {eyebrow}
               </span>
             )}
-            <h1 className="m-0 text-[36px] leading-[1.2] font-bold tracking-[-0.02em]">{title}</h1>
+            <h1
+              tabIndex={-1}
+              className="m-0 text-[36px] leading-[1.2] font-bold tracking-[-0.02em] outline-none"
+            >
+              {title}
+            </h1>
           </div>
           {actions && <div className="flex gap-3">{actions}</div>}
         </div>

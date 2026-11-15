@@ -4,8 +4,8 @@ import { useNavigate } from '@tanstack/react-router';
 import { ArrowRight } from 'lucide-react';
 import { useState } from 'react';
 import { fromScenario, SCENARIOS, type Scenario } from '../sim/scenarios';
-import { newId, useGraph } from '../sim/store';
-import { savePipeline } from '../storage';
+import { newId } from '../sim/store';
+import { savePipeline, unsaved } from '../storage';
 import { SiteShell } from './SiteShell';
 
 /** W07 New pipeline · scenario gallery; W07b loading a scenario (SIM-01). */
@@ -16,10 +16,10 @@ export function Gallery() {
   const start = async (s: Scenario) => {
     setBusy(s);
     const p = fromScenario(s, newId('p'));
-    // In memory first: the workspace opens even if storage is blocked or full (autosave shows the banner).
-    useGraph.getState().load(p);
+    // If the first save fails (storage full/blocked), the workspace opens it from memory, with the banner.
     await savePipeline(p).catch((e: unknown) => {
       if (!(e instanceof AppError)) throw e;
+      unsaved.set(p.id, p);
     });
     await navigate({ to: '/sim/$id', params: { id: p.id } });
   };

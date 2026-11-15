@@ -71,11 +71,22 @@ export function MyPipelines() {
   const remove = async (m: PipelineMeta) => {
     setConfirm(null);
     const p = await getPipeline(m.id);
-    await deletePipeline(m.id).catch((e: unknown) => {
+    try {
+      await deletePipeline(m.id);
+    } catch (e) {
+      // Not deleted: say why, and no "Deleted" toast.
       if (!(e instanceof AppError)) throw e;
       setStoreError(e);
-    });
+      return;
+    }
     await refresh();
+    // The row (and its button, the dialog's trigger) is gone: put focus somewhere sensible.
+    requestAnimationFrame(() =>
+      (
+        document.querySelector<HTMLElement>('table[aria-label="My pipelines"] tbody a') ??
+        document.querySelector<HTMLElement>('main h1')
+      )?.focus(),
+    );
     if (p)
       toast({
         severity: 'success',

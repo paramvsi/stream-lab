@@ -10,7 +10,8 @@ import {
   onSavedElsewhere,
   savePipeline,
   TAB,
-  takeRescue,
+  clearRescue,
+  peekRescue,
   writeRescue,
 } from './storage';
 
@@ -75,7 +76,7 @@ describe('SIM-02 / SIM-20 · storage', () => {
 describe('SIM-TAB-CONFLICT · two tabs', () => {
   it('hears saves of the same pipeline from another tab, not its own or other pipelines', async () => {
     const heard: string[] = [];
-    const off = onSavedElsewhere('a', (m) => heard.push(m.updatedAt));
+    const off = onSavedElsewhere('a', (m) => m.type === 'saved' && heard.push(m.updatedAt));
     const other = new BroadcastChannel('streamlab');
     other.postMessage({ type: 'saved', id: 'a', updatedAt: 'T2', tab: 'other-tab' });
     other.postMessage({ type: 'saved', id: 'b', updatedAt: 'T3', tab: 'other-tab' });
@@ -88,15 +89,31 @@ describe('SIM-TAB-CONFLICT · two tabs', () => {
 });
 
 describe('SIM-20 · unload rescue', () => {
-  it('a rescue copy is read back once, then gone', () => {
+  it('a rescue copy stays until it is cleared (cleared only once written back)', () => {
     const r = p('r', 'Rescued', '2026-11-15T12:00:00Z');
     expect(writeRescue(r)).toBe(true);
-    expect(takeRescue('r')?.name).toBe('Rescued');
-    expect(takeRescue('r')).toBeNull();
+    expect(peekRescue('r')?.name).toBe('Rescued');
+    expect(peekRescue('r')?.name).toBe('Rescued');
+    clearRescue('r');
+    expect(peekRescue('r')).toBeNull();
   });
 
   it('a corrupt rescue copy is ignored, not thrown', () => {
     localStorage.setItem('streamlab:rescue:bad', '{nope');
-    expect(takeRescue('bad')).toBeNull();
+    expect(peekRescue('bad')).toBeNull();
+  });
+
+  it('deleting a pipeline clears its rescue copy and tells other tabs', async () => {
+    await savePipeline(p('d', 'Doomed', '2026-11-15T12:00:00Z'));
+    writeRescue(p('d', 'Doomed', '2026-11-15T12:00:01Z'));
+    const heard: string[] = [];
+    const other = new BroadcastChannel('streamlab');
+    other.onmessage = (e: MessageEvent<{ type: string; id: string }>) =>
+      heard.push(`${e.data.type}:${e.data.id}`);
+    await deletePipeline('d');
+    await new Promise((r) => setTimeout(r, 50));
+    expect(peekRescue('d')).toBeNull();
+    expect(heard).toContain('deleted:d');
+    other.close();
   });
 });

@@ -19,7 +19,7 @@ export interface DialogProps {
   trigger?: ReactNode;
   /** Override where focus lands on open (default: the first focusable element). */
   onOpenAutoFocus?: (e: Event) => void;
-  /** Override where focus goes on close (default: back to what opened it). */
+  /** Runs on close; call preventDefault to take over focus (else it returns to what opened the dialog). */
   onCloseAutoFocus?: (e: Event) => void;
 }
 
@@ -45,7 +45,11 @@ export function Dialog({
         <div className="pointer-events-none fixed inset-0 z-40 flex items-center justify-center p-6">
           <R.Content
             aria-describedby={undefined}
-            onCloseAutoFocus={onCloseAutoFocus ?? returnFocus}
+            // A caller's handler may take over (preventDefault); otherwise focus returns to the trigger.
+            onCloseAutoFocus={(e) => {
+              onCloseAutoFocus?.(e);
+              if (!e.defaultPrevented) returnFocus(e);
+            }}
             {...(onOpenAutoFocus ? { onOpenAutoFocus } : {})}
             style={{ width }}
             className="pointer-events-auto flex max-h-full max-w-full flex-col gap-[18px] overflow-auto rounded-xl bg-surface p-6 shadow-pop outline-none"

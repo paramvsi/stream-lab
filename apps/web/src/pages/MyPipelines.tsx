@@ -26,6 +26,9 @@ export function MyPipelines() {
   const [importError, setImportError] = useState<AppError | null>(null);
   const [confirm, setConfirm] = useState<PipelineMeta | null>(null);
   const file = useRef<HTMLInputElement>(null);
+  const deleting = useRef(false);
+  const deletedRow = useRef(false);
+  const [busy, setBusy] = useState(false);
 
   const refresh = useCallback(async () => {
     try {
@@ -69,6 +72,9 @@ export function MyPipelines() {
   };
 
   const remove = async (m: PipelineMeta) => {
+    if (deleting.current) return; // a double click must not delete (and toast) twice
+    deleting.current = true;
+    setBusy(true);
     const p = await getPipeline(m.id);
     try {
       await deletePipeline(m.id);
@@ -77,12 +83,17 @@ export function MyPipelines() {
       if (!(e instanceof AppError)) throw e;
       setStoreError(e);
       setConfirm(null);
+      deleting.current = false;
+      setBusy(false);
       return;
     }
     // Refresh BEFORE closing the dialog, so its close-focus lands on the updated list (the row it was
     // opened from is gone).
     await refresh();
+    deletedRow.current = true; // the dialog's trigger row is gone: focus the list instead
     setConfirm(null);
+    deleting.current = false;
+    setBusy(false);
     if (p)
       toast({
         severity: 'success',
@@ -216,6 +227,9 @@ export function MyPipelines() {
           severity="warning"
           title={`Delete "${confirm.name}"?`}
           onCloseAutoFocus={(e) => {
+            // Cancel/Escape: default (back to this row's Delete button). After a delete: the list.
+            if (!deletedRow.current) return;
+            deletedRow.current = false;
             e.preventDefault();
             (
               document.querySelector<HTMLElement>('table[aria-label="My pipelines"] tbody a') ??
@@ -227,7 +241,7 @@ export function MyPipelines() {
               <Button variant="ghost" onClick={() => setConfirm(null)}>
                 Cancel
               </Button>
-              <Button variant="danger" onClick={() => void remove(confirm)}>
+              <Button variant="danger" loading={busy} onClick={() => void remove(confirm)}>
                 Delete pipeline
               </Button>
             </>

@@ -228,3 +228,90 @@ test('Q9 palette Undo is disabled with the catalog reason when there is nothing 
   await expect(undo).toHaveAttribute('aria-disabled', 'true');
   await expect(undo).toContainText('Nothing to undo.');
 });
+
+/* ---------- audit 5 ---------- */
+
+/** Make every IndexedDB write fail from now on (storage full), in this page only. */
+const fillStorage = (page: Page) =>
+  page.evaluate(() => {
+    IDBObjectStore.prototype.put = function () {
+      throw Object.assign(new Error('full'), { name: 'QuotaExceededError' });
+    };
+  });
+
+test('R1 a pipeline with a failed edit, deleted to free space, does not come back on Back', async ({
+  page,
+}) => {
+  await openBlank(page);
+  await addNode(page, 'Source');
+  await saved(page);
+  await fillStorage(page);
+  await addNode(page, 'Sink');
+  await expect(page.getByRole('status').filter({ hasText: /^Not saved$/ })).toBeVisible();
+  await page.getByRole('button', { name: 'Manage storage' }).click();
+  await page.getByRole('button', { name: 'Delete Untitled pipeline' }).click();
+  await page.getByRole('button', { name: 'Delete pipeline' }).click();
+  await expect(page.getByText('No saved pipelines yet')).toBeVisible();
+  await page.goBack();
+  await expect(page.getByText('This pipeline is not saved in this browser')).toBeVisible();
+});
+
+test("R2 Cancel on the delete dialog returns focus to that row's Delete button", async ({ page }) => {
+  await useScenario(page, 'Late payments');
+  await page.goto('/#/new');
+  await page.getByRole('button', { name: /^Use this scenario.*Merchant top-N/ }).click();
+  await expect(page.getByRole('textbox', { name: 'Pipeline name' })).toHaveValue('Merchant top-N');
+  await page.goto('/#/pipelines');
+  const del = page.getByRole('button', { name: 'Delete Late payments' });
+  await del.focus();
+  await page.keyboard.press('Enter');
+  await page.getByRole('dialog').getByRole('button', { name: 'Cancel' }).click();
+  await expect(del).toBeFocused();
+});
+
+test('R3 a double click on "Delete pipeline" deletes once (one toast, one Undo)', async ({ page }) => {
+  await useScenario(page, 'Late payments');
+  await page.goto('/#/pipelines');
+  await page.getByRole('button', { name: 'Delete Late payments' }).click();
+  await page.getByRole('button', { name: 'Delete pipeline' }).dblclick();
+  await expect(page.getByText('No saved pipelines yet')).toBeVisible();
+  await page.waitForTimeout(300);
+  expect(await page.getByRole('button', { name: 'Undo', exact: true }).count()).toBe(1);
+});
+
+test('R4 after Undo of a delete elsewhere, the header is not left at "Not saved"', async ({
+  page,
+  context,
+}) => {
+  await openBlank(page);
+  await addNode(page, 'Source');
+  await saved(page);
+  const list = await context.newPage();
+  await list.goto('/#/pipelines');
+  await list.getByRole('button', { name: 'Delete Untitled pipeline' }).click();
+  await list.getByRole('button', { name: 'Delete pipeline' }).click();
+  await expect(page.getByText('This pipeline was deleted in another tab.')).toBeVisible();
+  await list.getByRole('button', { name: 'Undo', exact: true }).click();
+  await expect(page.getByText('This pipeline was deleted in another tab.')).toHaveCount(0);
+  expect(
+    await page
+      .getByRole('status')
+      .filter({ hasText: /^Not saved$/ })
+      .count(),
+  ).toBe(0);
+});
+
+test('R5 a saved pipeline\'s failed edit survives "Manage storage" and Back (still "Not saved")', async ({
+  page,
+}) => {
+  await openBlank(page);
+  await addNode(page, 'Source');
+  await saved(page);
+  await fillStorage(page);
+  await addNode(page, 'Sink');
+  await expect(page.getByRole('status').filter({ hasText: /^Not saved$/ })).toBeVisible();
+  await page.getByRole('button', { name: 'Manage storage' }).click();
+  await page.goBack();
+  await expect(nodes(page)).toHaveCount(2);
+  await expect(page.getByRole('status').filter({ hasText: /^Not saved$/ })).toBeVisible();
+});

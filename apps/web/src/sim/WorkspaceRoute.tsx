@@ -66,39 +66,29 @@ export function WorkspaceRoute({ id }: { id: string }) {
     getPipeline(id).then(
       async (stored) => {
         if (!live) return;
-        // Never saved (storage failing since creation): the latest in-memory copy, else a rescue copy from an
-        // unload. Shown with the banner and "Not saved"; the rescue is written back when storage allows.
-        const pending = unsaved.get(id) ?? (stored ? undefined : (peekRescue(id) ?? undefined));
-        if (!stored && pending) {
-          show(pending);
+        // The newest of: the stored record, this tab's unsaved copy (a save that failed), and a rescue copy from
+        // the last unload. Delete clears all three, so a deleted pipeline is never resurrected.
+        const candidates = [stored, unsaved.get(id), peekRescue(id) ?? undefined].filter(
+          (x): x is Stored => !!x,
+        );
+        const newest = candidates.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))[0];
+        if (!newest) return setStatus('missing');
+        show(newest);
+        if (newest !== stored) {
+          // Not in IndexedDB yet: write it back; until that works, "Not saved" and the banner.
           try {
-            await savePipeline(pending);
+            await savePipeline(newest);
             unsaved.delete(id);
             clearRescue(id);
           } catch (e) {
             if (!(e instanceof AppError)) throw e;
-            unsaved.set(id, pending);
-            useSaveState.setState({ state: 'error' });
-            setStoreError(e);
-          }
-          return live ? setStatus('ready') : undefined;
-        }
-        if (!stored) return setStatus('missing'); // deleted (or never here): never resurrected from memory
-        // A rescue copy from the last unload wins when newer; it is cleared only once written back.
-        const rescue = peekRescue(id);
-        if (rescue && rescue.updatedAt > stored.updatedAt) {
-          show(rescue);
-          try {
-            await savePipeline(rescue);
-            clearRescue(id);
-          } catch (e) {
-            if (!(e instanceof AppError)) throw e;
+            unsaved.set(id, newest);
             useSaveState.setState({ state: 'error' });
             setStoreError(e);
           }
         } else {
-          if (rescue) clearRescue(id);
-          show(stored);
+          unsaved.delete(id);
+          clearRescue(id);
         }
         if (live) setStatus('ready');
       },
@@ -196,6 +186,7 @@ export function WorkspaceRoute({ id }: { id: string }) {
           setDeleted(true);
         } else {
           setDeleted(false); // saved again elsewhere (e.g. Undo of the delete): it exists, and is newer
+          useSaveState.setState({ state: 'saved' }); // "Not saved" belonged to the deleted state
           setConflict(true);
         }
       }),

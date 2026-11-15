@@ -79,8 +79,9 @@ export async function deletePipeline(id: string): Promise<void> {
   } catch (e) {
     throw await storeError(e);
   }
-  // A rescue copy must never bring a deleted pipeline back; other tabs must stop autosaving it.
+  // Neither a rescue copy nor this tab's unsaved copy may bring a deleted pipeline back; other tabs stop saving it.
   clearRescue(id);
+  unsaved.delete(id);
   announce({ type: 'deleted', id, tab: TAB });
 }
 

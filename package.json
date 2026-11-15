@@ -11,12 +11,14 @@
     "format:check": "prettier --check .",
     "typecheck": "turbo run typecheck",
     "test": "vitest run",
-    "e2e": "echo 'no e2e suites yet (M1+)'",
+    "e2e": "playwright test",
     "storybook": "pnpm --filter @sl/ui storybook",
     "build-storybook": "pnpm --filter @sl/ui build-storybook"
   },
   "devDependencies": {
+    "@axe-core/playwright": "^4.14.0",
     "@eslint/js": "^10.0.1",
+    "@playwright/test": "^1.65.1",
     "@testing-library/jest-dom": "^7.0.1",
     "@testing-library/react": "^16.3.3",
     "@testing-library/user-event": "^14.6.10",

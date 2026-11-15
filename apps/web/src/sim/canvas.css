@@ -1,0 +1,77 @@
+/* React Flow pieces styled with tokens (board B03 handles, W09d/e connecting states). */
+.react-flow__node-sl {
+  border-radius: var(--sl-radius-lg);
+}
+.react-flow__node-sl:focus-visible {
+  outline: none;
+  box-shadow:
+    0 0 0 2px var(--sl-color-surface),
+    0 0 0 4px var(--sl-color-rose-600);
+}
+
+.sl-handle.react-flow__handle {
+  width: 10px;
+  height: 10px;
+  background: var(--sl-color-surface);
+  border: 1.5px solid var(--sl-color-line-strong);
+  border-radius: var(--sl-radius-pill);
+}
+/* Side outputs are diamonds: rejected (quality accent), late (orange). */
+.sl-handle-side.react-flow__handle {
+  border-radius: 0;
+  transform: translate(-50%, 50%) rotate(45deg);
+}
+.sl-handle-rejected.react-flow__handle {
+  border-color: var(--sl-node-category-quality-accent);
+}
+.sl-handle-late.react-flow__handle {
+  border-color: var(--sl-color-orange-500);
+}
+/* SIM-06: valid targets glow while dragging. */
+.react-flow__handle.connectingto.valid,
+.react-flow__handle.valid {
+  border-color: var(--sl-color-rose-600);
+  box-shadow: 0 0 0 4px var(--sl-color-rose-100);
+}
+
+.react-flow__connectionline path,
+.react-flow__connection-path {
+  stroke: var(--sl-color-rose-600);
+  stroke-width: 1.5;
+}
+
+/* Insert-on-edge "+" only while hovering or focusing the edge (SIM-09). */
+.sl-edge-tools {
+  opacity: 0;
+  transition: opacity var(--sl-motion-fast) var(--sl-motion-ease-out);
+}
+.react-flow__edge:hover ~ .sl-edge-tools,
+.sl-edge-tools:hover,
+.sl-edge-tools:focus-within,
+.react-flow__edgelabel-renderer .sl-edge-tools:hover {
+  opacity: 1;
+}
+
+.react-flow__minimap {
+  border: 1px solid var(--sl-color-line);
+  border-radius: var(--sl-radius-md);
+  background: var(--sl-color-surface);
+}
+.react-flow__controls {
+  border: 1px solid var(--sl-color-line);
+  border-radius: var(--sl-radius-md);
+  overflow: hidden;
+  box-shadow: var(--sl-shadow-card);
+}
+.react-flow__controls-button {
+  width: 32px;
+  height: 32px;
+  border: 0;
+  border-bottom: 1px solid var(--sl-color-line);
+  background: var(--sl-color-surface);
+  color: var(--sl-color-ink);
+}
+.react-flow__selection {
+  background: color-mix(in srgb, var(--sl-color-rose-100) 40%, transparent);
+  border: 1px dashed var(--sl-color-rose-600);
+}

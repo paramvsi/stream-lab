@@ -44,6 +44,8 @@ export interface RunOptions {
   refTables?: Record<string, RefTable>;
   /** Uploaded rows per Source node id (DATA-02); otherwise sources generate. */
   sourceData?: Record<string, Event[]>;
+  /** Arrival spacing per uploaded source (ms of simulation clock); default 20. */
+  sourceGapMs?: Record<string, number>;
   /** Cap on rows kept per sink / dead-letter for the Output tab. */
   keep?: number;
 }
@@ -670,7 +672,7 @@ export function createRun(g: Graph, opts: RunOptions = {}): Run {
     const uploaded = opts.sourceData?.[n.id];
     const evs = uploaded
       ? uploaded.map((data, i) => ({
-          at: i * 20,
+          at: i * (opts.sourceGapMs?.[n.id] ?? 20),
           ev: { ts: Date.parse(String(data[timeField])) || BASE_TIME, data },
         }))
       : generate(

@@ -167,3 +167,146 @@ describe('ENG-01 · performance', () => {
     expect(ms).toBeLessThan(2000);
   });
 });
+
+describe('ENG-02 · idleness', () => {
+  // A: busy (every 20 ms). B: one row, then nothing for 10 s of simulation clock, then one more.
+  const g = (idleTimeoutMs: number): Graph => ({
+    nodes: [
+      node('a', 'Source', { schema: SCHEMA, outOfOrdernessMs: 0 }),
+      node('b', 'Source', { schema: SCHEMA, outOfOrdernessMs: 0, idleTimeoutMs }),
+      node('u', 'Union'),
+      node('out', 'Sink'),
+    ],
+    edges: [edge('a', 'u'), edge('b', 'u'), edge('u', 'out')],
+  });
+  const data = {
+    a: Array.from({ length: 100 }, (_, i) => row(i)),
+    b: [row(0, 'c_2'), row(1, 'c_2')],
+  };
+  it('an idle input does not hold back the watermark (withIdleness)', () => {
+    const held = createRun(g(0), { sourceData: data, sourceGapMs: { b: 10000 } });
+    held.advance(60); // 1.2 s of clock: B has not sent its second row
+    expect(held.stats().nodes['u']!.watermark).toBe(BASE_TIME - 1); // held by B at its first row
+    const idle = createRun(g(500), { sourceData: data, sourceGapMs: { b: 10000 } });
+    idle.advance(60);
+    expect(idle.stats().nodes['u']!.watermark).toBeGreaterThan(BASE_TIME + 50000);
+  });
+});
+
+describe('Engine operators', () => {
+  const REFUNDS = [
+    { name: 'refund_id', type: 'string', required: true },
+    { name: 'card_id', type: 'string', required: true },
+    { name: 'event_time', type: 'timestamp', required: true },
+  ];
+  const refund = (sec: number, card: string, id: string) => ({
+    refund_id: id,
+    card_id: card,
+    event_time: new Date(BASE_TIME + sec * 1000).toISOString(),
+  });
+  const joinGraph = (kind: 'inner' | 'left'): Graph => ({
+    nodes: [
+      node('pay', 'Source', { schema: SCHEMA, outOfOrdernessMs: 0 }),
+      node('ref', 'Source', { schema: REFUNDS, outOfOrdernessMs: 0 }),
+      node('j', 'Join', { kind, leftKey: 'card_id', rightKey: 'card_id', lowerMs: 0, upperMs: 60000 }),
+      node('out', 'Sink'),
+    ],
+    edges: [edge('pay', 'j', 'main', 'left'), edge('ref', 'j', 'main', 'right'), edge('j', 'out')],
+  });
+  const joinData = {
+    pay: [row(0, 'c_1'), row(0, 'c_2'), row(0, 'c_3')],
+    ref: [refund(30, 'c_1', 'r1'), refund(90, 'c_2', 'r2')],
+  };
+
+  it('interval join matches r within [l + lower, l + upper]; left join emits misses when they can no longer match', () => {
+    const inner = createRun(joinGraph('inner'), { sourceData: joinData });
+    inner.advance(Infinity);
+    expect(inner.stats().outputs['out']!.map((r) => [r['card_id'], r['refund_id']])).toEqual([['c_1', 'r1']]);
+    const left = createRun(joinGraph('left'), { sourceData: joinData });
+    left.advance(Infinity);
+    expect(
+      left
+        .stats()
+        .outputs['out']!.map((r) => [r['card_id'], r['refund_id'] ?? null])
+        .sort(),
+    ).toEqual([
+      ['c_1', 'r1'],
+      ['c_2', null],
+      ['c_3', null],
+    ]);
+  });
+
+  it('Deduplicate keeps the first per key until the TTL passes on the simulation clock', () => {
+    const g: Graph = {
+      nodes: [
+        node('src', 'Source', { schema: SCHEMA, outOfOrdernessMs: 0 }),
+        node('d', 'Deduplicate', { key: ['card_id'], keep: 'first', ttlMs: 100 }),
+        node('out', 'Sink'),
+      ],
+      edges: [edge('src', 'd'), edge('d', 'out')],
+    };
+    // Arrivals every 40 ms: rows 0,1,2 (0–80 ms) dedup; row 3 at 120 ms is past the 100 ms TTL.
+    const run = createRun(g, {
+      sourceData: { src: [0, 1, 2, 3].map((i) => row(i, 'c_1', i)) },
+      sourceGapMs: { src: 40 },
+    });
+    run.advance(Infinity);
+    expect(run.stats().outputs['out']!.map((r) => r['amount'])).toEqual([0, 3]);
+  });
+
+  it('window Top-N ranks per window and emits when the window closes', () => {
+    const g: Graph = {
+      nodes: [
+        node('src', 'Source', { schema: SCHEMA, outOfOrdernessMs: 0 }),
+        node('w', 'Window', {
+          sizeMs: 60000,
+          keyBy: ['card_id'],
+          aggregates: [{ fn: 'sum', field: 'amount', as: 'total' }],
+        }),
+        node('t', 'Top-N', { partitionBy: [], orderBy: 'total', desc: true, n: 2, withinWindow: true }),
+        node('out', 'Sink'),
+      ],
+      edges: [edge('src', 'w'), edge('w', 't'), edge('t', 'out')],
+    };
+    const rows = [row(0, 'a', 5), row(1, 'b', 50), row(2, 'c', 20), row(3, 'b', 1), row(70, 'a', 1)];
+    const run = createRun(g, { sourceData: { src: rows } });
+    run.advance(Infinity);
+    expect(run.stats().outputs['out']!.map((r) => `${r['rank']} ${r['card_id']} ${r['total']}`)).toEqual([
+      '1 b 51',
+      '2 c 20',
+      '1 a 1',
+    ]);
+  });
+
+  it('a versioned lookup picks the row valid at event time (temporal join)', () => {
+    const g: Graph = {
+      nodes: [
+        node('src', 'Source', { schema: SCHEMA, outOfOrdernessMs: 0 }),
+        node('l', 'Lookup', {
+          table: 'fx',
+          key: 'card_id',
+          tableKey: 'card_id',
+          asOf: true,
+          onMiss: 'reject',
+        }),
+        node('out', 'Sink'),
+        node('dlq', 'Dead-letter'),
+      ],
+      edges: [edge('src', 'l'), edge('l', 'out'), edge('l', 'dlq', 'rejected')],
+    };
+    const fx = {
+      versioned: true,
+      columns: [],
+      rows: [
+        { card_id: 'c_1', rate: 1, valid_from: new Date(BASE_TIME).toISOString() },
+        { card_id: 'c_1', rate: 2, valid_from: new Date(BASE_TIME + 60000).toISOString() },
+      ],
+    };
+    const run = createRun(g, { sourceData: { src: [row(30), row(90), row(10, 'c_9')] }, refTables: { fx } });
+    run.advance(Infinity);
+    expect(run.stats().outputs['out']!.map((r) => r['rate'])).toEqual([1, 2]);
+    expect(run.stats().outputs['dlq']!.map((r) => [r['card_id'], r['reason']])).toEqual([
+      ['c_9', 'no match'],
+    ]);
+  });
+});

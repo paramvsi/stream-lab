@@ -121,8 +121,110 @@ test('P7 a delete that fails shows the storage banner and no "Deleted" toast', a
   await page.getByRole('button', { name: 'Delete Late payments' }).click();
   await page.getByRole('button', { name: 'Delete pipeline' }).click();
   await expect(page.getByText('This browser is not letting Stream Lab save.')).toBeVisible();
-  // An absence check passes at once; give a wrongly-sent toast time to appear first.
+  // Not toHaveCount(0): that retries for 5 s and a wrongly-sent success toast closes itself after 4 s.
   await page.waitForTimeout(800);
-  await expect(page.getByText('Deleted "Late payments".')).toHaveCount(0);
+  expect(await page.getByText('Deleted "Late payments".').count()).toBe(0);
   await expect(page.getByRole('link', { name: 'Late payments' })).toBeVisible();
+});
+
+/* ---------- audit 4 ---------- */
+
+const fullStorage = (page: Page) =>
+  page.addInitScript(() => {
+    IDBObjectStore.prototype.put = function () {
+      throw Object.assign(new Error('full'), { name: 'QuotaExceededError' });
+    };
+  });
+
+test('Q1 a pending autosave does not bring back a pipeline deleted in another tab', async ({
+  page,
+  context,
+}) => {
+  await openBlank(page);
+  await addNode(page, 'Source');
+  await saved(page);
+  const list = await context.newPage();
+  await list.goto('/#/pipelines');
+  await addNode(page, 'Sink'); // pending (500 ms)
+  await list.getByRole('button', { name: 'Delete Untitled pipeline' }).click();
+  await list.getByRole('button', { name: 'Delete pipeline' }).click();
+  await expect(page.getByText('This pipeline was deleted in another tab.')).toBeVisible();
+  await page.waitForTimeout(900);
+  await list.reload();
+  await expect(list.getByText('No saved pipelines yet')).toBeVisible();
+});
+
+test('Q2 never-saved pipeline: edits survive "Manage storage" and Back', async ({ page }) => {
+  await fullStorage(page);
+  await openBlank(page);
+  await addNode(page, 'Source');
+  await addNode(page, 'Sink');
+  await expect(page.getByRole('status').filter({ hasText: /^Not saved$/ })).toBeVisible();
+  await page.getByRole('button', { name: 'Manage storage' }).click();
+  await page.goBack();
+  await expect(nodes(page)).toHaveCount(2);
+});
+
+test('Q3 Q4 after Undo of a delete elsewhere the banner goes away and saving resumes; meanwhile "Not saved"', async ({
+  page,
+  context,
+}) => {
+  await openBlank(page);
+  await addNode(page, 'Source');
+  await saved(page);
+  const list = await context.newPage();
+  await list.goto('/#/pipelines');
+  await list.getByRole('button', { name: 'Delete Untitled pipeline' }).click();
+  await list.getByRole('button', { name: 'Delete pipeline' }).click();
+  await expect(page.getByText('This pipeline was deleted in another tab.')).toBeVisible();
+  await addNode(page, 'Filter');
+  await expect(page.getByRole('status').filter({ hasText: /^Not saved$/ })).toBeVisible();
+  await list.getByRole('button', { name: 'Undo', exact: true }).click();
+  await expect(page.getByText('This pipeline was deleted in another tab.')).toHaveCount(0);
+});
+
+test('Q5 never-saved pipeline: a reload inside the debounce brings back the rescue copy', async ({
+  page,
+}) => {
+  await fullStorage(page);
+  await openBlank(page);
+  await addNode(page, 'Source');
+  await page.reload();
+  await expect(nodes(page)).toHaveCount(1);
+});
+
+test('Q6 the palette keeps the active option in view', async ({ page }) => {
+  await openBlank(page);
+  await page.keyboard.press('ControlOrMeta+k');
+  await page.keyboard.press('ArrowDown', { delay: 0 });
+  for (let i = 0; i < 15; i++) await page.keyboard.press('ArrowDown');
+  const active = page.locator('[role="option"][aria-selected="true"]');
+  await expect(active).toBeInViewport();
+});
+
+test('Q7 an edit pending during "Load newer version" does not bounce the conflict', async ({
+  page,
+  context,
+}) => {
+  await openBlank(page);
+  const other = await context.newPage();
+  await other.goto(page.url());
+  await expect(other.getByText('Start with a source')).toBeVisible();
+  await addNode(other, 'Source');
+  await expect(page.getByText('This pipeline is open in another tab')).toBeVisible();
+  await addNode(page, 'Sink'); // pending save of the old version
+  await page.getByRole('button', { name: 'Load newer version' }).click();
+  await other.waitForTimeout(1200);
+  await expect(other.getByText('This pipeline is open in another tab')).toHaveCount(0);
+});
+
+test('Q9 palette Undo is disabled with the catalog reason when there is nothing to undo', async ({
+  page,
+}) => {
+  await openBlank(page);
+  await page.keyboard.press('ControlOrMeta+k');
+  await page.getByRole('combobox', { name: 'Search commands' }).fill('undo');
+  const undo = page.getByRole('option', { name: /^Undo/ });
+  await expect(undo).toHaveAttribute('aria-disabled', 'true');
+  await expect(undo).toContainText('Nothing to undo.');
 });

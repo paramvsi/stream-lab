@@ -69,7 +69,6 @@ export function MyPipelines() {
   };
 
   const remove = async (m: PipelineMeta) => {
-    setConfirm(null);
     const p = await getPipeline(m.id);
     try {
       await deletePipeline(m.id);
@@ -77,16 +76,13 @@ export function MyPipelines() {
       // Not deleted: say why, and no "Deleted" toast.
       if (!(e instanceof AppError)) throw e;
       setStoreError(e);
+      setConfirm(null);
       return;
     }
+    // Refresh BEFORE closing the dialog, so its close-focus lands on the updated list (the row it was
+    // opened from is gone).
     await refresh();
-    // The row (and its button, the dialog's trigger) is gone: put focus somewhere sensible.
-    requestAnimationFrame(() =>
-      (
-        document.querySelector<HTMLElement>('table[aria-label="My pipelines"] tbody a') ??
-        document.querySelector<HTMLElement>('main h1')
-      )?.focus(),
-    );
+    setConfirm(null);
     if (p)
       toast({
         severity: 'success',
@@ -219,6 +215,13 @@ export function MyPipelines() {
           onOpenChange={(o) => !o && setConfirm(null)}
           severity="warning"
           title={`Delete "${confirm.name}"?`}
+          onCloseAutoFocus={(e) => {
+            e.preventDefault();
+            (
+              document.querySelector<HTMLElement>('table[aria-label="My pipelines"] tbody a') ??
+              document.querySelector<HTMLElement>('main h1')
+            )?.focus();
+          }}
           footer={
             <>
               <Button variant="ghost" onClick={() => setConfirm(null)}>

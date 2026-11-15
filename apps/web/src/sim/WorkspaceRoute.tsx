@@ -45,6 +45,13 @@ export function WorkspaceRoute({ id }: { id: string }) {
   const [storeError, setStoreError] = useState<AppError | null>(null);
   const [conflict, setConflict] = useState(false);
   const [deleted, setDeleted] = useState(false);
+  // Shared with the delete handler and "Load newer version", which must cancel a pending autosave
+  // (saving it would resurrect a deleted pipeline, or bounce the conflict to the other tab).
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const cancelPending = () => {
+    if (timer.current) clearTimeout(timer.current);
+    timer.current = null;
+  };
 
   // Open: IndexedDB first (newer than whatever this tab still holds in memory).
   useEffect(() => {
@@ -59,13 +66,22 @@ export function WorkspaceRoute({ id }: { id: string }) {
     getPipeline(id).then(
       async (stored) => {
         if (!live) return;
-        const pending = unsaved.get(id);
+        // Never saved (storage failing since creation): the latest in-memory copy, else a rescue copy from an
+        // unload. Shown with the banner and "Not saved"; the rescue is written back when storage allows.
+        const pending = unsaved.get(id) ?? (stored ? undefined : (peekRescue(id) ?? undefined));
         if (!stored && pending) {
-          // Created while storage was failing: in memory, and say so (not "Saved").
           show(pending);
-          useSaveState.setState({ state: 'error' });
-          setStoreError(new AppError('STORE-BLOCKED'));
-          return setStatus('ready');
+          try {
+            await savePipeline(pending);
+            unsaved.delete(id);
+            clearRescue(id);
+          } catch (e) {
+            if (!(e instanceof AppError)) throw e;
+            unsaved.set(id, pending);
+            useSaveState.setState({ state: 'error' });
+            setStoreError(e);
+          }
+          return live ? setStatus('ready') : undefined;
         }
         if (!stored) return setStatus('missing'); // deleted (or never here): never resurrected from memory
         // A rescue copy from the last unload wins when newer; it is cleared only once written back.
@@ -89,8 +105,9 @@ export function WorkspaceRoute({ id }: { id: string }) {
       (e: unknown) => {
         if (!live || !(e instanceof AppError)) throw e;
         setStoreError(e);
-        const pending = unsaved.get(id);
+        const pending = unsaved.get(id) ?? peekRescue(id) ?? undefined;
         if (pending) {
+          useSaveState.setState({ state: 'error' });
           show(pending);
           setStatus('ready');
         } else setStatus('missing');
@@ -103,8 +120,11 @@ export function WorkspaceRoute({ id }: { id: string }) {
 
   // Autosave: 500 ms after a user change; a real unload also writes the rescue copy.
   useEffect(() => {
-    if (status !== 'ready' || deleted) return;
-    let timer: ReturnType<typeof setTimeout> | null = null;
+    if (status !== 'ready') return;
+    if (deleted) {
+      useSaveState.setState({ state: 'error' }); // "Not saved", matching the banner
+      return;
+    }
     const snapshot = (): Stored => {
       const g = useGraph.getState();
       const b = base.current;
@@ -122,7 +142,7 @@ export function WorkspaceRoute({ id }: { id: string }) {
       };
     };
     const save = () => {
-      timer = null;
+      timer.current = null;
       useSaveState.setState({ state: 'saving' });
       const p = snapshot();
       base.current = p;
@@ -134,6 +154,8 @@ export function WorkspaceRoute({ id }: { id: string }) {
         },
         (e: unknown) => {
           if (!(e instanceof AppError)) throw e;
+          // Keep the latest version in memory, so in-app navigation (e.g. "Manage storage") loses nothing.
+          unsaved.set(id, p);
           useSaveState.setState({ state: 'error' });
           setStoreError(e);
         },
@@ -143,13 +165,13 @@ export function WorkspaceRoute({ id }: { id: string }) {
       if (loading.current) return;
       if (s.nodes === prev.nodes && s.edges === prev.edges && s.name === prev.name) return;
       useSaveState.setState({ state: 'saving' });
-      if (timer) clearTimeout(timer);
-      timer = setTimeout(save, AUTOSAVE_MS);
+      if (timer.current) clearTimeout(timer.current);
+      timer.current = setTimeout(save, AUTOSAVE_MS);
     });
     // Real unload only: the async write may not finish, so also keep a synchronous rescue copy.
     const onUnload = () => {
-      if (!timer) return;
-      clearTimeout(timer);
+      if (!timer.current) return;
+      clearTimeout(timer.current);
       writeRescue(snapshot());
       save();
     };
@@ -158,8 +180,8 @@ export function WorkspaceRoute({ id }: { id: string }) {
       unsub();
       window.removeEventListener('beforeunload', onUnload);
       // In-app navigation: the page stays alive, so the async save completes (no rescue copy needed).
-      if (timer) {
-        clearTimeout(timer);
+      if (timer.current) {
+        clearTimeout(timer.current);
         save();
       }
     };
@@ -169,13 +191,19 @@ export function WorkspaceRoute({ id }: { id: string }) {
   useEffect(
     () =>
       onSavedElsewhere(id, (m) => {
-        if (m.type === 'deleted') setDeleted(true);
-        else setConflict(true);
+        if (m.type === 'deleted') {
+          cancelPending(); // never write a deleted pipeline back
+          setDeleted(true);
+        } else {
+          setDeleted(false); // saved again elsewhere (e.g. Undo of the delete): it exists, and is newer
+          setConflict(true);
+        }
       }),
     [id],
   );
 
   const showLoaded = (p: Stored) => {
+    cancelPending(); // a pending save of the old version would re-trigger the conflict elsewhere
     base.current = p;
     loading.current = true;
     useGraph.getState().load(p);

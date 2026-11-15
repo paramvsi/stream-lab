@@ -19,6 +19,8 @@ export interface DialogProps {
   trigger?: ReactNode;
   /** Override where focus lands on open (default: the first focusable element). */
   onOpenAutoFocus?: (e: Event) => void;
+  /** Override where focus goes on close (default: back to what opened it). */
+  onCloseAutoFocus?: (e: Event) => void;
 }
 
 /** Boards WX03 / WM05: scrim rgba(ink,.4); panel 520 px, radius 16, pad 24, gap 18, pop shadow. */
@@ -32,6 +34,7 @@ export function Dialog({
   width = 520,
   trigger,
   onOpenAutoFocus,
+  onCloseAutoFocus,
 }: DialogProps) {
   const returnFocus = useReturnFocus(open);
   return (
@@ -42,7 +45,7 @@ export function Dialog({
         <div className="pointer-events-none fixed inset-0 z-40 flex items-center justify-center p-6">
           <R.Content
             aria-describedby={undefined}
-            onCloseAutoFocus={returnFocus}
+            onCloseAutoFocus={onCloseAutoFocus ?? returnFocus}
             {...(onOpenAutoFocus ? { onOpenAutoFocus } : {})}
             style={{ width }}
             className="pointer-events-auto flex max-h-full max-w-full flex-col gap-[18px] overflow-auto rounded-xl bg-surface p-6 shadow-pop outline-none"

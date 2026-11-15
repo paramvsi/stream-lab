@@ -1,7 +1,8 @@
+import { AppError, present } from '@sl/errors';
 import { NODES, type NodeType } from '@sl/graph';
 import { Dialog } from '@sl/ui';
 import { useReactFlow } from '@xyflow/react';
-import { useId, useMemo, useRef, useState } from 'react';
+import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import { useGraph } from './store';
 
 export const SHORTCUTS: [string, string][] = [
@@ -45,6 +46,8 @@ interface Command {
   id: string;
   label: string;
   hint?: string;
+  /** Why it can't run now (shown in words; Enter does nothing). */
+  disabled?: string | undefined;
   run: () => void;
 }
 
@@ -81,8 +84,20 @@ export function CommandPalette({
       { id: 'layout', label: 'Auto-layout', run: onLayout },
       { id: 'fit', label: 'Fit view', run: () => void rf.fitView({ duration: 300, maxZoom: 1 }) },
       { id: 'all', label: 'Select all', run: () => g().select(g().nodes.map((n) => n.id)) },
-      { id: 'undo', label: 'Undo', hint: '⌘Z', run: () => t().undo() },
-      { id: 'redo', label: 'Redo', hint: '⇧⌘Z', run: () => t().redo() },
+      {
+        id: 'undo',
+        label: 'Undo',
+        hint: '⌘Z',
+        disabled: t().pastStates.length ? undefined : present(new AppError('SIM-UNDO-EMPTY')).message,
+        run: () => t().undo(),
+      },
+      {
+        id: 'redo',
+        label: 'Redo',
+        hint: '⇧⌘Z',
+        disabled: t().futureStates.length ? undefined : present(new AppError('SIM-REDO-EMPTY')).message,
+        run: () => t().redo(),
+      },
       { id: 'keys', label: 'Keyboard shortcuts', hint: '?', run: onShortcuts },
     ];
   }, [onAdd, onLayout, onShortcuts, rf]);
@@ -92,9 +107,13 @@ export function CommandPalette({
     return s ? all.filter((c) => `${c.label} ${c.hint ?? ''}`.toLowerCase().includes(s)) : all;
   }, [all, q]);
 
+  // Keep the active option in view as ↑/↓ move it (aria-activedescendant does not scroll).
+  useEffect(() => {
+    document.getElementById(`${listId}-${active}`)?.scrollIntoView({ block: 'nearest' });
+  }, [active, listId]);
   const pick = (i: number) => {
     const c = items[i];
-    if (!c) return;
+    if (!c || c.disabled) return;
     onClose();
     // After the dialog has closed and returned focus, so a command that opens something keeps focus sane.
     setTimeout(c.run, 0);
@@ -150,12 +169,16 @@ export function CommandPalette({
             id={`${listId}-${i}`}
             role="option"
             aria-selected={i === active}
+            aria-disabled={c.disabled ? true : undefined}
             onMouseDown={(e) => e.preventDefault()}
             onMouseEnter={() => setActive(i)}
             onClick={() => pick(i)}
             className="flex cursor-pointer items-center justify-between rounded-md px-2.5 py-2 text-[14px] text-ink aria-selected:bg-rose-50"
           >
-            {c.label}
+            <span className="flex flex-col">
+              <span className={c.disabled ? 'text-line-strong' : ''}>{c.label}</span>
+              {c.disabled && <span className="text-[12px] text-muted">{c.disabled}</span>}
+            </span>
             {c.hint && <span className="font-mono text-[12px] text-muted">{c.hint}</span>}
           </li>
         ))}

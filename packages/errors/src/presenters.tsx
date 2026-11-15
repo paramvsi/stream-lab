@@ -42,7 +42,8 @@ function Actions({
   max?: number;
 }) {
   const run = useRunAction(onAction);
-  const labels = p.actions.slice(0, max);
+  // Only actions that do something: "Copy details" is built in; the rest need an onAction handler.
+  const labels = p.actions.filter((l) => l === 'Copy details' || onAction).slice(0, max);
   return labels.map((l, i) => (
     <Button
       key={l}

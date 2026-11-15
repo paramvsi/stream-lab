@@ -52,6 +52,10 @@ export function QuickAdd({
     const el = opener.current;
     if (el instanceof HTMLElement && el !== document.body && el.isConnected) el.focus();
   };
+  // Keep the active option in view as ↑/↓ move it (aria-activedescendant does not scroll).
+  useEffect(() => {
+    document.getElementById(`${listId}-${active}`)?.scrollIntoView({ block: 'nearest' });
+  }, [active, listId]);
   const pick = (i: number) => {
     const n = items[i];
     if (n) onPick(n.type);

@@ -2,6 +2,14 @@ import { z } from 'zod';
 import type { FieldType } from '../types';
 import { defineNode, LATE, MAIN_IN, MAIN_OUT, ms, one, pick } from './shared';
 
+const KIND = { tumble: 'tumbling', hop: 'sliding', session: 'session', cumulate: 'cumulating' } as const;
+const dur = (ms: number) =>
+  ms % 3600000 === 0 && ms
+    ? `${ms / 3600000} h`
+    : ms % 60000 === 0 && ms
+      ? `${ms / 60000} min`
+      : `${ms / 1000} s`;
+
 const aggregate = z.object({
   fn: z.enum(['count', 'sum', 'avg', 'min', 'max']),
   field: z.string(),
@@ -32,7 +40,8 @@ export const window = defineNode({
   }),
   inputs: () => [MAIN_IN],
   outputs: () => [MAIN_OUT, LATE],
-  summary: (c) => `${c.kind} ${c.sizeMs / 1000}s by ${c.keyBy.join(', ') || '—'}`,
+  // Board B03: "5 min tumbling".
+  summary: (c) => `${dur(c.sizeMs)} ${KIND[c.kind]}${c.keyBy.length ? ` by ${c.keyBy.join(', ')}` : ''}`,
   outputSchema: (i, c) => ({
     main: [
       ...pick(one(i), c.keyBy),

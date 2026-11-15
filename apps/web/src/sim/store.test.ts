@@ -247,3 +247,27 @@ describe('SIM-11 · multi-select, delete, copy and paste', () => {
     expect(historyEntries().at(-1)).toBe('Enabled Window');
   });
 });
+
+describe('NODE-07 · config edits', () => {
+  it('typing many characters is ONE undo step, recorded on blur; undo restores the previous value', () => {
+    const f = g().addNode('Filter', { x: 0, y: 0 });
+    const before = t().pastStates.length;
+    g().beginEdit();
+    for (const v of ['a', 'am', 'amo', 'amount > 10']) g().liveConfig(f, { expr: v });
+    expect(g().nodes[0]!.config).toEqual({ expr: 'amount > 10' }); // live, so validation sees it
+    expect(t().pastStates.length).toBe(before); // nothing recorded while typing
+    g().endEdit(f);
+    expect(t().pastStates.length).toBe(before + 1);
+    expect(historyEntries().at(-1)).toBe('Changed Filter settings');
+    t().undo();
+    expect((g().nodes[0]!.config as { expr: string }).expr).toBe('amount > 0');
+  });
+
+  it('focus and blur without a change adds no step', () => {
+    const f = g().addNode('Filter', { x: 0, y: 0 });
+    const before = t().pastStates.length;
+    g().beginEdit();
+    g().endEdit(f);
+    expect(t().pastStates.length).toBe(before);
+  });
+});

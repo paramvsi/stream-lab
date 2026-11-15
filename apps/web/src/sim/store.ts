@@ -36,6 +36,13 @@ export interface GraphState extends Snapshot {
   setPositions(positions: Record<string, { x: number; y: number }>, label: string): void;
   /** Config edits are committed on field blur by the drawer (M2), so each call is one step. */
   updateConfig(id: string, config: unknown): void;
+  /**
+   * NODE-07: a field edit session. beginEdit on focus; liveConfig while typing (no history, so validation and
+   * the node badge update live); endEdit on blur records ONE "Changed … settings" step if anything changed.
+   */
+  beginEdit(): void;
+  liveConfig(id: string, config: unknown): void;
+  endEdit(id: string): void;
   rename(id: string, label: string): void;
   toggleDisabled(ids: string[]): void;
   duplicate(ids: string[]): string[];
@@ -86,6 +93,7 @@ function freshNode(type: NodeType, position: { x: number; y: number }): Pipeline
 }
 
 let dragSnapshot: Snapshot | null = null;
+let editSnapshot: Snapshot | null = null;
 let dragMoved = new Set<string>();
 
 export const useGraph = create<GraphState>()(
@@ -161,6 +169,29 @@ export const useGraph = create<GraphState>()(
         set({ label }); // still paused: the present just gets its label
         t.resume();
         // Record the pre-drag state as one undo step.
+        useGraph.temporal.setState({
+          pastStates: [...t.pastStates, before].slice(-HISTORY_LIMIT),
+          futureStates: [],
+        });
+      },
+
+      beginEdit: () => {
+        if (editSnapshot) return;
+        const { nodes, edges, label } = get();
+        editSnapshot = { nodes, edges, label };
+        useGraph.temporal.getState().pause();
+      },
+      liveConfig: (id, config) =>
+        set({ nodes: get().nodes.map((x) => (x.id === id ? { ...x, config } : x)) }),
+      endEdit: (id) => {
+        const t = useGraph.temporal.getState();
+        const before = editSnapshot;
+        editSnapshot = null;
+        if (!before) return;
+        const n = get().nodes.find((x) => x.id === id);
+        if (get().nodes === before.nodes) return t.resume();
+        set({ label: `Changed ${n ? labelOf(n) : 'node'} settings` });
+        t.resume();
         useGraph.temporal.setState({
           pastStates: [...t.pastStates, before].slice(-HISTORY_LIMIT),
           futureStates: [],

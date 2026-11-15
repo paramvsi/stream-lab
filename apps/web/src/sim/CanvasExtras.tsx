@@ -1,6 +1,6 @@
 import { AppError, present } from '@sl/errors';
-import { connectionIssue, inputsOf, labelOf, outputsOf, spec, type PipelineNode } from '@sl/graph';
-import { Button, Dialog, Drawer, Field, Input, useToast } from '@sl/ui';
+import { connectionIssue, inputsOf, labelOf, outputsOf } from '@sl/graph';
+import { Button, Dialog, Field, useToast } from '@sl/ui';
 import { useReactFlow, ViewportPortal } from '@xyflow/react';
 import { DropdownMenu } from 'radix-ui';
 import { createContext, useCallback, useContext, useState, type ReactNode } from 'react';
@@ -163,39 +163,6 @@ export function ConnectPicker({ fromId, onClose }: { fromId: string; onClose: ()
         </ul>
       )}
     </Dialog>
-  );
-}
-
-/* ---------- Configure (NODE-01 lands in M2; M1 offers rename and the node's docs) ---------- */
-
-export function NodeDrawer({ node, onClose }: { node: PipelineNode; onClose: () => void }) {
-  const [name, setName] = useState(node.label ?? '');
-  const s = spec(node.type);
-  const commit = () => {
-    if (name !== (node.label ?? '')) useGraph.getState().rename(node.id, name);
-  };
-  return (
-    <Drawer
-      open
-      onOpenChange={(o) => {
-        if (!o) {
-          commit();
-          onClose();
-        }
-      }}
-      side="bottom"
-      modal={false}
-      size={260}
-      title={`${node.type} · ${labelOf(node)}`}
-      accent={`var(--sl-node-category-${s.category === 'Time & state' ? 'time-state' : s.category.toLowerCase()}-accent)`}
-    >
-      <div className="flex max-w-[480px] flex-col gap-3">
-        <Field label="Name" help={`Shown on the node. Empty uses "${node.type}".`}>
-          <Input value={name} onChange={(e) => setName(e.target.value)} onBlur={commit} />
-        </Field>
-        <p className="m-0 text-[14px] text-muted">{s.description}.</p>
-      </div>
-    </Drawer>
   );
 }
 

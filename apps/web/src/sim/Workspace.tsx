@@ -60,13 +60,13 @@ import {
   HelperLines,
   menuOpener,
   NodeActions,
-  NodeDrawer,
   useAutoLayout,
   type MenuTarget,
   type NodeActionsApi,
 } from './CanvasExtras';
 import { snapGuides, type Guides } from './geometry';
 import { CommandPalette, ShortcutsSheet } from './Commands';
+import { NodeConfigDrawer } from './drawer/NodeConfigDrawer';
 import { setIssues, useIssues } from './issues';
 import { useSaveState } from './saveState';
 import { accent } from './look';
@@ -554,11 +554,19 @@ function Canvas() {
               />
             )}
             <CanvasMenu target={menu} open={menuOpen} onClose={() => setMenuOpen(false)} />
+            {drawerNode && (
+              <NodeConfigDrawer
+                key={drawerNode.id}
+                nodeId={drawerNode.id}
+                inputs={Object.fromEntries(
+                  Object.entries(schemas.in.get(drawerNode.id) ?? {}).map(([p, list]) => [p, list[0] ?? []]),
+                )}
+                outputs={schemas.out.get(drawerNode.id) ?? {}}
+                onClose={() => setDrawerFor(null)}
+              />
+            )}
           </main>
         </div>
-        {drawerNode && (
-          <NodeDrawer key={drawerNode.id} node={drawerNode} onClose={() => setDrawerFor(null)} />
-        )}
         {connectFor && <ConnectPicker fromId={connectFor} onClose={() => setConnectFor(null)} />}
         {commandsOpen && (
           <CommandPalette

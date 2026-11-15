@@ -19,9 +19,14 @@ function useRunAction(onAction?: OnAction) {
     };
     const clip = typeof navigator === 'undefined' ? undefined : navigator.clipboard;
     if (!clip) return failed();
-    clip
-      .writeText(copyDetails(e, errorsConfig))
-      .then(() => toast?.({ severity: 'success', message: 'Details copied' }), failed);
+    let text: string;
+    try {
+      text = copyDetails(e, errorsConfig);
+    } catch {
+      // Unserializable detail (circular cause, BigInt): say so instead of throwing out of the click handler.
+      return failed();
+    }
+    clip.writeText(text).then(() => toast?.({ severity: 'success', message: 'Details copied' }), failed);
   };
 }
 
@@ -121,8 +126,9 @@ export function ErrorDialog({
           variant={l === p.actions[0] && l !== 'Copy details' ? 'primary' : 'ghost'}
           onClick={() => {
             run(l, error);
-            // A dialog asks for a decision: any choice but Copy details ends it.
-            if (l !== 'Copy details') onOpenChange(false);
+            // With onAction the caller owns the outcome ("Keep waiting", "Try again" on a result step).
+            // Without it, a choice ends the dialog — except copy actions, which keep it open.
+            if (!onAction && !l.startsWith('Copy')) onOpenChange(false);
           }}
         >
           {l}

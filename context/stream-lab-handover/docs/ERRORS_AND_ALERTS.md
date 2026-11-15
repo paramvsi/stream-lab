@@ -43,7 +43,7 @@ export class AppError extends Error {
   constructor(public code: ErrorCode, public params: Record<string, string | number> = {}, public cause?: unknown, public detail?: unknown) {}
 }
 export function present(e: AppError): { severity; placement; title; message; actions } // from CATALOG + params
-export function fromHttp(res: Response, ctx: RequestCtx): AppError        // 401→API-401, 403→API-403, 404, 409, 429, 5xx
+export function fromHttp(res: Response, ctx: RequestCtx): AppError        // 401→API-401, 403→API-403, 404, 409, 429, other 4xx→API-4XX, 5xx
 export function fromTauriHttp(err: unknown, ctx): AppError                 // dns/refused/timeout/tls → CONN-*
 export function fromFlinkErrors(body: { errors: string[] }, ctx): AppError // parses Flink "errors" array, root cause first line
 export function fromSqlGateway(body, statement): Diagnostic[] | AppError   // see SQL_EDITOR.md

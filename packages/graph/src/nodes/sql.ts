@@ -2,10 +2,10 @@ import { z } from 'zod';
 import { defineNode, MAIN_IN, MAIN_OUT, one } from './shared';
 
 // v1 (NODE-08, DuckDB-WASM): registered so imports validate; hidden from the Phase 1 palette.
-// Category follows NODES.md (Transform); seed/node-icons.json says Outputs — MORNING.md D3.
+// Category follows board W09/B03 and seed/node-icons.json (Outputs); NODES.md says Transform — MORNING.md D3.
 export const sql = defineNode({
   type: 'SQL',
-  category: 'Transform',
+  category: 'Outputs',
   description: 'Free SQL over the stream (v1)',
   v1: true,
   config: z.object({ query: z.string() }),

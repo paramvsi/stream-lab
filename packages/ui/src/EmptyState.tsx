@@ -31,7 +31,7 @@ export function EmptyState({ icon: Icon, title, children, actions, severity }: E
       {show && children && (
         <p className="m-0 max-w-[420px] text-[14px] leading-[22px] text-muted">{children}</p>
       )}
-      {actions && <div className="flex flex-wrap items-center justify-center gap-3">{actions}</div>}
+      {show && actions && <div className="flex flex-wrap items-center justify-center gap-3">{actions}</div>}
     </div>
   );
 }

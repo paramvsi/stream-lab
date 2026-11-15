@@ -23,7 +23,6 @@ export const NODES = {
   Filter: filter,
   Map: map,
   Union: union,
-  SQL: sql,
   Lookup: lookup,
   Join: join,
   Window: window,
@@ -34,6 +33,7 @@ export const NODES = {
   'Dead-letter': deadLetter,
   Route: route,
   Sink: sink,
+  SQL: sql,
 } satisfies Record<NodeType, { type: NodeType }>;
 
 export function spec(type: NodeType): NodeSpec<unknown> {

@@ -49,7 +49,7 @@ describe('NODE-06 · registry', () => {
       Object.values(NODES)
         .filter((n) => 'v1' in n && n.v1)
         .map((n) => n.type),
-    ).toEqual(['SQL', 'Pattern']);
+    ).toEqual(['Pattern', 'SQL']);
   });
 
   it('Join has left/right inputs; sources have no inputs; sinks no outputs (port arity)', () => {

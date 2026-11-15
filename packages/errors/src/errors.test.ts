@@ -194,6 +194,36 @@ describe('ERR · fromFlinkErrors', () => {
     expect(e.params.reason).toBe('Could not find Flink job (abc)');
   });
 
+  it('ignores indented "Caused by" inside Suppressed blocks (re-audit #1)', () => {
+    const e = fromFlinkErrors(
+      {
+        errors: [
+          'Internal server error.',
+          '<Exception on server side:\nX: Savepoint failed\nCaused by: java.io.IOException: Target directory s3://sp is not writable\n\tSuppressed: java.lang.Exception: close failed\n\t\tCaused by: java.net.SocketTimeoutException: Read timed out\n>',
+        ],
+      },
+      { code: 'SP-FAILED' },
+    );
+    expect(e.params.reason).toBe('Target directory s3://sp is not writable');
+  });
+
+  it('strips every wrapping class name, and keeps a bare exception readable (re-audit #3)', () => {
+    const wrapped = fromFlinkErrors(
+      {
+        errors: [
+          '<Exception on server side:\njava.util.concurrent.CompletionException: org.apache.flink.runtime.checkpoint.CheckpointException: Failure to finalize checkpoint\n>',
+        ],
+      },
+      { code: 'SP-FAILED' },
+    );
+    expect(wrapped.params.reason).toBe('Failure to finalize checkpoint');
+    const bare = fromFlinkErrors(
+      { errors: ['x', 'Caused by: java.lang.NullPointerException'] },
+      { code: 'SP-FAILED' },
+    );
+    expect(bare.params.reason).toBe('NullPointerException');
+  });
+
   it('falls back to the first non-empty line', () => {
     const e = fromFlinkErrors({ errors: ['', 'Job is not running'] }, { code: 'SP-FAILED' });
     expect(e.params.reason).toBe('Job is not running');

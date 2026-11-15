@@ -71,7 +71,7 @@ Total: **133 codes** (128 from the handover + `CONN-SSH-HOSTKEY`, `API-4XX`, `CO
 | `API-TIMEOUT` | Request exceeds request timeout (default 10 s) | AbortController | warning | banner | {conn} is slow to answer. Retrying in {s} s (attempt {n} of 5). | Retry now, Raise timeout | X12 |
 | `API-PARTIAL` | Some TaskManagers/subtasks did not report metrics | Missing ids in metrics response | warning | banner + row badge | {n} of {total} TaskManagers did not answer. Their values are from {ago} and marked stale. | Retry | X11 |
 | `API-SHAPE` | Response JSON does not match the expected schema | zod parse failure | error | inline in widget | Could not read this part of the response. Other panels still work. | Copy details | X11 |
-| `COPY-FAILED` | "Copy details" could not write to the clipboard (insecure context or permission denied) | `navigator.clipboard` missing or rejected | warning | toast | Could not copy to the clipboard. Your browser blocked it. | – | – (not drawn) |
+| `COPY-FAILED` | "Copy details" could not write to the clipboard (insecure context or permission denied) | `navigator.clipboard` missing or rejected | warning | toast | Could not copy to the clipboard. Your browser blocked it. | — | X00 (not drawn) |
 | `API-RATE` | Too many requests (429) or poll budget exceeded | HTTP 429 | warning | banner | The cluster asked us to slow down. Refresh is now every {s} s. | — | X12 |
 
 ## Desktop · Jobs

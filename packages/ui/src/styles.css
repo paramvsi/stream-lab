@@ -79,9 +79,10 @@
     opacity: 0;
   }
 }
+/* Tokens only (one ease). MOTION.md's "300 ms" rise maps to motion-base until D1 settles the scale. */
 .sl-toast[data-state='open'] {
-  animation: sl-rise 300ms var(--sl-motion-ease-out) both;
+  animation: sl-rise var(--sl-motion-base) var(--sl-motion-ease-out) both;
 }
 .sl-toast[data-state='closed'] {
-  animation: sl-fade-out 150ms cubic-bezier(0.4, 0, 1, 1) both;
+  animation: sl-fade-out var(--sl-motion-fast) var(--sl-motion-ease-out) both;
 }

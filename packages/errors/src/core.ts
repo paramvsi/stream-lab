@@ -205,14 +205,29 @@ export function fromTauriHttp(err: unknown, ctx: RequestCtx): AppError {
   return e;
 }
 
+const JAVA_CLASS = /^(?:[A-Za-z_$][\w$]*\.)*([A-Z][\w$]*(?:Exception|Error|Throwable))/;
+
+/** Drop every leading `pkg.ClassName: ` wrapper; a bare exception keeps its simple class name. */
+function cleanCause(raw: string): string {
+  let s = raw.trim();
+  for (let m = JAVA_CLASS.exec(s); m; m = JAVA_CLASS.exec(s)) {
+    const rest = s.slice(m[0].length);
+    if (!/^\s*:/.test(rest)) return m[1]!; // "java.lang.NullPointerException" → "NullPointerException"
+    s = rest.replace(/^\s*:\s*/, '');
+  }
+  return s.replace(/\.$/, '') || raw;
+}
+
 /** Flink REST errors: `{errors: string[]}`; the root cause is the deepest "Caused by:" line. */
 export function fromFlinkErrors(
   body: { errors?: string[] },
   ctx: { code: ErrorCode; params?: Params },
 ): AppError {
   const text = (body.errors ?? []).join('\n');
-  const lines = text.split('\n').map((l) => l.trim());
-  const caused = lines.filter((l) => l.startsWith('Caused by:')).map((l) => l.slice(10).trim());
+  const rawLines = text.split('\n');
+  // Only top-level "Caused by" (column 0): indented ones belong to Suppressed blocks, not the root cause chain.
+  const caused = rawLines.filter((l) => l.startsWith('Caused by:')).map((l) => l.slice(10).trim());
+  const lines = rawLines.map((l) => l.trim());
   // Without a "Caused by", the root cause is the first line of the server-side exception, not Flink's generic errors[0].
   const marker = lines.findIndex((l) => /Exception on server side:/.test(l));
   const afterMarker = marker >= 0 ? lines.slice(marker + 1).find((l) => l && l !== '>') : undefined;
@@ -220,7 +235,7 @@ export function fromFlinkErrors(
   const raw = caused.at(-1) ?? afterMarker ?? first ?? 'unknown cause';
   // Rule: no raw exception text as the main message — drop the Java class name; the full text is in Copy details.
   // ponytail: whether {reason} should carry Flink text at all is open (MORNING.md D11).
-  const reason = raw.replace(/^(?:[\w$]+\.)*[\w$]*(?:Exception|Error)\s*:\s*/, '').replace(/\.$/, '') || raw;
+  const reason = cleanCause(raw);
   return new AppError(ctx.code, { reason, ...ctx.params }, undefined, body);
 }
 

@@ -33,6 +33,8 @@ describe('UI · Button', () => {
       </TooltipProvider>,
     );
     const b = screen.getByRole('button', { name: /run/i });
+    // Closed tooltip: the reason must still describe the button (re-audit #5 — Radix only describes it while open).
+    expect(b).toHaveAccessibleDescription('Fix 2 errors to run');
     await userEvent.tab();
     expect(b).toHaveFocus();
     expect(b).toHaveAttribute('aria-disabled', 'true');
@@ -100,6 +102,19 @@ describe('UI · Banner', () => {
     await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent('Lost contact'));
   });
 
+  it('actions are held back too, so the region is inserted truly empty (re-audit #4)', () => {
+    const html = renderToStaticMarkup(
+      <Banner severity="error" actions={<button>Retry</button>}>
+        Lost contact
+      </Banner>,
+    );
+    expect(html).not.toContain('Retry');
+    const page = renderToStaticMarkup(
+      <EmptyState icon={AlertTriangle} severity="error" title="x" actions={<button>Retry</button>} />,
+    );
+    expect(page).not.toContain('Retry');
+  });
+
   it('a full-page error state is announced the same way', async () => {
     const page = (
       <EmptyState icon={AlertTriangle} severity="error" title="Could not reach payments-prod">
@@ -111,7 +126,7 @@ describe('UI · Banner', () => {
     await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent('Could not reach payments-prod'));
   });
 
-  it('only info banners can be dismissed', () => {
+  it('only info banners can be dismissed', async () => {
     render(
       <>
         <Banner severity="warning" onDismiss={() => {}}>
@@ -122,7 +137,7 @@ describe('UI · Banner', () => {
         </Banner>
       </>,
     );
-    expect(screen.getAllByRole('button', { name: 'Dismiss' })).toHaveLength(1);
+    expect(await screen.findAllByRole('button', { name: 'Dismiss' })).toHaveLength(1);
   });
 });
 
@@ -232,8 +247,9 @@ describe('UI · StatusBadge', () => {
         </StatusBadge>
       </TooltipProvider>,
     );
-    await userEvent.tab();
     const badge = screen.getByText('1 problem').closest('span[tabindex]');
+    expect(badge).toHaveAccessibleDescription('Pick an event-time field on Payments.'); // tooltip closed
+    await userEvent.tab();
     expect(badge).toHaveFocus();
     expect(badge).toHaveAccessibleDescription('Pick an event-time field on Payments.');
   });
@@ -253,6 +269,9 @@ describe('UI · Toast', () => {
     const css = readFileSync(`${__dirname}/styles.css`, 'utf8');
     expect(css).toContain(".sl-toast[data-state='open']");
     expect(css).toContain(".sl-toast[data-state='closed']");
+    // Motion tokens only (MOTION.md "one ease"; DoD "uses the tokens") — re-audit #6.
+    const toastRules = css.slice(css.indexOf(".sl-toast[data-state='open']"));
+    expect(toastRules).not.toMatch(/\d+ms|cubic-bezier/);
   });
 
   it('keeps at most 3 stacked, newest last', async () => {

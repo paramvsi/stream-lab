@@ -1,13 +1,13 @@
-import { autocompletion, type CompletionContext } from '@codemirror/autocomplete';
+import { autocompletion, completionStatus, type CompletionContext } from '@codemirror/autocomplete';
 import { defaultKeymap, history, historyKeymap } from '@codemirror/commands';
 import { HighlightStyle, StreamLanguage, syntaxHighlighting } from '@codemirror/language';
 import { setDiagnostics, type Diagnostic } from '@codemirror/lint';
-import { EditorState } from '@codemirror/state';
+import { Annotation, Compartment, EditorState, Prec, Transaction } from '@codemirror/state';
 import { EditorView, keymap, placeholder } from '@codemirror/view';
 import { tags } from '@lezer/highlight';
 import { AppError, present } from '@sl/errors';
 import type { Issue, Schema } from '@sl/graph';
-import { Button } from '@sl/ui';
+import { Button, useFieldContext } from '@sl/ui';
 import { Wand2 } from 'lucide-react';
 import { useEffect, useRef } from 'react';
 
@@ -34,6 +34,9 @@ const highlight = HighlightStyle.define([
   { tag: tags.variableName, color: 'var(--sl-color-ink)' },
   { tag: tags.operator, color: 'var(--sl-color-muted)' },
 ]);
+
+/** Marks a change that came from outside (undo/redo, row shift): not typing, so not reported back. */
+const External = Annotation.define<boolean>();
 
 const FUNCTIONS = [
   'size',
@@ -103,6 +106,10 @@ export function CelEditor({
   onBlur: () => void;
 }) {
   const host = useRef<HTMLDivElement>(null);
+  // The Field's id, so its <label for> and error wiring reach the editor (audit2 5).
+  const field = useFieldContext();
+  const contentId = field?.id ?? id;
+  const aria = useRef(new Compartment()).current;
   const view = useRef<EditorView | null>(null);
   // Latest callbacks/schema for the editor's extensions (created once).
   const live = useRef({ onLive, onFocus, onBlur, schema });
@@ -131,30 +138,66 @@ export function CelEditor({
           keymap.of([...defaultKeymap, ...historyKeymap]),
           cel,
           syntaxHighlighting(highlight),
+          // Esc with the completion list open closes only the list: keep it from reaching the drawer. Highest
+          // precedence and before autocompletion(), whose own Esc binding closes the list first.
+          Prec.highest(
+            EditorView.domEventHandlers({
+              keydown: (e, v) => {
+                if (e.key === 'Escape' && completionStatus(v.state) === 'active') e.stopPropagation();
+                return false;
+              },
+            }),
+          ),
           autocompletion({ override: [complete], activateOnTyping: true }),
           placeholder('e.g. amount > 1000.0 && currency == "AED"'),
           theme,
-          EditorView.contentAttributes.of({ 'aria-label': label, id, 'aria-multiline': 'false' }),
+          aria.of([]),
+          EditorView.contentAttributes.of({ 'aria-label': label, id: contentId, 'aria-multiline': 'false' }),
           EditorView.updateListener.of((u) => {
-            if (u.docChanged) live.current.onLive(u.state.doc.toString());
+            if (u.docChanged && !u.transactions.some((tr) => tr.annotation(External)))
+              live.current.onLive(u.state.doc.toString());
             if (u.focusChanged) (u.view.hasFocus ? live.current.onFocus : live.current.onBlur)();
           }),
-          // One line: Enter does not insert a newline (Tab still leaves the field).
-          EditorState.transactionFilter.of((tr) => (tr.newDoc.lines > 1 ? [] : tr)),
+          // Enter does not add a line (Tab still leaves the field). Only typing is blocked: an expression that
+          // already has lines (import, share link) stays editable, and pasted lines are kept (audit2 6).
+          EditorState.transactionFilter.of((tr) =>
+            tr.newDoc.lines > tr.startState.doc.lines &&
+            tr.isUserEvent('input') &&
+            !tr.isUserEvent('input.paste')
+              ? []
+              : tr,
+          ),
         ],
       }),
     });
     view.current = v;
     return () => v.destroy();
     // The editor is created once per field; value changes from outside are synced below.
-  }, [id, label]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [contentId, label]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // External value changes (undo/redo, quick fix) sync into the editor.
   useEffect(() => {
     const v = view.current;
     if (v && v.state.doc.toString() !== value)
-      v.dispatch({ changes: { from: 0, to: v.state.doc.length, insert: value } });
+      v.dispatch({
+        changes: { from: 0, to: v.state.doc.length, insert: value },
+        annotations: [External.of(true), Transaction.addToHistory.of(false)],
+      });
   }, [value]);
+
+  // Error wiring for screen readers (the squiggle alone is visual).
+  const describedBy = field?.describedBy;
+  const invalid = field?.invalid ?? Boolean(issue);
+  useEffect(() => {
+    view.current?.dispatch({
+      effects: aria.reconfigure(
+        EditorView.contentAttributes.of({
+          ...(describedBy ? { 'aria-describedby': describedBy } : {}),
+          ...(invalid ? { 'aria-invalid': 'true' } : {}),
+        }),
+      ),
+    });
+  }, [describedBy, invalid]);
 
   // Validation issue → inline squiggle.
   useEffect(() => {

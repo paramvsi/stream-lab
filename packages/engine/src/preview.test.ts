@@ -73,3 +73,99 @@ describe('NODE-04/05 · run to here', () => {
     expect(runToHere({ nodes: [], edges: [] }, 'x')).toBeNull();
   });
 });
+
+describe('audit 2 · preview', () => {
+  const ids = (es: Record<string, unknown>[] | undefined) => (es ?? []).map((e) => e['payment_id']);
+
+  it('#7 a source gives the same events wherever you preview, and honours the Generator seed', () => {
+    const g: Graph = {
+      nodes: [
+        node('a', 'Generator'),
+        node('b', 'Generator', { seed: 7 }),
+        node('f', 'Filter', { expr: 'true' }),
+        node('u', 'Union'),
+      ],
+      edges: [edge('b', 'f'), edge('a', 'u'), edge('b', 'u')],
+    };
+    const atF = ids(runToHere(g, 'f')!.input['main']);
+    const atU = ids(runToHere(g, 'u')!.input['main']!.slice(5));
+    expect(atU).toEqual(atF);
+    const g2: Graph = { nodes: [node('b', 'Generator', { seed: 999 })], edges: [] };
+    expect(ids(runToHere(g2, 'b')!.run.out['main'])).not.toEqual(ids(runToHere(g, 'b')!.run.out['main']));
+  });
+
+  it('#8 windows use the source event-time field, not a hard-coded name; min/max of timestamps', () => {
+    const schema = [
+      { name: 'card_id', type: 'string', required: true },
+      { name: 'paid_at', type: 'timestamp', required: true },
+    ];
+    const g: Graph = {
+      nodes: [
+        node('s', 'Source', { schema, eventTime: 'paid_at' }),
+        node('w', 'Window', {
+          sizeMs: 60000,
+          keyBy: [],
+          aggregates: [{ fn: 'max', field: 'paid_at', as: 'last' }],
+        }),
+      ],
+      edges: [edge('s', 'w')],
+    };
+    const rows = runToHere(g, 'w', 10)!.run.out['main']!;
+    expect(rows.every((r) => !String(r['window_start']).startsWith('1970'))).toBe(true);
+    expect(rows.every((r) => typeof r['last'] === 'string' && String(r['last']).startsWith('2026'))).toBe(
+      true,
+    );
+  });
+
+  it('#9 Top-N sorts timestamps', () => {
+    const g: Graph = {
+      nodes: [
+        node('gen', 'Generator'),
+        node('t', 'Top-N', { partitionBy: [], orderBy: 'event_time', desc: true, n: 5 }),
+      ],
+      edges: [edge('gen', 't')],
+    };
+    const ts = runToHere(g, 't', 10)!.run.out['main']!.map((e) => Date.parse(String(e['event_time'])));
+    expect(ts).toEqual([...ts].sort((x, y) => y - x));
+  });
+
+  it('#10 a field missing after a left-join miss is null to CEL, not a failure', () => {
+    const refunds = [
+      { name: 'refund_id', type: 'string', required: true },
+      { name: 'payment_id', type: 'string', required: true },
+      { name: 'event_time', type: 'timestamp', required: true },
+    ];
+    const g: Graph = {
+      nodes: [
+        node('p', 'Generator'),
+        node('r', 'Source', { schema: refunds }),
+        node('j', 'Join', {
+          kind: 'left',
+          leftKey: 'payment_id',
+          rightKey: 'payment_id',
+          lowerMs: 0,
+          upperMs: 1,
+        }),
+        node('f', 'Filter', { expr: 'refund_id == null' }),
+      ],
+      edges: [edge('p', 'j', 'main', 'left'), edge('r', 'j', 'main', 'right'), edge('j', 'f')],
+    };
+    const run = runToHere(g, 'f')!.run;
+    expect(run.failed).toBe(0);
+    expect(run.out['main']).toHaveLength(5);
+  });
+
+  it('#11 a disabled Filter passes events on its main output only; Union tags by input', () => {
+    const g: Graph = {
+      nodes: [node('gen', 'Generator'), { ...node('f', 'Filter', { expr: 'false' }), disabled: true }],
+      edges: [edge('gen', 'f')],
+    };
+    const out = runToHere(g, 'f')!.run.out;
+    expect([out['main']?.length, out['rejected']?.length ?? 0]).toEqual([5, 0]);
+    const u: Graph = {
+      nodes: [node('a', 'Generator'), node('b', 'Generator'), node('u', 'Union', { tagField: 'src' })],
+      edges: [edge('a', 'u'), edge('b', 'u')],
+    };
+    expect(new Set(runToHere(u, 'u')!.run.out['main']!.map((e) => e['src']))).toEqual(new Set(['a', 'b']));
+  });
+});

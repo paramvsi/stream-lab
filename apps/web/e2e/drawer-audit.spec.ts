@@ -118,3 +118,92 @@ test('audit 7+9: unbounded-join warning sits under its own bound; re-enabling re
   await d.getByLabel('No upper bound').uncheck();
   expect(await cfg(page, 'join', 'upperMs')).toBe(30 * 86400000);
 });
+
+// ---- Audit 2 (47440ae, 42a9c5e, 16f72ea) ----
+const past = (page: Page) => store(page, 'return m.useGraph.temporal.getState().pastStates.length');
+const future = (page: Page) => store(page, 'return m.useGraph.temporal.getState().futureStates.length');
+
+test('audit2 1: undo of a CEL edit keeps redo (outside syncs are not edits)', async ({ page }) => {
+  await scenario(page, 'Card fraud bursts');
+  const d = await open(page, 'More than 3');
+  const expr = d.getByLabel('Expression');
+  await expr.fill('payments > 5');
+  await expr.blur();
+  // CodeMirror reports blur asynchronously: wait for the step to land.
+  await expect.poll(() => past(page)).toBe(1);
+  await page.getByRole('button', { name: /^Undo/ }).first().click();
+  await expect(expr).toHaveText('payments > 3');
+  expect([await past(page), await future(page)]).toEqual([0, 1]);
+});
+
+test('audit2 2: removing a Validate rule is one undo step', async ({ page }) => {
+  await scenario(page, 'Card fraud bursts');
+  await store(
+    page,
+    "m.useGraph.getState().updateConfig('val', {rules:[{name:'a',expr:'amount > 1.0',severity:'error'},{name:'b',expr:'amount > 2.0',severity:'error'},{name:'c',expr:'amount > 3.0',severity:'error'}]});",
+  );
+  const d = await open(page, 'Rules');
+  const p0 = await past(page);
+  await d.getByRole('button', { name: 'Remove rules 1' }).click();
+  expect(await past(page)).toBe(p0 + 1);
+  await page.getByRole('button', { name: /^Undo/ }).first().click();
+  expect(
+    await store(page, "return m.useGraph.getState().nodes.find(n=>n.id==='val').config.rules.map(r=>r.name)"),
+  ).toEqual(['a', 'b', 'c']);
+});
+
+test('audit2 3: the CEL quick fix is one undo step', async ({ page }) => {
+  await scenario(page, 'Card fraud bursts');
+  const d = await open(page, 'More than 3');
+  const expr = d.getByLabel('Expression');
+  await expr.fill('paymnts > 3');
+  await expr.blur();
+  await d.getByRole('button', { name: 'Use “payments”' }).click();
+  await expect(expr).toHaveText('payments > 3');
+  await expr.blur();
+  await page.getByRole('button', { name: /^Undo/ }).first().click();
+  await expect(expr).toHaveText('paymnts > 3');
+});
+
+test('audit2 4: Esc closes the autocomplete list, not the drawer', async ({ page }) => {
+  await scenario(page, 'Card fraud bursts');
+  const d = await open(page, 'More than 3');
+  await d.getByLabel('Expression').click();
+  await page.keyboard.press('End');
+  await page.keyboard.type(' && card');
+  await expect(page.locator('.cm-tooltip-autocomplete')).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(page.locator('.cm-tooltip-autocomplete')).toHaveCount(0);
+  await expect(d).toBeVisible();
+});
+
+test('audit2 5: the CEL label targets the editor, and its error is linked', async ({ page }) => {
+  await scenario(page, 'Card fraud bursts');
+  const d = await open(page, 'More than 3');
+  await d.getByLabel('Expression').fill('paymnts > 3');
+  await expect(d.locator('.cm-content')).toHaveAttribute('aria-invalid', 'true'); // after validation lands
+  const wiring = await d.locator('label', { hasText: /^Expression$/ }).evaluate((l) => {
+    const t = document.getElementById((l as HTMLLabelElement).htmlFor);
+    const desc = t?.getAttribute('aria-describedby');
+    return {
+      editor: t?.classList.contains('cm-content') ?? false,
+      invalid: t?.getAttribute('aria-invalid'),
+      error: desc ? document.getElementById(desc)?.textContent : null,
+    };
+  });
+  expect(wiring.editor).toBe(true);
+  expect(wiring.invalid).toBe('true');
+  expect(wiring.error).toContain('Unknown field "paymnts"');
+});
+
+test('audit2 6: a multi-line expression can still be edited; Enter adds no line', async ({ page }) => {
+  await scenario(page, 'Card fraud bursts');
+  await store(page, "m.useGraph.getState().updateConfig('flt', {expr:'payments > 3 &&\\npayments < 10'});");
+  const d = await open(page, 'More than 3');
+  await d.getByLabel('Expression').click();
+  await page.keyboard.press('ControlOrMeta+End');
+  await page.keyboard.press('Backspace');
+  await page.keyboard.press('Enter');
+  await d.getByLabel('Expression').blur();
+  expect(await cfg(page, 'flt', 'expr')).toBe('payments > 3 &&\npayments < 1');
+});

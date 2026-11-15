@@ -62,6 +62,9 @@ export function FieldMessage({ id, children }: { id?: string | undefined; childr
   );
 }
 
+/** For custom controls (e.g. a code editor) inside a Field: its id, error/help ids and invalid state. */
+export const useFieldContext = () => useContext(Ctx);
+
 function useField(props: { id?: string | undefined; 'aria-describedby'?: string | undefined }) {
   const f = useContext(Ctx);
   return {

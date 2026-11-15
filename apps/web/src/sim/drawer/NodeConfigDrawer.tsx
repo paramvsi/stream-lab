@@ -144,6 +144,8 @@ export function NodeConfigDrawer({
       className="sl-drawer-b absolute right-0 bottom-0 left-0 z-20 flex flex-col border-t border-line bg-surface shadow-pop"
       style={{ height: collapsed ? COLLAPSED : height, borderTop: `3px solid ${accent(s.category)}` }}
       onKeyDown={(e) => {
+        // The CEL editor stops Esc itself while its completion list is open (audit2 4). Not defaultPrevented:
+        // CodeMirror marks every Esc as handled.
         if (e.key === 'Escape') {
           e.stopPropagation();
           commitName();

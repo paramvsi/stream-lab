@@ -1,0 +1,97 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`SIM-24 · deterministic > the same seed and pipeline give identical output (snapshot) 1`] = `
+{
+  "counts": {
+    "dlq": {
+      "failed": 0,
+      "in": 35,
+      "late": 0,
+      "out": {},
+      "watermark": Infinity,
+    },
+    "flt": {
+      "failed": 0,
+      "in": 33,
+      "late": 0,
+      "out": {
+        "main": 21,
+        "rejected": 12,
+      },
+      "watermark": Infinity,
+    },
+    "gen": {
+      "failed": 0,
+      "in": 0,
+      "late": 0,
+      "out": {
+        "main": 1011,
+      },
+      "watermark": Infinity,
+    },
+    "out": {
+      "failed": 0,
+      "in": 21,
+      "late": 0,
+      "out": {},
+      "watermark": Infinity,
+    },
+    "val": {
+      "failed": 14,
+      "in": 1011,
+      "late": 0,
+      "out": {
+        "main": 997,
+      },
+      "watermark": Infinity,
+    },
+    "win": {
+      "failed": 0,
+      "in": 997,
+      "keys": 0,
+      "late": 35,
+      "out": {
+        "late": 35,
+        "main": 33,
+      },
+      "subtasks": [
+        481,
+        516,
+      ],
+      "watermark": Infinity,
+    },
+  },
+  "out": [
+    {
+      "card_id": "c_1012",
+      "payments": 4,
+      "window_end": "2026-11-15T12:00:00.000Z",
+      "window_start": "2026-11-15T11:55:00.000Z",
+    },
+    {
+      "card_id": "c_1008",
+      "payments": 38,
+      "window_end": "2026-11-15T12:05:00.000Z",
+      "window_start": "2026-11-15T12:00:00.000Z",
+    },
+    {
+      "card_id": "c_1009",
+      "payments": 52,
+      "window_end": "2026-11-15T12:05:00.000Z",
+      "window_start": "2026-11-15T12:00:00.000Z",
+    },
+    {
+      "card_id": "c_1012",
+      "payments": 55,
+      "window_end": "2026-11-15T12:05:00.000Z",
+      "window_start": "2026-11-15T12:00:00.000Z",
+    },
+    {
+      "card_id": "c_1001",
+      "payments": 42,
+      "window_end": "2026-11-15T12:05:00.000Z",
+      "window_start": "2026-11-15T12:00:00.000Z",
+    },
+  ],
+}
+`;

@@ -1,5 +1,5 @@
 import { Loader2 } from 'lucide-react';
-import { forwardRef, useId, useState, type ButtonHTMLAttributes, type ReactNode } from 'react';
+import { forwardRef, type ButtonHTMLAttributes, type ReactNode } from 'react';
 import { Tooltip } from './Tooltip';
 
 export type ButtonVariant = 'primary' | 'secondary' | 'ghost' | 'danger';
@@ -43,9 +43,6 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button
   },
   ref,
 ) {
-  const reasonId = useId();
-  // While the tooltip is open Radix describes the button itself; ours steps aside so the reason is read once.
-  const [tipOpen, setTipOpen] = useState(false);
   // aria-disabled (not `disabled`) keeps the button focusable so keyboard users can reach the reason.
   const off = Boolean(disabled || disabledReason || loading);
   const btn = (
@@ -55,7 +52,6 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button
       {...rest}
       aria-disabled={off || undefined}
       aria-busy={loading || undefined}
-      aria-describedby={disabledReason ? (tipOpen ? undefined : reasonId) : rest['aria-describedby']}
       onClick={(e) => (off ? e.preventDefault() : onClick?.(e))}
       className={`sl-focus inline-flex items-center gap-2 rounded-md border font-semibold whitespace-nowrap transition-colors ${SIZE[size]} ${off && !loading ? DISABLED : VARIANT[variant]} ${className}`}
     >
@@ -65,15 +61,9 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button
   );
   if (!disabledReason) return btn;
   return (
-    <>
-      <Tooltip content={disabledReason} onOpenChange={setTipOpen}>
-        {btn}
-      </Tooltip>
-      {/* Outside the button so it describes it without becoming part of its name. */}
-      <span id={reasonId} hidden>
-        {disabledReason}
-      </span>
-    </>
+    <Tooltip content={disabledReason} describe>
+      {btn}
+    </Tooltip>
   );
 });
 

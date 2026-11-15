@@ -53,7 +53,7 @@ export function Dialog({
               )}
               <R.Title className="m-0 flex-1 self-center text-[19px] font-semibold">{title}</R.Title>
               <R.Close asChild>
-                <IconButton aria-label="Close">
+                <IconButton aria-label="Close dialog">
                   <X size={18} aria-hidden="true" />
                 </IconButton>
               </R.Close>

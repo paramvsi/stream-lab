@@ -25,7 +25,7 @@ export type Placement = (typeof PLACEMENTS)[number];
 
 // The catalog's placement column is prose ("banner (form) + badge on connection"); the primary is the first one named.
 const PLACEMENT_WORDS: [Placement, RegExp][] = [
-  ['field', /\bfield\b|\binline\b|tooltip|button disabled/i],
+  ['field', /\bfield\b|\binline\b(?! banner)|tooltip|button disabled/i],
   ['badge', /badge/i],
   ['panel', /\bpanel\b|problems|alerts list/i],
   ['banner', /banner/i],
@@ -78,23 +78,27 @@ export function present(e: AppError): Presented {
     if (DEV) throw new Error(`${e.code} is not in the catalog (docs/ERROR_CATALOG.md)`);
     return present(new AppError('API-SHAPE', {}, e));
   }
-  const message = entry.message.replace(/\{(\w+)\}/g, (_, k: string) => {
-    const v = e.params[k];
-    if (v === undefined) {
-      if (DEV) throw new Error(`${e.code}: param {${k}} is not filled`);
-      return '…';
-    }
-    return String(v);
-  });
+  const fill = (tpl: string) =>
+    tpl.replace(/\{(\w+)\}/g, (_, k: string) => {
+      const v = e.params[k];
+      if (v === undefined) {
+        if (DEV) throw new Error(`${e.code}: param {${k}} is not filled`);
+        return '…';
+      }
+      return String(v);
+    });
+  const message = fill(entry.message);
+  // Split the template (not the filled text) so a param containing ". " stays in one piece.
   // ponytail: naive sentence split on ". " — fine for the catalog's copy; revisit if a message uses "e.g. ".
-  const m = /^(.+?[.?])\s+(.+)$/s.exec(message);
-  const title = (m ? m[1]! : message).replace(/\.$/, '');
+  const m = /^(.+?[.?])\s+(.+)$/s.exec(entry.message);
+  const title = fill(m ? m[1]! : entry.message).replace(/\.$/, '');
+  const body = m ? fill(m[2]!) : '';
   return {
     code: e.code,
     severity: severityOf(entry.severity, e),
     placement: primaryPlacement(entry.placement),
     title,
-    body: m ? m[2]! : '',
+    body,
     message,
     actions: entry.actions,
   };
@@ -139,12 +143,18 @@ const HTTP: Record<number, ErrorCode> = {
   429: 'API-RATE',
 };
 
-/** 401→API-401, 403→API-403, 404→API-404-JOB, 409→API-409, 429→API-RATE, 5xx→API-5XX. */
+/** 401→API-401, 403→API-403, 404→API-404-JOB, 409→API-409, 429→API-RATE, other 4xx→API-4XX, 5xx→API-5XX. */
 export function fromHttp(res: HttpLike, ctx: RequestCtx): AppError {
   if (res.status < 400) throw new Error(`fromHttp called with HTTP ${res.status}`);
-  const code = HTTP[res.status] ?? 'API-5XX';
-  // ponytail: other 4xx (400, 405…) land on API-5XX's copy until a catalog row exists for them.
-  const params: Params = { thing: 'job', verb: 'answering', action: 'This action', ...ctxParams(ctx) };
+  const code = HTTP[res.status] ?? (res.status >= 500 ? 'API-5XX' : 'API-4XX');
+  // {thing} defaults to "job" for API-404-JOB; callers on other endpoints pass thing: 'TaskManager' etc.
+  const params: Params = {
+    thing: 'job',
+    verb: 'answering',
+    action: 'This action',
+    status: res.status,
+    ...ctxParams(ctx),
+  };
   if (code === 'API-RATE') {
     const h = res.headers;
     const ra = h instanceof Headers ? h.get('retry-after') : h?.['retry-after'];
@@ -201,12 +211,16 @@ export function fromFlinkErrors(
   ctx: { code: ErrorCode; params?: Params },
 ): AppError {
   const text = (body.errors ?? []).join('\n');
-  const caused = [...text.matchAll(/^Caused by:\s*(.+)$/gm)].map((m) => m[1]!.trim());
-  const first = text
-    .split('\n')
-    .map((l) => l.replace(/^<?Exception on server side:\s*/, '').trim())
-    .find((l) => l && l !== '<' && l !== '>');
-  const reason = (caused.at(-1) ?? first ?? 'unknown cause').replace(/\.$/, '');
+  const lines = text.split('\n').map((l) => l.trim());
+  const caused = lines.filter((l) => l.startsWith('Caused by:')).map((l) => l.slice(10).trim());
+  // Without a "Caused by", the root cause is the first line of the server-side exception, not Flink's generic errors[0].
+  const marker = lines.findIndex((l) => /Exception on server side:/.test(l));
+  const afterMarker = marker >= 0 ? lines.slice(marker + 1).find((l) => l && l !== '>') : undefined;
+  const first = lines.find((l) => l && l !== '<' && l !== '>');
+  const raw = caused.at(-1) ?? afterMarker ?? first ?? 'unknown cause';
+  // Rule: no raw exception text as the main message — drop the Java class name; the full text is in Copy details.
+  // ponytail: whether {reason} should carry Flink text at all is open (MORNING.md D11).
+  const reason = raw.replace(/^(?:[\w$]+\.)*[\w$]*(?:Exception|Error)\s*:\s*/, '').replace(/\.$/, '') || raw;
   return new AppError(ctx.code, { reason, ...ctx.params }, undefined, body);
 }
 
@@ -227,6 +241,11 @@ function redact(v: unknown, key = ''): unknown {
   return v;
 }
 
+function serializeCause(c: unknown): unknown {
+  if (c instanceof Error) return { name: c.name, message: c.message, stack: c.stack };
+  return c;
+}
+
 /** The JSON blob behind "Copy details" (§3 rule 6). Secrets are redacted. */
 export function copyDetails(e: AppError, ctx: { appVersion: string; flinkVersion?: string }): string {
   let message: string;
@@ -245,6 +264,7 @@ export function copyDetails(e: AppError, ctx: { appVersion: string; flinkVersion
       appVersion: ctx.appVersion,
       time: new Date().toISOString(),
       detail: e.detail,
+      cause: serializeCause(e.cause),
     }),
     null,
     2,

@@ -16,8 +16,8 @@ const codes = Object.keys(CATALOG) as ErrorCode[];
 const sample = (code: ErrorCode) => Object.fromEntries(paramsOf(code).map((p) => [p, `<${p}>`]));
 
 describe('ERR · catalog', () => {
-  it('has 129 codes, each keyed by its own code', () => {
-    expect(codes).toHaveLength(129);
+  it('has 131 codes, each keyed by its own code', () => {
+    expect(codes).toHaveLength(131);
     for (const c of codes) expect(CATALOG[c].code).toBe(c);
   });
 
@@ -39,6 +39,12 @@ describe('ERR · present', () => {
     expect(p.title).toBe('Sign in again to payments-prod');
     expect(p.body).toBe('The cluster rejected the token.');
     expect(p.placement).toBe('dialog');
+  });
+
+  it('splits title/body on the template, so a param containing ". " stays whole', () => {
+    const p = present(new AppError('SP-FAILED', { reason: 'Disk full. Retry later' }));
+    expect(p.title).toBe('Savepoint failed: Disk full. Retry later');
+    expect(p.body).toBe('The job is still running.');
   });
 
   it('throws in dev for an unknown code', () => {
@@ -76,6 +82,7 @@ describe('ERR · placement', () => {
     ['full-page state in tab', 'page'],
     ['Run button tooltip + Problems tab opens', 'field'],
     ['inline + Problems', 'field'],
+    ['inline banner', 'banner'],
   ] as const)('%s → %s', (raw, want) => expect(primaryPlacement(raw)).toBe(want));
 });
 
@@ -89,6 +96,8 @@ describe('ERR · fromHttp', () => {
     [429, 'API-RATE'],
     [500, 'API-5XX'],
     [503, 'API-5XX'],
+    [400, 'API-4XX'],
+    [415, 'API-4XX'],
   ] as const)('HTTP %i → %s', (status, code) => {
     const e = fromHttp({ status }, ctx);
     expect(e.code).toBe(code);
@@ -167,9 +176,22 @@ describe('ERR · fromFlinkErrors', () => {
     };
     const e = fromFlinkErrors(body, { code: 'SP-FAILED' });
     expect(present(e).message).toBe(
-      'Savepoint failed: java.io.IOException: Target directory s3://sp is not writable. The job is still running.',
+      'Savepoint failed: Target directory s3://sp is not writable. The job is still running.',
     );
     expect(e.detail).toEqual(body);
+  });
+
+  it('without "Caused by", takes the first line of the server-side exception, not the generic errors[0]', () => {
+    const e = fromFlinkErrors(
+      {
+        errors: [
+          'Internal server error.',
+          '<Exception on server side:\norg.apache.flink.runtime.messages.FlinkJobNotFoundException: Could not find Flink job (abc)\n\tat X.y(X.java:1)\n>',
+        ],
+      },
+      { code: 'SP-FAILED' },
+    );
+    expect(e.params.reason).toBe('Could not find Flink job (abc)');
   });
 
   it('falls back to the first non-empty line', () => {
@@ -179,6 +201,23 @@ describe('ERR · fromFlinkErrors', () => {
 });
 
 describe('ERR · copyDetails', () => {
+  it('includes the cause (error name, message, stack) so API-SHAPE details are useful', () => {
+    const e = new AppError('API-SHAPE', {}, new TypeError('x.map is not a function'));
+    const d = JSON.parse(copyDetails(e, { appVersion: '0.0.0' }));
+    expect(d.cause).toMatchObject({ name: 'TypeError', message: 'x.map is not a function' });
+    expect(typeof d.cause.stack).toBe('string');
+  });
+
+  it('includes a transport error cause as-is, redacted', () => {
+    const e = fromTauriHttp(
+      { kind: 'tls_other', message: 'invalid peer certificate: UnknownIssuer', token: 's3cret' },
+      { method: 'GET', url: 'https://jm:8081/config', reason: 'unknown issuer' },
+    );
+    const json = copyDetails(e, { appVersion: '0.0.0' });
+    expect(JSON.parse(json).cause.message).toBe('invalid peer certificate: UnknownIssuer');
+    expect(json).not.toContain('s3cret');
+  });
+
   it('redacts tokens, passwords and Authorization', () => {
     const e = new AppError('API-401', { conn: 'payments-prod', token: 'abc123' }, undefined, {
       headers: { Authorization: 'Bearer abc123' },

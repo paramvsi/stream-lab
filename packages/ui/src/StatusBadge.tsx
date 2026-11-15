@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react';
+import { Tooltip } from './Tooltip';
 import { TONE, ToneIcon, type Severity } from './tone';
 
 export type BadgeTone = Severity | 'neutral';
@@ -11,24 +12,33 @@ const TONE_CLS: Record<BadgeTone, string> = {
   neutral: 'bg-subtle text-muted',
 };
 
-/** Board D07: pill, 12/500, pad 3/10, dot + words. Words are required: never colour alone. */
+/**
+ * Board D07: pill, 12/500, pad 3/10, dot + words. Words are required: never colour alone.
+ * `reason` (object-badge placement: "hover = reason") also works by keyboard: the badge becomes a tab stop.
+ */
 export function StatusBadge({
   tone,
   children,
-  title,
+  reason,
 }: {
   tone: BadgeTone;
   children: ReactNode;
-  title?: string;
+  reason?: string;
 }) {
-  return (
+  const badge = (
     <span
-      title={title}
-      className={`inline-flex items-center gap-1.5 rounded-pill px-2.5 py-[3px] text-[12px] font-medium whitespace-nowrap ${TONE_CLS[tone]}`}
+      tabIndex={reason ? 0 : undefined}
+      className={`sl-focus inline-flex items-center gap-1.5 rounded-pill px-2.5 py-[3px] text-[12px] font-medium whitespace-nowrap ${TONE_CLS[tone]}`}
     >
       <span aria-hidden="true" className="size-1.5 rounded-pill bg-current" />
       {children}
     </span>
+  );
+  if (!reason) return badge;
+  return (
+    <Tooltip content={reason} describe>
+      {badge}
+    </Tooltip>
   );
 }
 

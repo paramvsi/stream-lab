@@ -36,7 +36,7 @@ export const PlacementBadge: S = {
   render: () => (
     <div className="inline-flex items-center gap-3 rounded-lg border-2 border-danger-600 px-4 py-3">
       <b>Bursts per card</b>
-      <StatusBadge tone="error" title="Pick an event-time field on Payments, or switch to processing time.">
+      <StatusBadge tone="error" reason="Pick an event-time field on Payments, or switch to processing time.">
         ! 1 problem
       </StatusBadge>
     </div>

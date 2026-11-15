@@ -10,7 +10,7 @@ Rules for implementers:
 4. Every code needs a test that triggers it and asserts the message, placement and actions (`TESTING.md`).
 5. "Board" is the design artboard that shows it. `W…/WX…` are in the Website canvas, `D…/X…/G…` in the Desktop canvas.
 
-Total: **129 codes** (128 from the handover + `CONN-SSH-HOSTKEY`, added in M0).
+Total: **131 codes** (128 from the handover + `CONN-SSH-HOSTKEY`, `API-4XX`, `COPY-FAILED`, added in M0).
 
 
 ## Desktop · Connections
@@ -67,9 +67,11 @@ Total: **129 codes** (128 from the handover + `CONN-SSH-HOSTKEY`, added in M0).
 | `API-404-JOB` | Job/vertex/TM disappeared between list and detail | HTTP 404 on a detail route | info | full-page state | This {thing} no longer exists on {conn}. It may have finished and been cleaned up. | Back to list | D07c |
 | `API-409` | Conflicting operation already in progress | HTTP 409 or Flink "already in progress" message | warning | dialog | {job} is already {state}. Stream Lab will follow that operation. | Watch progress, Close | X10 |
 | `API-5XX` | JobManager internal error | HTTP 500-599 | error | toast | {conn} had an internal error while {verb}. | Retry, Copy details | X09 |
+| `API-4XX` | The cluster refused a request for a reason without its own code (400, 405, 415…) | `fromHttp` fallback for 4xx | error | toast | {conn} refused this request (HTTP {status}). | Copy details | X09 (not drawn) |
 | `API-TIMEOUT` | Request exceeds request timeout (default 10 s) | AbortController | warning | banner | {conn} is slow to answer. Retrying in {s} s (attempt {n} of 5). | Retry now, Raise timeout | X12 |
 | `API-PARTIAL` | Some TaskManagers/subtasks did not report metrics | Missing ids in metrics response | warning | banner + row badge | {n} of {total} TaskManagers did not answer. Their values are from {ago} and marked stale. | Retry | X11 |
 | `API-SHAPE` | Response JSON does not match the expected schema | zod parse failure | error | inline in widget | Could not read this part of the response. Other panels still work. | Copy details | X11 |
+| `COPY-FAILED` | "Copy details" could not write to the clipboard (insecure context or permission denied) | `navigator.clipboard` missing or rejected | warning | toast | Could not copy to the clipboard. Your browser blocked it. | – | – (not drawn) |
 | `API-RATE` | Too many requests (429) or poll budget exceeded | HTTP 429 | warning | banner | The cluster asked us to slow down. Refresh is now every {s} s. | — | X12 |
 
 ## Desktop · Jobs

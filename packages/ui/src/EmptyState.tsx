@@ -1,5 +1,6 @@
 import type { LucideIcon } from 'lucide-react';
 import type { ReactNode } from 'react';
+import { useLiveFill } from './live';
 import { TONE, type Severity } from './tone';
 
 export interface EmptyStateProps {
@@ -16,6 +17,8 @@ export interface EmptyStateProps {
 /** Board D07c: 52 px tile radius 14 (rose-50 / rose-600), title 18/600, body 14/22 muted max 420. */
 export function EmptyState({ icon: Icon, title, children, actions, severity }: EmptyStateProps) {
   const tone = severity ? `${TONE[severity].bg} ${TONE[severity].accent}` : 'bg-rose-50 text-rose-600';
+  const filled = useLiveFill();
+  const show = filled || !severity;
   return (
     <div
       role={severity ? TONE[severity].role : undefined}
@@ -24,8 +27,10 @@ export function EmptyState({ icon: Icon, title, children, actions, severity }: E
       <span className={`flex size-[52px] items-center justify-center rounded-[14px] ${tone}`}>
         <Icon size={24} aria-hidden="true" />
       </span>
-      <h3 className="m-0 text-[18px] font-semibold">{title}</h3>
-      {children && <p className="m-0 max-w-[420px] text-[14px] leading-[22px] text-muted">{children}</p>}
+      {show && <h3 className="m-0 text-[18px] font-semibold">{title}</h3>}
+      {show && children && (
+        <p className="m-0 max-w-[420px] text-[14px] leading-[22px] text-muted">{children}</p>
+      )}
       {actions && <div className="flex flex-wrap items-center justify-center gap-3">{actions}</div>}
     </div>
   );

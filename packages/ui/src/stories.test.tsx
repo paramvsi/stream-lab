@@ -1,5 +1,5 @@
 import { composeStories, setProjectAnnotations } from '@storybook/react';
-import { render, waitFor } from '@testing-library/react';
+import { act, render } from '@testing-library/react';
 import axe from 'axe-core';
 import type { ComponentType } from 'react';
 import { describe, expect, it } from 'vitest';
@@ -24,7 +24,8 @@ describe('A11Y · stories', () => {
 
   it.each(cases)('%s has 0 axe violations', async (_name, Story) => {
     render(<Story />);
-    await waitFor(() => expect(document.body.childElementCount).toBeGreaterThan(0));
+    // Live regions fill on the next frame (useLiveFill); check them with their content.
+    await act(() => new Promise<void>((r) => requestAnimationFrame(() => r())));
     const res = await axe.run(document.body, {
       // ponytail: jsdom has no layout, so contrast can't be measured here. Tokens are AA by design; Playwright+axe
       // in a real browser checks contrast (M11 visual/a11y gate).

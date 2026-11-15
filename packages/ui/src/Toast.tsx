@@ -1,5 +1,5 @@
 import { Toast as R } from 'radix-ui';
-import { createContext, useCallback, useContext, useState, type ReactNode } from 'react';
+import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from 'react';
 import { ToneIcon, type Severity } from './tone';
 
 /** ERRORS_AND_ALERTS.md §2: success/info 4 s, warning 6 s, error 8 s. Hover/focus pauses (Radix). */
@@ -26,13 +26,24 @@ export function useToast() {
   return push;
 }
 
+/** Same as useToast, but null without a provider (for presenters that may render outside one). */
+export function useToastOptional() {
+  return useContext(Ctx);
+}
+
 export function ToastProvider({ children }: { children: ReactNode }) {
   const [items, setItems] = useState<ToastItem[]>([]);
-  const push = useCallback(
-    (t: ToastInput) => setItems((xs) => [...xs, { ...t, id: ++seq, open: true }].slice(-TOAST_MAX)),
-    [],
-  );
-  const close = (id: number) => setItems((xs) => xs.filter((x) => x.id !== id));
+  const push = useCallback((t: ToastInput) => setItems((xs) => [...xs, { ...t, id: ++seq, open: true }]), []);
+  // Closing sets open=false so Radix plays the exit fade (MOTION.md: 150 ms), then the item is dropped.
+  const close = useCallback((id: number) => {
+    setItems((xs) => xs.map((x) => (x.id === id ? { ...x, open: false } : x)));
+    setTimeout(() => setItems((xs) => xs.filter((x) => x.id !== id)), 200);
+  }, []);
+  // Max 3 stacked: the oldest open toast leaves when a 4th arrives.
+  useEffect(() => {
+    const open = items.filter((x) => x.open);
+    open.slice(0, Math.max(0, open.length - TOAST_MAX)).forEach((x) => close(x.id));
+  }, [items, close]);
   return (
     <Ctx.Provider value={push}>
       <R.Provider swipeDirection="left" label="Notifications">

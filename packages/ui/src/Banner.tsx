@@ -1,6 +1,7 @@
 import { X } from 'lucide-react';
 import type { ReactNode } from 'react';
 import { IconButton } from './Button';
+import { useLiveFill } from './live';
 import { TONE, ToneIcon, type Severity } from './tone';
 
 export interface BannerProps {
@@ -16,6 +17,7 @@ export interface BannerProps {
 /** Board WX00/X00: tinted strip, icon in the accent colour, ink text, radius 10 → token radius-lg. */
 export function Banner({ severity, children, actions, onDismiss, className = '' }: BannerProps) {
   const t = TONE[severity];
+  const filled = useLiveFill();
   return (
     <div
       role={t.role}
@@ -25,8 +27,12 @@ export function Banner({ severity, children, actions, onDismiss, className = '' 
         <ToneIcon severity={severity} />
       </span>
       <span className="flex-1">
-        <span className="sr-only">{t.label}: </span>
-        {children}
+        {filled && (
+          <>
+            <span className="sr-only">{t.label}: </span>
+            {children}
+          </>
+        )}
       </span>
       {actions && <div className="flex shrink-0 items-center gap-2">{actions}</div>}
       {severity === 'info' && onDismiss && (

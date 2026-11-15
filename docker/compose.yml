@@ -8,21 +8,31 @@ x-flink: &flink
   volumes:
     - savepoints:/tmp/flink-savepoints
   environment:
+    # No comments inside FLINK_PROPERTIES: the image turns every line into a config key.
+    # jobmanager.scheduler=adaptive is for rescale (PUT /jobs/:jid/resource-requirements, docs/FLINK_API.md).
     FLINK_PROPERTIES: |
       jobmanager.rpc.address: jobmanager
       rest.address: jobmanager
       taskmanager.numberOfTaskSlots: 4
       parallelism.default: 2
-      # Rescale (PUT /jobs/:jid/resource-requirements) needs the adaptive scheduler (docs/FLINK_API.md).
       jobmanager.scheduler: adaptive
       rest.flamegraph.enabled: true
       state.savepoints.dir: file:///tmp/flink-savepoints
       state.checkpoints.dir: file:///tmp/flink-savepoints/checkpoints
 
 services:
+  # The named volume is created root-owned; Flink runs as uid 9999, so hand it over once before anything starts.
+  init-dirs:
+    image: flink:${FLINK_VERSION:-2.2}
+    user: root
+    volumes:
+      - savepoints:/tmp/flink-savepoints
+    command: ['chown', '-R', 'flink:flink', '/tmp/flink-savepoints']
+
   jobmanager:
     <<: *flink
     command: jobmanager
+    depends_on: { init-dirs: { condition: service_completed_successfully } }
     ports: ['8081:8081']
     healthcheck:
       test: ['CMD-SHELL', 'curl -sf http://localhost:8081/config >/dev/null']
@@ -32,7 +42,9 @@ services:
   taskmanager:
     <<: *flink
     command: taskmanager
-    depends_on: { jobmanager: { condition: service_healthy } }
+    depends_on:
+      init-dirs: { condition: service_completed_successfully }
+      jobmanager: { condition: service_healthy }
 
   sql-gateway:
     <<: *flink

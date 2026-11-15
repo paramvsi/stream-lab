@@ -1,10 +1,15 @@
-import { act, render, screen } from '@testing-library/react';
+import { act, render, screen, waitFor } from '@testing-library/react';
+import { renderToStaticMarkup } from 'react-dom/server';
+import { readFileSync } from 'node:fs';
+import { AlertTriangle } from 'lucide-react';
 import userEvent from '@testing-library/user-event';
 import { useState } from 'react';
 import { describe, expect, it, vi } from 'vitest';
 import {
   Banner,
   Button,
+  EmptyState,
+  StatusBadge,
   Dialog,
   Drawer,
   Field,
@@ -74,15 +79,36 @@ describe('UI · Field', () => {
 });
 
 describe('UI · Banner', () => {
-  it('error is assertive (role=alert), others polite (role=status)', () => {
+  it('error is assertive (role=alert), others polite (role=status)', async () => {
     render(
       <>
         <Banner severity="error">a</Banner>
         <Banner severity="warning">b</Banner>
       </>,
     );
-    expect(screen.getByRole('alert')).toHaveTextContent('Error: a');
+    await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent('Error: a'));
     expect(screen.getByRole('status')).toHaveTextContent('Warning: b');
+  });
+
+  it('mounts its live region empty, then fills it, so screen readers announce it', async () => {
+    // First paint (no effects) must not contain the text; after effects it does.
+    expect(renderToStaticMarkup(<Banner severity="warning">Lost contact</Banner>)).not.toContain(
+      'Lost contact',
+    );
+    render(<Banner severity="warning">Lost contact</Banner>);
+    expect(screen.getByRole('status')).toHaveTextContent('');
+    await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent('Lost contact'));
+  });
+
+  it('a full-page error state is announced the same way', async () => {
+    const page = (
+      <EmptyState icon={AlertTriangle} severity="error" title="Could not reach payments-prod">
+        Nothing is listening.
+      </EmptyState>
+    );
+    expect(renderToStaticMarkup(page)).not.toContain('Could not reach');
+    render(page);
+    await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent('Could not reach payments-prod'));
   });
 
   it('only info banners can be dismissed', () => {
@@ -197,7 +223,38 @@ function ToastHarness({ n }: { n: number }) {
   );
 }
 
+describe('UI · StatusBadge', () => {
+  it('a badge with a reason is keyboard-reachable and describes the reason', async () => {
+    render(
+      <TooltipProvider>
+        <StatusBadge tone="error" reason="Pick an event-time field on Payments.">
+          1 problem
+        </StatusBadge>
+      </TooltipProvider>,
+    );
+    await userEvent.tab();
+    const badge = screen.getByText('1 problem').closest('span[tabindex]');
+    expect(badge).toHaveFocus();
+    expect(badge).toHaveAccessibleDescription('Pick an event-time field on Payments.');
+  });
+});
+
 describe('UI · Toast', () => {
+  it('the toast element matches the entrance-motion selector', async () => {
+    render(
+      <ToastProvider>
+        <ToastHarness n={1} />
+      </ToastProvider>,
+    );
+    await userEvent.click(screen.getByText('go'));
+    const li = document.querySelector('.sl-toast');
+    // Radix's toast <li> has no role, so the seed rule `[role=status].sl-toast` never matched (audit #5).
+    expect(li?.matches(".sl-toast[data-state='open']")).toBe(true);
+    const css = readFileSync(`${__dirname}/styles.css`, 'utf8');
+    expect(css).toContain(".sl-toast[data-state='open']");
+    expect(css).toContain(".sl-toast[data-state='closed']");
+  });
+
   it('keeps at most 3 stacked, newest last', async () => {
     render(
       <ToastProvider>

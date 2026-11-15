@@ -1,4 +1,4 @@
-import { Banner, Button, Dialog, EmptyState, FieldMessage, useToast, type Problem } from '@sl/ui';
+import { Banner, Button, Dialog, EmptyState, useToast, useToastOptional, type Problem } from '@sl/ui';
 import type { LucideIcon } from 'lucide-react';
 import { Component, type ErrorInfo, type ReactNode } from 'react';
 import { AppError, copyDetails, present, type Presented } from './core';
@@ -8,12 +8,21 @@ export const errorsConfig = { appVersion: '0.0.0', flinkVersion: undefined as st
 
 type OnAction = (label: string, e: AppError) => void;
 
-function runAction(label: string, e: AppError, onAction?: OnAction) {
-  if (label === 'Copy details') {
-    void navigator.clipboard?.writeText(copyDetails(e, errorsConfig));
-    return;
-  }
-  onAction?.(label, e);
+/** Runs a catalog action. "Copy details" is built in (with feedback); the rest go to `onAction`. */
+function useRunAction(onAction?: OnAction) {
+  const toast = useToastOptional();
+  return (label: string, e: AppError) => {
+    if (label !== 'Copy details') return onAction?.(label, e);
+    const failed = () => {
+      const p = present(new AppError('COPY-FAILED'));
+      toast?.({ severity: p.severity, message: p.message });
+    };
+    const clip = typeof navigator === 'undefined' ? undefined : navigator.clipboard;
+    if (!clip) return failed();
+    clip
+      .writeText(copyDetails(e, errorsConfig))
+      .then(() => toast?.({ severity: 'success', message: 'Details copied' }), failed);
+  };
 }
 
 function Actions({
@@ -27,22 +36,23 @@ function Actions({
   onAction?: OnAction | undefined;
   max?: number;
 }) {
+  const run = useRunAction(onAction);
   const labels = p.actions.slice(0, max);
   return labels.map((l, i) => (
     <Button
       key={l}
       size="sm"
       variant={i === 0 && l !== 'Copy details' ? 'secondary' : 'ghost'}
-      onClick={() => runAction(l, e, onAction)}
+      onClick={() => run(l, e)}
     >
       {l}
     </Button>
   ));
 }
 
-/** Field / inline placement. */
+/** Field / inline placement: `<Field error={<FieldError error={e} />}>`. Field supplies the id, icon and styling. */
 export function FieldError({ error }: { error: AppError }) {
-  return <FieldMessage>{present(error).message}</FieldMessage>;
+  return <>{present(error).message}</>;
 }
 
 /** Banner placement. Info banners can be dismissed. */
@@ -70,13 +80,14 @@ export function ErrorBanner({
 /** Toast placement: `const toastError = useErrorToast(); toastError(e)`. One action max. */
 export function useErrorToast(onAction?: OnAction) {
   const toast = useToast();
+  const run = useRunAction(onAction);
   return (error: AppError) => {
     const p = present(error);
     const first = p.actions[0];
     toast({
       severity: p.severity,
       message: p.message,
-      ...(first ? { action: { label: first, onClick: () => runAction(first, error, onAction) } } : {}),
+      ...(first ? { action: { label: first, onClick: () => run(first, error) } } : {}),
     });
   };
 }
@@ -96,6 +107,7 @@ export function ErrorDialog({
   children?: ReactNode;
 }) {
   const p = present(error);
+  const run = useRunAction(onAction);
   return (
     <Dialog
       open={open}
@@ -107,7 +119,11 @@ export function ErrorDialog({
         <Button
           key={l}
           variant={l === p.actions[0] && l !== 'Copy details' ? 'primary' : 'ghost'}
-          onClick={() => runAction(l, error, onAction)}
+          onClick={() => {
+            run(l, error);
+            // A dialog asks for a decision: any choice but Copy details ends it.
+            if (l !== 'Copy details') onOpenChange(false);
+          }}
         >
           {l}
         </Button>

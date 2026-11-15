@@ -7,7 +7,7 @@ FLINK_VERSION=2.2 docker compose -f docker/compose.yml up -d   # 1.20 | 2.0 | 2.
 FLINK_VERSION=2.2 docker compose -f docker/compose.yml down -v
 ```
 
-Each version gets its own compose project (`streamlab-flink-<version>`). They all use ports 8081, 8083 and 9092, so run one at a time.
+Each version gets its own compose project (`streamlab-flink-<version>`). They all use ports 8081, 8083 and 9092, so run one at a time. If 9092 is taken (another Kafka), set `KAFKA_PORT=9094`.
 
 | Service           | Host address                                    |
 | ----------------- | ----------------------------------------------- |

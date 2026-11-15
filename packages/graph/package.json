@@ -7,5 +7,9 @@
   },
   "scripts": {
     "typecheck": "tsc -p ."
+  },
+  "dependencies": {
+    "zod": "^4.6.7",
+    "@sl/errors": "workspace:*"
   }
 }

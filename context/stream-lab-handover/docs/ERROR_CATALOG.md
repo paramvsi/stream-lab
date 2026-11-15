@@ -10,7 +10,7 @@ Rules for implementers:
 4. Every code needs a test that triggers it and asserts the message, placement and actions (`TESTING.md`).
 5. "Board" is the design artboard that shows it. `W…/WX…` are in the Website canvas, `D…/X…/G…` in the Desktop canvas.
 
-Total: **131 codes** (128 from the handover + `CONN-SSH-HOSTKEY`, `API-4XX`, `COPY-FAILED`, added in M0).
+Total: **133 codes** (128 from the handover + `CONN-SSH-HOSTKEY`, `API-4XX`, `COPY-FAILED` added in M0, `SIM-DUP-EDGE`, `SIM-PORT-TAKEN` added in M1).
 
 
 ## Desktop · Connections
@@ -149,7 +149,9 @@ Total: **131 codes** (128 from the handover + `CONN-SSH-HOSTKEY`, `API-4XX`, `CO
 | `SIM-NO-SINK` | A path ends without a Sink or Dead-letter | Graph validation | warning | object badge + Problems | {node} output goes nowhere. Events will be dropped. | Add Sink here | W09l |
 | `SIM-DISCONNECTED` | Node with no input (other than sources) | Graph validation | error | object badge + Problems | {node} has no input. | Select node | W09l |
 | `SIM-CYCLE` | Connection would create a cycle | isValidConnection with getOutgoers DFS | error | inline at cursor while dragging (connection refused) | This would make a loop. Streams must flow one way. | — | W09e |
-| `SIM-PORT-TYPE` | Connecting incompatible ports (e.g. late output into Join right side with other schema) | isValidConnection schema check | error | inline at cursor (refused) | Schemas do not match: {a} has {fields}, {b} needs {fields}. | — | W09e |
+| `SIM-DUP-EDGE` | Connecting two ports that are already connected | `isValidConnection` | error | inline at cursor (refused) | These two ports are already connected. | – | W09e (not drawn) |
+| `SIM-PORT-TAKEN` | Connecting into a single-input port that already has an edge | `isValidConnection` (port arity) | error | inline at cursor (refused) | {port} on {node} already has an input. Remove that edge first. | – | W09e (not drawn) |
+| `SIM-PORT-TYPE` | Connecting incompatible ports (e.g. late output into Join right side with other schema) | isValidConnection schema check | error | inline at cursor (refused) | Schemas do not match: {a} has {has}, {b} needs {needs}. | — | W09e |
 | `SIM-SCHEMA-DRIFT` | Upstream schema change breaks a downstream field reference | Re-validate on every graph change | error | object badge + Problems + field error in drawer | {node} uses "{field}", which {upstream} no longer outputs. | Open node | W09l |
 | `SIM-RUN-BLOCKED` | Run pressed while errors exist | Problems count | error | Run button tooltip + Problems tab opens | Fix {n} error(s) to run. | Go to first error | WX02 |
 | `SIM-ENGINE-CRASH` | Worker throws or runs out of memory | worker.onerror / onmessageerror / heartbeat miss 3 s | error | dialog | The simulator stopped at event {n}: {reason}. Your pipeline is safe. | Reload simulator, Copy details | WX03 |

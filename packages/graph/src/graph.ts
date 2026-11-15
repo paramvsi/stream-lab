@@ -1,6 +1,6 @@
 import { CATALOG } from '@sl/errors/catalog';
 import { spec } from './nodes';
-import type { Issue, PipelineEdge, PipelineNode, Schema, SchemaCtx } from './types';
+import type { FieldType, Issue, PipelineEdge, PipelineNode, Schema, SchemaCtx } from './types';
 
 export interface Graph {
   nodes: PipelineNode[];
@@ -74,6 +74,13 @@ export function propagate(g: Graph, ctx: SchemaCtx = EMPTY_CTX): Schemas {
   return s;
 }
 
+/** Does a field's type satisfy a requirement (one type or a list of acceptable types)? */
+const typeOk = (t: FieldType, want: FieldType | FieldType[] | undefined) =>
+  want === undefined || (Array.isArray(want) ? want.includes(t) : t === want);
+/** "amount (number)", "event_time (number or timestamp)" or just "amount". */
+const need = (r: { field: string; type?: FieldType | FieldType[] | undefined }) =>
+  r.type ? `${r.field} (${Array.isArray(r.type) ? r.type.join(' or ') : r.type})` : r.field;
+
 const names = (schema: Schema) => schema.map((f) => f.name).join(', ') || 'no fields';
 
 function reaches(g: Graph, from: string, to: string): boolean {
@@ -131,9 +138,9 @@ export function connectionIssue(g: Graph, c: Connection, ctx: SchemaCtx = EMPTY_
     .filter((r) => r.port === c.targetHandle)
     .filter((r) => {
       const f = has.find((x) => x.name === r.field);
-      return !f || (r.type !== undefined && f.type !== r.type);
+      return !f || !typeOk(f.type, r.type);
     })
-    .map((r) => (r.type ? `${r.field} (${r.type})` : r.field));
+    .map((r) => need(r));
   if (missing.length)
     return {
       code: 'SIM-PORT-TYPE',
@@ -178,16 +185,18 @@ export function validate(g: Graph, ctx: SchemaCtx = EMPTY_CTX): Issue[] {
         const schema = edge ? s.edge.get(edge.id) : undefined;
         // One row per (port, field), however many rules read it.
         const key = `${r.port}:${r.field}`;
+        // Missing, or still there but with a type this node can't use (e.g. amount became text).
+        const f = schema?.find((x) => x.name === r.field);
         if (
           edge &&
           schema?.length &&
-          !schema.some((f) => f.name === r.field) &&
+          (!f || !typeOk(f.type, r.type)) &&
           !drifted.has(key) &&
           drifted.add(key)
         )
           issues.push({
             code: 'SIM-SCHEMA-DRIFT',
-            params: { node, field: r.field, upstream: labelOf(byId.get(edge.source)!) },
+            params: { node, field: f ? need(r) : r.field, upstream: labelOf(byId.get(edge.source)!) },
             nodeId: n.id,
           });
       }

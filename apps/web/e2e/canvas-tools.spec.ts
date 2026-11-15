@@ -125,4 +125,5 @@ test('NODE-01 Enter on a focused node opens settings; Esc returns focus to it', 
   await expect(node).toContainText('Bursts per card');
   await page.keyboard.press('Escape');
   await expect(name).toHaveCount(0);
+  await expect(node).toBeFocused();
 });

@@ -145,6 +145,50 @@ describe('M1 audit fixes · store', () => {
   });
 });
 
+describe('M1 audit 2 · store', () => {
+  it('#1 undo/redo drop selected ids of nodes that no longer exist', () => {
+    g().addNode('Source', { x: 0, y: 0 });
+    g().addNode('Filter', { x: 200, y: 0 }); // selected
+    t().undo();
+    expect(g().selected).toEqual([]);
+  });
+
+  it('#2 restore re-checks edges: no second edge into a single input', () => {
+    const s = g().addNode('Source', { x: 0, y: 0 });
+    const f = g().addNode('Filter', { x: 200, y: 0 });
+    g().connect({ source: s, sourceHandle: 'main', target: f, targetHandle: 'main' });
+    g().select([s]);
+    const removed = g().deleteSelection();
+    const gen = g().addNode('Generator', { x: 0, y: 200 });
+    g().connect({ source: gen, sourceHandle: 'main', target: f, targetHandle: 'main' });
+    g().restore(removed);
+    expect(g().edges.filter((e) => e.target === f)).toHaveLength(1);
+    expect(g().nodes.some((n) => n.id === s)).toBe(true); // the node itself comes back
+  });
+
+  it('#2 restore never creates a cycle', () => {
+    const a = g().addNode('Filter', { x: 0, y: 0 });
+    const x = g().addNode('Filter', { x: 200, y: 0 });
+    const b = g().addNode('Filter', { x: 400, y: 0 });
+    g().connect({ source: a, sourceHandle: 'main', target: x, targetHandle: 'main' });
+    g().connect({ source: x, sourceHandle: 'main', target: b, targetHandle: 'main' });
+    g().select([x]);
+    const removed = g().deleteSelection();
+    g().connect({ source: b, sourceHandle: 'main', target: a, targetHandle: 'main' });
+    g().restore(removed);
+    const e = g().edges.map((y) => `${y.source}>${y.target}`);
+    expect(e.includes(`${a}>${x}`) && e.includes(`${x}>${b}`)).toBe(false);
+  });
+
+  it('#8 undo is ignored while a drag is in progress', () => {
+    g().addNode('Filter', { x: 0, y: 0 });
+    g().beginDrag();
+    expect(g().isDragging()).toBe(true);
+    g().endDrag();
+    expect(g().isDragging()).toBe(false);
+  });
+});
+
 describe('SIM-11 · multi-select, delete, copy and paste', () => {
   it('pastes with +24 px offset, new ids, and only the internal edges', () => {
     const a = g().addNode('Source', { x: 0, y: 0 });

@@ -38,6 +38,7 @@ import {
   CanvasMenu,
   ConnectPicker,
   HelperLines,
+  menuOpener,
   NodeActions,
   NodeDrawer,
   useAutoLayout,
@@ -128,7 +129,12 @@ function Canvas() {
   const wrap = useRef<HTMLElement>(null);
   const [quick, setQuick] = useState<QuickAddState | null>(null);
   const [fitOnOpen] = useState(() => useGraph.getState().nodes.length > 0);
-  const [menu, setMenu] = useState<MenuTarget | null>(null);
+  const [menu, setMenuTarget] = useState<MenuTarget | null>(null);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const setMenu = (t: MenuTarget) => {
+    setMenuTarget(t);
+    setMenuOpen(true);
+  };
   const [drawerFor, setDrawerFor] = useState<string | null>(null);
   const [connectFor, setConnectFor] = useState<string | null>(null);
   const [guides, setGuides] = useState<Omit<Guides, 'pos'>>({});
@@ -261,6 +267,8 @@ function Canvas() {
   const onConnectEnd = useCallback(
     (e: MouseEvent | TouchEvent, s: FinalConnectionState) => {
       if (s.isValid || s.toHandle || !s.fromHandle) return;
+      // SIM-08 is "dropped on empty pane": a drop on a node body (missing its handle) does nothing.
+      if (!(e.target instanceof Element) || !e.target.classList.contains('react-flow__pane')) return;
       const p = 'changedTouches' in e ? e.changedTouches[0]! : e;
       const fromTarget = s.fromHandle.type === 'target';
       const fh = s.fromHandle;
@@ -290,13 +298,17 @@ function Canvas() {
     const onKey = (e: KeyboardEvent) => {
       const t = e.target as HTMLElement | null;
       if (t?.closest('input, textarea, select, [contenteditable], [role="dialog"]')) return;
+      // Mid-drag, history keys would be reverted by endDrag (it records the pre-drag state): ignore them.
+      if (g().isDragging()) return;
       const mod = e.metaKey || e.ctrlKey;
       const k = e.key.toLowerCase();
       const h = useGraph.temporal.getState();
+      const textSelected = (window.getSelection()?.toString() ?? '').length > 0;
       if (mod && k === 'z' && !e.shiftKey) h.undo();
       else if (mod && ((k === 'z' && e.shiftKey) || k === 'y')) h.redo();
-      else if (mod && k === 'c') g().copySelection();
-      else if (mod && k === 'v') g().paste();
+      // Copy/paste nodes only when there is something to copy/paste; otherwise leave the browser's own.
+      else if (mod && k === 'c' && g().selected.length && !textSelected) g().copySelection();
+      else if (mod && k === 'v' && g().clipboard) g().paste();
       else if (mod && k === 'd') g().duplicate(g().selected);
       else if (!mod && e.key === 'Enter' && t?.closest('.react-flow__node')) {
         // NODE-01: Enter on a focused node opens its settings.
@@ -428,15 +440,15 @@ function Canvas() {
               onEdgeMouseLeave={() => setHoveredEdge(null)}
               onNodeContextMenu={(e, n) => {
                 e.preventDefault();
-                setMenu({ kind: 'node', id: n.id, x: e.clientX, y: e.clientY });
+                setMenu({ kind: 'node', id: n.id, x: e.clientX, y: e.clientY, opener: menuOpener(e) });
               }}
               onEdgeContextMenu={(e, ed) => {
                 e.preventDefault();
-                setMenu({ kind: 'edge', id: ed.id, x: e.clientX, y: e.clientY });
+                setMenu({ kind: 'edge', id: ed.id, x: e.clientX, y: e.clientY, opener: menuOpener(e) });
               }}
               onPaneContextMenu={(e) => {
                 e.preventDefault();
-                setMenu({ kind: 'pane', x: e.clientX, y: e.clientY });
+                setMenu({ kind: 'pane', x: e.clientX, y: e.clientY, opener: menuOpener(e) });
               }}
               onSelectionDragStart={() => g().beginDrag()}
               onSelectionDragStop={() => g().endDrag()}
@@ -498,7 +510,7 @@ function Canvas() {
                 onClose={() => setQuick(null)}
               />
             )}
-            <CanvasMenu target={menu} onClose={() => setMenu(null)} />
+            <CanvasMenu target={menu} open={menuOpen} onClose={() => setMenuOpen(false)} />
           </main>
         </div>
         {drawerNode && (

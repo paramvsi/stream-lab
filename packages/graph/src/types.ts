@@ -70,7 +70,7 @@ export interface NodeSpec<C = unknown> {
    * Fields this node reads from its input(s); missing ones are SIM-PORT-TYPE / SIM-SCHEMA-DRIFT.
    * `type`, when set, is also checked on connect (e.g. a sum needs a number).
    */
-  requires: (config: C) => { port: string; field: string; type?: FieldType }[];
+  requires: (config: C) => { port: string; field: string; type?: FieldType | FieldType[] }[];
 }
 
 export interface PipelineNode {

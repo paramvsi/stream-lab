@@ -48,15 +48,11 @@ export function Palette({ onAdd }: { onAdd: (type: NodeType) => void }) {
         <span className="sr-only">Search nodes</span>
         <input
           id={searchId}
-          data-palette-search
           value={q}
           onChange={(e) => setQ(e.target.value)}
           placeholder="Search nodes"
           className="min-w-0 flex-1 border-0 bg-transparent text-[13px] outline-none placeholder:text-muted"
         />
-        <kbd className="rounded-sm border border-b-2 border-line px-1.5 py-px font-mono text-[11px] text-muted">
-          /
-        </kbd>
       </label>
 
       <div className="-mx-1 flex flex-1 flex-col gap-3 overflow-y-auto px-1 pb-2">

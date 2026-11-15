@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import type { FieldType } from '../types';
 import { defineNode, LATE, MAIN_IN, MAIN_OUT, ms, one, pick } from './shared';
 
 const aggregate = z.object({
@@ -37,19 +38,33 @@ export const window = defineNode({
       ...pick(one(i), c.keyBy),
       { name: 'window_start', type: 'timestamp', required: true },
       { name: 'window_end', type: 'timestamp', required: true },
-      ...c.aggregates.map((a) => ({ name: a.as, type: 'number' as const, required: true })),
+      ...c.aggregates.map((a) => ({
+        name: a.as,
+        // min/max keep the input field's type (a timestamp stays a timestamp); the rest are numbers.
+        type:
+          (a.fn === 'min' || a.fn === 'max' ? one(i).find((f) => f.name === a.field)?.type : undefined) ??
+          ('number' as const),
+        required: true,
+      })),
     ],
     late: one(i),
   }),
   requires: (c) => [
     ...c.keyBy.map((field) => ({ port: 'main', field })),
-    // sum/avg/min/max need a number; count may name any field (or none).
+    // sum/avg need numbers; min/max also order timestamps (Flink MIN/MAX); count takes anything.
     ...c.aggregates
       .filter((a) => a.field)
       .map((a) => ({
         port: 'main',
         field: a.field,
-        ...(a.fn === 'count' ? {} : { type: 'number' as const }),
+        ...(a.fn === 'count'
+          ? {}
+          : {
+              type:
+                a.fn === 'min' || a.fn === 'max'
+                  ? (['number', 'timestamp'] as FieldType[])
+                  : ('number' as const),
+            }),
       })),
   ],
 });

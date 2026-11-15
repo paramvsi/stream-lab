@@ -31,6 +31,7 @@ export function useAutoLayout() {
   return useCallback(async () => {
     const { nodes, edges } = useGraph.getState();
     if (!nodes.length) return;
+    const before = Object.fromEntries(nodes.map((n) => [n.id, n.position]));
     const pos = await autoLayout(nodes, edges);
     const root = document.querySelector('.react-flow');
     root?.classList.add('sl-animate-layout');
@@ -42,7 +43,19 @@ export function useAutoLayout() {
     toast({
       severity: 'success',
       message: 'Layout applied',
-      action: { label: 'Undo', onClick: () => useGraph.temporal.getState().undo() },
+      // Puts back the previous positions as a new step (not "undo the last step", which may be something else).
+      action: {
+        label: 'Undo',
+        onClick: () => {
+          const alive = new Set(useGraph.getState().nodes.map((n) => n.id));
+          useGraph
+            .getState()
+            .setPositions(
+              Object.fromEntries(Object.entries(before).filter(([id]) => alive.has(id))),
+              'Restored layout',
+            );
+        },
+      },
     });
   }, [rf, toast]);
 }
@@ -193,10 +206,19 @@ export function NodeDrawer({ node, onClose }: { node: PipelineNode; onClose: () 
  * ContextMenu: with right-button panning (panOnDrag [1, 2]) React Flow prevents the pane's contextmenu
  * default, which Radix ContextMenu then ignores.
  */
-export type MenuTarget =
+export type MenuTarget = (
   | { kind: 'pane'; x: number; y: number }
   | { kind: 'node'; id: string; x: number; y: number }
-  | { kind: 'edge'; id: string; x: number; y: number };
+  | { kind: 'edge'; id: string; x: number; y: number }
+) & { opener?: HTMLElement | null };
+
+/** What to give focus back to when a context menu closes: the node right-clicked, else whatever had focus. */
+export function menuOpener(e: { target: EventTarget | null }): HTMLElement | null {
+  const node = e.target instanceof Element ? e.target.closest<HTMLElement>('.react-flow__node') : null;
+  if (node) return node;
+  const a = document.activeElement;
+  return a instanceof HTMLElement && a !== document.body ? a : null;
+}
 
 const itemCls =
   'flex cursor-default items-center gap-2.5 rounded-md px-2.5 py-2 text-[14px] text-ink outline-none data-[highlighted]:bg-rose-50 data-[disabled]:text-line-strong';
@@ -206,15 +228,21 @@ function Item({
   onSelect,
   kbd,
   disabled,
+  hint,
 }: {
   children: ReactNode;
   onSelect?: () => void;
   kbd?: string;
   disabled?: boolean;
+  /** Why it is disabled (ERRORS_AND_ALERTS rule 5: disabled actions explain why), in words, inside the item. */
+  hint?: string | undefined;
 }) {
   return (
     <DropdownMenu.Item className={itemCls} {...(onSelect ? { onSelect } : {})} disabled={disabled}>
-      {children}
+      <span className="flex flex-col">
+        {children}
+        {hint && <span className="text-[12px] text-muted">{hint}</span>}
+      </span>
       {kbd && (
         <span className="ml-auto rounded-sm border border-b-2 border-line px-1.5 py-px font-mono text-[11px] text-muted">
           {kbd}
@@ -224,13 +252,33 @@ function Item({
   );
 }
 
-export function CanvasMenu({ target, onClose }: { target: MenuTarget | null; onClose: () => void }) {
-  const a = useNodeActions();
+export function CanvasMenu({
+  target,
+  open,
+  onClose,
+}: {
+  /** Kept after closing, so focus can still go back to its opener. */
+  target: MenuTarget | null;
+  open: boolean;
+  onClose: () => void;
+}) {
+  const raw = useNodeActions();
+  // Focus goes back to what the menu was opened on (target.opener, captured when it opened), and actions that open
+  // a dialog run after that, so the dialog in turn returns focus there (DoD: focus returns to the trigger).
+  const opener = target?.opener ?? null;
+  const later = (fn: () => void) => () => setTimeout(fn, 0);
+  const a: NodeActionsApi = {
+    ...raw,
+    configure: (id) => later(() => raw.configure(id))(),
+    connectFrom: (id) => later(() => raw.connectFrom(id))(),
+    addAt: (x, y) => later(() => raw.addAt(x, y))(),
+    insertOnEdge: (id, x, y) => later(() => raw.insertOnEdge(id, x, y))(),
+  };
   const g = useGraph.getState;
   const rf = useReactFlow();
   const node = target?.kind === 'node' ? g().nodes.find((n) => n.id === target.id) : undefined;
   return (
-    <DropdownMenu.Root open={!!target} onOpenChange={(o) => !o && onClose()}>
+    <DropdownMenu.Root open={open && !!target} onOpenChange={(o) => !o && onClose()}>
       <DropdownMenu.Trigger asChild>
         <span
           aria-hidden="true"
@@ -243,8 +291,10 @@ export function CanvasMenu({ target, onClose }: { target: MenuTarget | null; onC
         <DropdownMenu.Content
           align="start"
           sideOffset={2}
-          // Keep focus where the user was (the hidden anchor is not a useful place to return to).
-          onCloseAutoFocus={(e) => e.preventDefault()}
+          onCloseAutoFocus={(e) => {
+            e.preventDefault(); // never the hidden anchor
+            if (opener?.isConnected) opener.focus();
+          }}
           aria-label={
             target?.kind === 'node' ? 'Node menu' : target?.kind === 'edge' ? 'Edge menu' : 'Canvas menu'
           }
@@ -255,7 +305,9 @@ export function CanvasMenu({ target, onClose }: { target: MenuTarget | null; onC
               <Item kbd="Enter" onSelect={() => a.configure(node.id)}>
                 Configure
               </Item>
-              <Item disabled>Run to here</Item>
+              <Item disabled hint="Arrives with the engine (next build)">
+                Run to here
+              </Item>
               <Item kbd="⌘D" onSelect={() => g().duplicate([node.id])}>
                 Duplicate
               </Item>
@@ -282,7 +334,12 @@ export function CanvasMenu({ target, onClose }: { target: MenuTarget | null; onC
               <Item kbd="/" onSelect={() => a.addAt(target.x, target.y)}>
                 Add node…
               </Item>
-              <Item kbd="⌘V" disabled={!g().clipboard} onSelect={() => g().paste()}>
+              <Item
+                kbd="⌘V"
+                disabled={!g().clipboard}
+                hint={g().clipboard ? undefined : 'Nothing copied yet'}
+                onSelect={() => g().paste()}
+              >
                 Paste
               </Item>
               <Item onSelect={a.layout}>Auto-layout</Item>

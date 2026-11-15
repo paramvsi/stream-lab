@@ -303,9 +303,18 @@ describe('M1 audit fixes · graph', () => {
     expect(issues.filter((i) => i.code === 'SIM-SCHEMA-DRIFT')).toHaveLength(1);
   });
 
-  it('#11 a disabled Join passes its left input through (schema checks stay on downstream)', () => {
+  it('#11 a disabled Join passes its LEFT input through (schema checks stay on downstream)', () => {
     const a = node('Source');
-    const b = node('Source');
+    // Right side has a different schema, so passing the right input through would be caught.
+    const b = node('Source', { schema: [{ name: 'refund_id', type: 'string', required: true }] });
+    const sp = propagate({
+      nodes: [a, b, node('Join', {}, { id: 'jj', disabled: true })],
+      edges: [
+        edge(a, { id: 'jj' } as never, 'main', 'left'),
+        edge(b, { id: 'jj' } as never, 'main', 'right'),
+      ],
+    });
+    expect(sp.out.get('jj')!.main!.map((f) => f.name)).toContain('payment_id');
     const j = node('Join', {}, { disabled: true });
     const w = node('Window', { keyBy: ['nonexistent'] });
     const k = node('Sink');
@@ -348,6 +357,46 @@ describe('M1 audit fixes · graph', () => {
       params: { node: 'Refund match (right)' },
       nodeId: j.id,
     });
+  });
+});
+
+describe('M1 audit 2 · graph', () => {
+  it('#5 validation catches a type change upstream (SIM-SCHEMA-DRIFT names the needed type)', () => {
+    const src = node('Source');
+    const m = node(
+      'Map',
+      { assignments: [{ field: 'amount', expr: 'string(amount)', type: 'string' }] },
+      { label: 'To text' },
+    );
+    const w = node(
+      'Window',
+      { aggregates: [{ fn: 'sum', field: 'amount', as: 'total' }] },
+      { label: 'Totals' },
+    );
+    const k = node('Sink');
+    const issues = validate({ nodes: [src, m, w, k], edges: [edge(src, m), edge(m, w), edge(w, k)] });
+    expect(issues).toContainEqual({
+      code: 'SIM-SCHEMA-DRIFT',
+      params: { node: 'Totals', field: 'amount (number)', upstream: 'To text' },
+      nodeId: w.id,
+    });
+  });
+
+  it('#9 Window min/max accept timestamps and keep the field type', () => {
+    const src = node('Source', {}, { id: 'p' });
+    const w = node(
+      'Window',
+      { aggregates: [{ fn: 'max', field: 'event_time', as: 'last_seen' }] },
+      { id: 'w' },
+    );
+    expect(
+      connectionIssue(
+        { nodes: [src, w], edges: [] },
+        { source: 'p', sourceHandle: 'main', target: 'w', targetHandle: 'main' },
+      ),
+    ).toBeNull();
+    const out = propagate({ nodes: [src, w], edges: [edge(src, w)] }).out.get('w')!.main!;
+    expect(out.find((f) => f.name === 'last_seen')!.type).toBe('timestamp');
   });
 });
 

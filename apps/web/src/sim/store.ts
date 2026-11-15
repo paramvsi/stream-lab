@@ -246,7 +246,14 @@ export const useGraph = create<GraphState>()(
         const nodes = r.nodes.filter((n) => !have.has(n.id));
         const ids = new Set([...have, ...nodes.map((n) => n.id)]);
         const known = new Set(get().edges.map((e) => e.id));
-        const edges = r.edges.filter((e) => ids.has(e.source) && ids.has(e.target) && !known.has(e.id));
+        // Re-check each edge against what the graph looks like now (another edge may have taken the input,
+        // or a later edge may close a loop): refused ones are dropped, the nodes still come back.
+        const allNodes = [...get().nodes, ...nodes];
+        const edges: PipelineEdge[] = [];
+        for (const e of r.edges) {
+          if (!ids.has(e.source) || !ids.has(e.target) || known.has(e.id)) continue;
+          if (!connectionIssue({ nodes: allNodes, edges: [...get().edges, ...edges] }, e)) edges.push(e);
+        }
         if (!nodes.length && !edges.length) return;
         set({
           nodes: [...get().nodes, ...nodes],
@@ -348,6 +355,18 @@ export const useGraph = create<GraphState>()(
     },
   ),
 );
+
+// Undo/redo (and any removal) can leave ids of nodes/edges that no longer exist in the selection; React Flow
+// can't deselect what it doesn't render, so they'd stick (and hide the single-selection toolbar). Prune them.
+useGraph.subscribe((st, prev) => {
+  if (st.nodes === prev.nodes && st.edges === prev.edges) return;
+  const nodeIds = new Set(st.nodes.map((n) => n.id));
+  const edgeIds = new Set(st.edges.map((e) => e.id));
+  const selected = st.selected.filter((id) => nodeIds.has(id));
+  const selectedEdges = st.selectedEdges.filter((id) => edgeIds.has(id));
+  if (selected.length !== st.selected.length || selectedEdges.length !== st.selectedEdges.length)
+    useGraph.setState({ selected, selectedEdges });
+});
 
 /** History entries, oldest first; the last is the present (SIM-12 popover). */
 export function historyEntries() {

@@ -9,7 +9,8 @@
     "typecheck": "tsc -p ."
   },
   "dependencies": {
-    "zod": "^4.6.7",
-    "@sl/errors": "workspace:*"
+    "@marcbachmann/cel-js": "8.0.0",
+    "@sl/errors": "workspace:*",
+    "zod": "^4.6.7"
   }
 }

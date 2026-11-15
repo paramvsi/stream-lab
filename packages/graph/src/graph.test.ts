@@ -289,17 +289,13 @@ describe('M1 audit fixes · graph', () => {
     ).toEqual(['route-b']);
   });
 
-  it('#10 one SIM-SCHEMA-DRIFT per (node, field), however many rules read it', () => {
+  it('#10 one SIM-SCHEMA-DRIFT per (node, field), however many settings read it', () => {
     const src = node('Source');
     const m = node('Map', { drop: ['amount'] });
-    const v = node('Validate', {
-      rules: [
-        { name: 'a', expr: 'amount > 0', severity: 'error' },
-        { name: 'b', expr: 'amount < 9', severity: 'error' },
-      ],
-    });
+    // keyBy and an aggregate both read "amount": one drift row, not two.
+    const w = node('Window', { keyBy: ['amount'], aggregates: [{ fn: 'max', field: 'amount', as: 'top' }] });
     const k = node('Sink');
-    const issues = validate({ nodes: [src, m, v, k], edges: [edge(src, m), edge(m, v), edge(v, k)] });
+    const issues = validate({ nodes: [src, m, w, k], edges: [edge(src, m), edge(m, w), edge(w, k)] });
     expect(issues.filter((i) => i.code === 'SIM-SCHEMA-DRIFT')).toHaveLength(1);
   });
 

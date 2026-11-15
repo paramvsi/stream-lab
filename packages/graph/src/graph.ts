@@ -1,4 +1,5 @@
 import { CATALOG } from '@sl/errors/catalog';
+import { nodeIssues } from './checks';
 import { spec } from './nodes';
 import type { FieldType, Issue, PipelineEdge, PipelineNode, Schema, SchemaCtx } from './types';
 
@@ -201,6 +202,21 @@ export function validate(g: Graph, ctx: SchemaCtx = EMPTY_CTX): Issue[] {
           });
       }
 
+    // Node-level checks (required settings, CEL, each node's own rules). A field that CEL already reports as
+    // unknown (with a quick fix) is not reported a second time as SIM-SCHEMA-DRIFT.
+    if (!n.disabled) {
+      const own = nodeIssues(n, ins, { ...ctx, upstreamSources: upstreamSources(g, n.id) });
+      const unknown = new Set(
+        own.filter((i) => i.code === 'CEL-UNKNOWN-FIELD').map((i) => String(i.params.f)),
+      );
+      for (let k = issues.length - 1; k >= 0; k--) {
+        const i = issues[k]!;
+        if (i.nodeId === n.id && i.code === 'SIM-SCHEMA-DRIFT' && unknown.has(String(i.params.field)))
+          issues.splice(k, 1);
+      }
+      issues.push(...own);
+    }
+
     if (n.type === 'Union') {
       const edges = g.edges.filter((e) => e.target === n.id);
       const first = edges[0];
@@ -219,6 +235,26 @@ export function validate(g: Graph, ctx: SchemaCtx = EMPTY_CTX): Issue[] {
     }
   }
   return issues;
+}
+
+/** Every Source/Generator that feeds into `id` (WIN-NO-TIME looks at their event-time settings). */
+function upstreamSources(g: Graph, id: string): PipelineNode[] {
+  const byId = new Map(g.nodes.map((n) => [n.id, n]));
+  const seen = new Set<string>();
+  const out: PipelineNode[] = [];
+  const stack = [id];
+  while (stack.length) {
+    const cur = stack.pop()!;
+    for (const e of g.edges)
+      if (e.target === cur && !seen.has(e.source)) {
+        seen.add(e.source);
+        const src = byId.get(e.source);
+        if (!src) continue;
+        if (spec(src.type).category === 'Sources') out.push(src);
+        stack.push(e.source);
+      }
+  }
+  return out;
 }
 
 export const severityOf = (i: Issue) => CATALOG[i.code].severity;

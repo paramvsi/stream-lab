@@ -97,4 +97,10 @@ export interface Issue {
   params: Record<string, string | number>;
   nodeId?: string;
   edgeId?: string;
+  /** Config path the problem belongs to ("expr", "rules.1.expr"), for field-level errors in the drawer. */
+  field?: string;
+  /** Character range inside an expression field, and a quick-fix replacement (CEL). */
+  from?: number;
+  to?: number;
+  fix?: string;
 }

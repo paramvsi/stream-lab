@@ -626,6 +626,8 @@ export interface Run {
   /** Process up to `n` arrivals; at the end of input, flush (final watermark). */
   advance(n: number): void;
   stats(): RunStats;
+  /** Simulation time of the next arrival, or undefined at the end of input. */
+  next(): number | undefined;
 }
 
 export function createRun(g: Graph, opts: RunOptions = {}): Run {
@@ -796,6 +798,7 @@ export function createRun(g: Graph, opts: RunOptions = {}): Run {
 
   return {
     step,
+    next: () => arrivals[i]?.at,
     advance: (n) => {
       for (let k = 0; k < n && step(); k++);
     },

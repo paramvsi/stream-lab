@@ -17,8 +17,13 @@ const errorsOf = (page: Page) => (page as Page & { errors: string[] }).errors;
 test('W09 empty canvas: palette, empty state, run blocked by SIM-NO-SOURCE', async ({ page }) => {
   await expect(page.getByRole('complementary', { name: 'Node library' })).toBeVisible();
   await expect(page.getByText('Start with a source')).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Run' })).toHaveAttribute('aria-disabled', 'true');
-  await expect(page.getByRole('button', { name: 'Run' })).toHaveAccessibleDescription(/Fix 1 error/);
+  await expect(page.getByRole('button', { name: 'Run', exact: true })).toHaveAttribute(
+    'aria-disabled',
+    'true',
+  );
+  await expect(page.getByRole('button', { name: 'Run', exact: true })).toHaveAccessibleDescription(
+    /Fix 1 error/,
+  );
   await shot(page, 'W09-empty');
   expect(errorsOf(page)).toEqual([]);
 });
@@ -72,7 +77,7 @@ test('drag from palette, connect Source → Sink, delete with Undo toast', async
   await out.dragTo(inn);
   await expect(page.locator('.react-flow__edge')).toHaveCount(1);
   // Graph is valid now: the Run reason is no longer a validation error.
-  await expect(page.getByRole('button', { name: 'Run' })).not.toHaveAccessibleDescription(/Fix/);
+  await expect(page.getByRole('button', { name: 'Run', exact: true })).not.toHaveAccessibleDescription(/Fix/);
   await shot(page, 'connected');
 
   await page.locator('.react-flow__node').nth(1).click();

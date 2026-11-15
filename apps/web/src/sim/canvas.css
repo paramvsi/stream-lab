@@ -75,3 +75,8 @@
   background: color-mix(in srgb, var(--sl-color-rose-100) 40%, transparent);
   border: 1px dashed var(--sl-color-rose-600);
 }
+
+/* SIM-13: auto-layout animates positions for 300 ms (one undo step). */
+.sl-animate-layout .react-flow__node {
+  transition: transform 300ms var(--sl-motion-ease-out);
+}

@@ -13,6 +13,7 @@ import { Button, EmptyState, IconButton, ProblemsPanel, useToast } from '@sl/ui'
 import {
   Background,
   BackgroundVariant,
+  ControlButton,
   Controls,
   MiniMap,
   Panel,
@@ -27,10 +28,21 @@ import {
 } from '@xyflow/react';
 import '@xyflow/react/dist/base.css';
 import './canvas.css';
-import { History, Play, Redo2, Undo2, Workflow } from 'lucide-react';
+import { History, LayoutGrid, Play, Redo2, Undo2, Workflow } from 'lucide-react';
 import { Popover } from 'radix-ui';
 import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent } from 'react';
 import { useStore } from 'zustand';
+import {
+  CanvasMenu,
+  ConnectPicker,
+  HelperLines,
+  NodeActions,
+  NodeDrawer,
+  useAutoLayout,
+  type MenuTarget,
+  type NodeActionsApi,
+} from './CanvasExtras';
+import { snapGuides, type Guides } from './geometry';
 import { setIssues, useIssues } from './issues';
 import { accent } from './look';
 import { NODE_H, NODE_W, NodeCard, type SlNode } from './NodeCard';
@@ -40,6 +52,19 @@ import { historyEntries, useGraph, type ConnectFrom } from './store';
 import { ConnectionHint, EdgeActions, StreamEdge, type SlEdge } from './StreamEdge';
 
 const nodeTypes = { sl: NodeCard };
+
+const onGrid = (p: { x: number; y: number }) => ({ x: Math.round(p.x / 8) * 8, y: Math.round(p.y / 8) * 8 });
+
+/** Adding at the centre again places the next node to the right (one card + 48 px), never on top of another. */
+function freeSpot(p: { x: number; y: number }) {
+  let q = onGrid(p);
+  const taken = (r: { x: number; y: number }) =>
+    useGraph
+      .getState()
+      .nodes.some((n) => Math.abs(n.position.x - r.x) < NODE_W && Math.abs(n.position.y - r.y) < NODE_H);
+  for (let i = 0; i < 50 && taken(q); i++) q = { x: q.x + NODE_W + 48, y: q.y };
+  return q;
+}
 const edgeTypes = { stream: StreamEdge };
 const msg = (code: Parameters<typeof present>[0]['code'], params: Record<string, string | number> = {}) =>
   present(new AppError(code, params)).message;
@@ -72,6 +97,11 @@ function Canvas() {
   const wrap = useRef<HTMLElement>(null);
   const [quick, setQuick] = useState<QuickAddState | null>(null);
   const [fitOnOpen] = useState(() => useGraph.getState().nodes.length > 0);
+  const [menu, setMenu] = useState<MenuTarget | null>(null);
+  const [drawerFor, setDrawerFor] = useState<string | null>(null);
+  const [connectFor, setConnectFor] = useState<string | null>(null);
+  const [guides, setGuides] = useState<Omit<Guides, 'pos'>>({});
+  const layout = useAutoLayout();
 
   // SIM-14: validation on every change (NODES.md: debounced 150 ms).
   useEffect(() => {
@@ -108,13 +138,32 @@ function Canvas() {
     (changes: NodeChange<SlNode>[]) => {
       const pos: Record<string, { x: number; y: number }> = {};
       let sel: Set<string> | null = null;
+      const moving: string[] = [];
+      let dragging = false;
       for (const c of changes) {
-        if (c.type === 'position' && c.position) pos[c.id] = c.position;
+        if (c.type === 'position' && c.position) {
+          pos[c.id] = c.position;
+          moving.push(c.id);
+          if (c.dragging) dragging = true;
+        }
         if (c.type === 'select') {
           sel ??= new Set(g().selected);
           if (c.selected) sel.add(c.id);
           else sel.delete(c.id);
         }
+      }
+      // SIM-05: a single moved node snaps to other nodes within 6 px (also on the final drag-stop change,
+      // which React Flow sends grid-snapped); guide lines show only while dragging.
+      if (moving.length === 1) {
+        const id = moving[0]!;
+        const snap = snapGuides(
+          pos[id]!,
+          g()
+            .nodes.filter((n) => n.id !== id)
+            .map((n) => n.position),
+        );
+        pos[id] = snap.pos;
+        setGuides(dragging ? { x: snap.x, y: snap.y } : {});
       }
       if (Object.keys(pos).length) g().dragTo(pos);
       if (sel) g().select([...sel], g().selectedEdges);
@@ -202,7 +251,11 @@ function Canvas() {
       else if (mod && k === 'c') g().copySelection();
       else if (mod && k === 'v') g().paste();
       else if (mod && k === 'd') g().duplicate(g().selected);
-      else if (!mod && e.key === '/') {
+      else if (!mod && e.key === 'Enter' && t?.closest('.react-flow__node')) {
+        // NODE-01: Enter on a focused node opens its settings.
+        const id = t.closest('.react-flow__node')!.getAttribute('data-id');
+        if (id) setDrawerFor(id);
+      } else if (!mod && e.key === '/') {
         const r = wrap.current!.getBoundingClientRect();
         openQuick(r.left + r.width / 2 - 150, r.top + r.height / 3);
       } else return;
@@ -224,7 +277,7 @@ function Canvas() {
       x: (r?.left ?? 0) + (r?.width ?? 0) / 2,
       y: (r?.top ?? 0) + (r?.height ?? 0) / 2,
     });
-    return { x: p.x - NODE_W / 2, y: p.y - NODE_H / 2 };
+    return freeSpot({ x: p.x - NODE_W / 2, y: p.y - NODE_H / 2 });
   };
 
   const pick = (type: NodeType) => {
@@ -239,16 +292,13 @@ function Canvas() {
     if (!type) return;
     e.preventDefault();
     const p = rf.screenToFlowPosition({ x: e.clientX, y: e.clientY });
-    g().addNode(type, { x: p.x - NODE_W / 2, y: p.y - NODE_H / 2 });
+    g().addNode(type, onGrid({ x: p.x - NODE_W / 2, y: p.y - NODE_H / 2 }));
   };
 
   // Delete goes through the store so it is one undo step with an Undo toast (SIM-DELETE-UNDO).
-  const onBeforeDelete = useCallback(
-    async ({ nodes: ns, edges: es }: { nodes: { id: string }[]; edges: { id: string }[] }) => {
-      g().select(
-        ns.map((n) => n.id),
-        es.map((e) => e.id),
-      );
+  const removeWithUndo = useCallback(
+    (nodeIds: string[], edgeIds: string[] = []) => {
+      g().select(nodeIds, edgeIds);
       const n = g().deleteSelection();
       if (n > 0) {
         const p = present(new AppError('SIM-DELETE-UNDO', { n }));
@@ -258,101 +308,148 @@ function Canvas() {
           action: { label: 'Undo', onClick: () => useGraph.temporal.getState().undo() },
         });
       }
-      return false;
     },
     [g, toast],
   );
+  const onBeforeDelete = useCallback(
+    async ({ nodes: ns, edges: es }: { nodes: { id: string }[]; edges: { id: string }[] }) => {
+      removeWithUndo(
+        ns.map((n) => n.id),
+        es.map((e) => e.id),
+      );
+      return false;
+    },
+    [removeWithUndo],
+  );
+
+  const actions: NodeActionsApi = {
+    configure: setDrawerFor,
+    connectFrom: setConnectFor,
+    remove: (ids) => removeWithUndo(ids),
+    layout: () => void layout(),
+    addAt: openQuick,
+    insertOnEdge: insertAt,
+  };
+  const drawerNode = drawerFor ? nodes.find((n) => n.id === drawerFor) : undefined;
 
   return (
-    <EdgeActions.Provider value={{ insertAt }}>
-      <div className="flex min-h-0 flex-1">
-        <Palette onAdd={(t) => g().addNode(t, center())} />
-        <main
-          ref={wrap}
-          aria-label="Canvas"
-          className="relative min-w-0 flex-1"
-          onDragOver={(e) => {
-            if (e.dataTransfer.types.includes(DRAG_TYPE)) {
-              e.preventDefault();
-              e.dataTransfer.dropEffect = 'copy';
-            }
-          }}
-          onDrop={onDrop}
-          onDoubleClick={(e) => {
-            if ((e.target as HTMLElement).classList.contains('react-flow__pane'))
-              openQuick(e.clientX, e.clientY);
-          }}
-        >
-          <ReactFlow<SlNode, SlEdge>
-            nodes={rfNodes}
-            edges={rfEdges}
-            nodeTypes={nodeTypes}
-            edgeTypes={edgeTypes}
-            onNodesChange={onNodesChange}
-            onEdgesChange={onEdgesChange}
-            onConnect={onConnect}
-            onConnectEnd={onConnectEnd}
-            isValidConnection={isValidConnection}
-            onBeforeDelete={onBeforeDelete}
-            onNodeDragStart={() => g().beginDrag()}
-            onNodeDragStop={() => g().endDrag()}
-            onSelectionDragStart={() => g().beginDrag()}
-            onSelectionDragStop={() => g().endDrag()}
-            snapToGrid
-            snapGrid={[8, 8]}
-            // Fit only a pipeline that opens with nodes; an empty canvas starts at 100 % (fitting the
-            // first added node would zoom to the 2× max).
-            fitView={fitOnOpen}
-            fitViewOptions={{ maxZoom: 1 }}
-            defaultViewport={{ x: 0, y: 0, zoom: 1 }}
-            minZoom={0.25}
-            maxZoom={2}
-            zoomOnDoubleClick={false}
-            deleteKeyCode={['Backspace', 'Delete']}
-            multiSelectionKeyCode="Shift"
-            selectionOnDrag
-            panOnDrag={[1, 2]}
-            panOnScroll
-            defaultEdgeOptions={{ type: 'stream' }}
-            proOptions={{ hideAttribution: false }}
-            aria-label="Pipeline canvas"
+    <NodeActions.Provider value={actions}>
+      <EdgeActions.Provider value={{ insertAt }}>
+        <div className="flex min-h-0 flex-1">
+          <Palette onAdd={(t) => g().addNode(t, center())} />
+          <main
+            ref={wrap}
+            aria-label="Canvas"
+            className="relative min-w-0 flex-1"
+            onDragOver={(e) => {
+              if (e.dataTransfer.types.includes(DRAG_TYPE)) {
+                e.preventDefault();
+                e.dataTransfer.dropEffect = 'copy';
+              }
+            }}
+            onDrop={onDrop}
+            onDoubleClick={(e) => {
+              if ((e.target as HTMLElement).classList.contains('react-flow__pane'))
+                openQuick(e.clientX, e.clientY);
+            }}
           >
-            <Background variant={BackgroundVariant.Dots} gap={20} size={1} color="var(--sl-color-line)" />
-            <MiniMap
-              position="top-right"
-              pannable
-              zoomable
-              ariaLabel="Pipeline overview"
-              style={{ width: 170, height: 96 }}
-              nodeColor={(n) => accent(spec((n as SlNode).data.node.type).category)}
-            />
-            <Controls position="bottom-left" showInteractive />
-            <Panel position="top-center">
-              <RunPill />
-            </Panel>
-            <ConnectionHint />
-          </ReactFlow>
-          {nodes.length === 0 && (
-            <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
-              <div className="pointer-events-auto rounded-xl border border-line bg-surface shadow-card">
-                <EmptyState icon={Workflow} title="Start with a source">
-                  Drag Source from the left, double-click the canvas, or press / to add any node.
-                </EmptyState>
+            <ReactFlow<SlNode, SlEdge>
+              nodes={rfNodes}
+              edges={rfEdges}
+              nodeTypes={nodeTypes}
+              edgeTypes={edgeTypes}
+              onNodesChange={onNodesChange}
+              onEdgesChange={onEdgesChange}
+              onConnect={onConnect}
+              onConnectEnd={onConnectEnd}
+              isValidConnection={isValidConnection}
+              onBeforeDelete={onBeforeDelete}
+              onNodeDragStart={() => g().beginDrag()}
+              onNodeDragStop={() => {
+                setGuides({});
+                g().endDrag();
+              }}
+              onNodeDoubleClick={(_, n) => setDrawerFor(n.id)}
+              onNodeContextMenu={(e, n) => {
+                e.preventDefault();
+                setMenu({ kind: 'node', id: n.id, x: e.clientX, y: e.clientY });
+              }}
+              onEdgeContextMenu={(e, ed) => {
+                e.preventDefault();
+                setMenu({ kind: 'edge', id: ed.id, x: e.clientX, y: e.clientY });
+              }}
+              onPaneContextMenu={(e) => {
+                e.preventDefault();
+                setMenu({ kind: 'pane', x: e.clientX, y: e.clientY });
+              }}
+              onSelectionDragStart={() => g().beginDrag()}
+              onSelectionDragStop={() => g().endDrag()}
+              snapToGrid
+              snapGrid={[8, 8]}
+              // Fit only a pipeline that opens with nodes; an empty canvas starts at 100 % (fitting the
+              // first added node would zoom to the 2× max).
+              fitView={fitOnOpen}
+              fitViewOptions={{ maxZoom: 1 }}
+              defaultViewport={{ x: 0, y: 0, zoom: 1 }}
+              minZoom={0.25}
+              maxZoom={2}
+              zoomOnDoubleClick={false}
+              deleteKeyCode={['Backspace', 'Delete']}
+              multiSelectionKeyCode="Shift"
+              selectionOnDrag
+              panOnDrag={[1, 2]}
+              panOnScroll
+              defaultEdgeOptions={{ type: 'stream' }}
+              proOptions={{ hideAttribution: false }}
+              aria-label="Pipeline canvas"
+            >
+              <Background variant={BackgroundVariant.Dots} gap={20} size={1} color="var(--sl-color-line)" />
+              <MiniMap
+                position="top-right"
+                pannable
+                zoomable
+                ariaLabel="Pipeline overview"
+                style={{ width: 170, height: 96 }}
+                nodeColor={(n) => accent(spec((n as SlNode).data.node.type).category)}
+              />
+              <Controls position="bottom-left" showInteractive>
+                <ControlButton onClick={() => void layout()} aria-label="Auto-layout" title="Auto-layout">
+                  <LayoutGrid size={14} aria-hidden="true" />
+                </ControlButton>
+              </Controls>
+              <HelperLines x={guides.x} y={guides.y} />
+              <Panel position="top-center">
+                <RunPill />
+              </Panel>
+              <ConnectionHint />
+            </ReactFlow>
+            {nodes.length === 0 && (
+              <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
+                <div className="pointer-events-auto rounded-xl border border-line bg-surface shadow-card">
+                  <EmptyState icon={Workflow} title="Start with a source">
+                    Drag Source from the left, double-click the canvas, or press / to add any node.
+                  </EmptyState>
+                </div>
               </div>
-            </div>
-          )}
-          {quick && (
-            <QuickAdd
-              x={quick.x}
-              y={quick.y}
-              need={quick.need}
-              onPick={pick}
-              onClose={() => setQuick(null)}
-            />
-          )}
-        </main>
-      </div>
-    </EdgeActions.Provider>
+            )}
+            {quick && (
+              <QuickAdd
+                x={quick.x}
+                y={quick.y}
+                need={quick.need}
+                onPick={pick}
+                onClose={() => setQuick(null)}
+              />
+            )}
+            <CanvasMenu target={menu} onClose={() => setMenu(null)} />
+          </main>
+        </div>
+        {drawerNode && (
+          <NodeDrawer key={drawerNode.id} node={drawerNode} onClose={() => setDrawerFor(null)} />
+        )}
+        {connectFor && <ConnectPicker fromId={connectFor} onClose={() => setConnectFor(null)} />}
+      </EdgeActions.Provider>
+    </NodeActions.Provider>
   );
 }
 

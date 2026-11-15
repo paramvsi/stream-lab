@@ -70,7 +70,7 @@ test('NODE-07 a typed edit is one undo step, recorded on blur; undo restores the
   ).toHaveText('Changed More than 3 settings');
   await page.keyboard.press('Escape');
   await page.getByRole('button', { name: /^Undo/ }).first().click();
-  await expect(expr).toHaveValue('payments > 3');
+  await expect(expr).toHaveText('payments > 3');
 });
 
 test('NODE-07 the drawer resizes, collapses to a bar, and Esc returns focus to the node', async ({
@@ -121,4 +121,30 @@ test('NODE-06 every Phase 1 node opens a form without errors in the page', async
     await expect(n).toBeFocused();
   }
   expect(errors).toEqual([]);
+});
+
+test('NODE-03 CEL editor: squiggle on the bad part, field autocomplete, quick fix (WX01)', async ({
+  page,
+}) => {
+  await scenario(page, 'Card fraud bursts');
+  const d = await open(page, 'More than 3');
+  const expr = d.getByLabel('Expression');
+  await expr.fill('paymnts > 3');
+  await expect(d.locator('.cm-lintRange-error')).toHaveText('paymnts');
+  await expect(d.getByText('Unknown field "paymnts"')).toBeVisible();
+  await d.getByRole('button', { name: 'Use “payments”' }).click();
+  await expect(expr).toHaveText('payments > 3');
+  await expect(d.locator('.cm-lintRange-error')).toHaveCount(0);
+  // Autocomplete from the input schema.
+  await expr.click();
+  await page.keyboard.press('End');
+  await page.keyboard.type(' && card');
+  await expect(page.locator('.cm-tooltip-autocomplete')).toContainText('card_id');
+  await page.keyboard.press('Enter');
+  await expect(expr).toContainText('&& card_id');
+  await page.waitForFunction(() => document.getAnimations().every((a) => a.playState !== 'running'));
+  const r = await new AxeBuilder({ page }).include('[role="dialog"]').analyze();
+  expect(r.violations.map((v) => `${v.id}: ${v.nodes.map((n) => n.target.join(' ')).join(' | ')}`)).toEqual(
+    [],
+  );
 });

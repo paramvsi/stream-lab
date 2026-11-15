@@ -128,9 +128,12 @@ export interface FormCtx {
   /** Render a CEL expression editor (NODE-03); falls back to a text area. */
   renderCel?: (p: {
     id: string;
+    label: string;
     value: string;
     schema: Schema;
     onLive: (v: string) => void;
+    onFocus: () => void;
+    onBlur: () => void;
     issue?: Issue | undefined;
   }) => ReactNode;
 }
@@ -207,11 +210,13 @@ export function SchemaForm({ schema, ctx }: { schema: z.ZodType; ctx: FormCtx })
         <Field key={p} label={labelOf(key)} error={err}>
           {ctx.renderCel ? (
             ctx.renderCel({
-              id: p,
+              id: `cel-${ctx.nodeId}-${p}`,
+              label: labelOf(key),
               value: String(value ?? ''),
               schema: fields,
               onLive: (v) => live(path, v),
-              issue: ctx.issues.find((i) => i.field === p),
+              ...editProps,
+              issue: ctx.issues.find((i) => i.field === p && i.code.startsWith('CEL-')),
             })
           ) : (
             <Textarea

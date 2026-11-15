@@ -5,6 +5,7 @@ import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { useIssues } from '../issues';
 import { accent, NodeIcon } from '../look';
 import { useGraph } from '../store';
+import { CelEditor } from './CelEditor';
 import { NODE_DOCS } from './docs';
 import { SchemaForm } from './SchemaForm';
 
@@ -251,7 +252,7 @@ export function NodeConfigDrawer({
                         config: configOf(node) as Record<string, unknown>,
                         inputs,
                         issues,
-                        ...(celEditor ? { renderCel: celEditor } : {}),
+                        renderCel: celEditor ?? ((p) => <CelEditor {...p} />),
                       }}
                     />
                   </div>

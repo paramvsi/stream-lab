@@ -140,7 +140,8 @@ test('NODE-03 CEL editor: squiggle on the bad part, field autocomplete, quick fi
   await page.keyboard.press('End');
   await page.keyboard.type(' && card');
   await expect(page.locator('.cm-tooltip-autocomplete')).toContainText('card_id');
-  await page.keyboard.press('Enter');
+  // Click the option: CodeMirror ignores Enter for a moment after the list opens (interactionDelay).
+  await page.locator('.cm-tooltip-autocomplete li', { hasText: 'card_id' }).click();
   await expect(expr).toContainText('&& card_id');
   await page.waitForFunction(() => document.getAnimations().every((a) => a.playState !== 'running'));
   const r = await new AxeBuilder({ page }).include('[role="dialog"]').analyze();

@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Motion · Backpressure on the job graph</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400;500&amp;display=swap">
+<style>
+body{margin:0}
+a{color:#CC3D5C}a:hover{color:#A92F4B}
+@keyframes sl-in{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}@keyframes sl-pop{from{opacity:0;transform:scale(.96)}to{opacity:1;transform:none}}@keyframes sl-fade{from{opacity:0}to{opacity:1}}@keyframes sl-up{from{transform:translateY(100%)}to{transform:none}}@keyframes sl-left{from{transform:translateX(100%)}to{transform:none}}@keyframes sl-rise{from{opacity:0;transform:translateY(16px)}to{opacity:1;transform:none}}@keyframes sl-dash{to{stroke-dashoffset:-20}}@keyframes sl-glow{0%,100%{box-shadow:0 0 0 3px rgba(230,82,111,.18),0 0 18px rgba(230,82,111,.25)}50%{box-shadow:0 0 0 5px rgba(230,82,111,.28),0 0 28px rgba(230,82,111,.38)}}@keyframes sl-blink{0%,100%{opacity:1}50%{opacity:.35}}@keyframes sl-travel{from{transform:translateX(0)}to{transform:translateX(var(--d,200px))}}@keyframes sl-spot{from{opacity:0;transform:scale(1.06)}to{opacity:1;transform:none}}main>*{animation:sl-in .42s cubic-bezier(.2,0,0,1) both}main>*:nth-child(2){animation-delay:.05s}main>*:nth-child(3){animation-delay:.1s}main>*:nth-child(4){animation-delay:.15s}main>*:nth-child(5){animation-delay:.2s}main>*:nth-child(n+6){animation-delay:.25s}[role=dialog]{animation:sl-pop .26s cubic-bezier(.2,0,0,1) .08s both}.sl-scrim{animation:sl-fade .2s ease-out both}.sl-drawer-r{animation:sl-left .3s cubic-bezier(.2,0,0,1) both}.sl-drawer-b{animation:sl-up .32s cubic-bezier(.2,0,0,1) both}[role=status].sl-toast{animation:sl-rise .3s cubic-bezier(.2,0,0,1) .2s both}.sl-flow{stroke-dasharray:6 4;animation:sl-dash .8s linear infinite}.sl-glow{animation:sl-glow 1.8s ease-in-out infinite}.sl-blink{animation:sl-blink 1.2s ease-in-out infinite}.sl-travel{animation:sl-travel 2.4s linear infinite}.sl-spot{animation:sl-spot .36s cubic-bezier(.2,0,0,1) both}@media (prefers-reduced-motion: reduce){*{animation:none !important;transition:none !important}}
+
+@keyframes sl-wm{0%{transform:translateX(0)}100%{transform:translateX(560px)}}
+@keyframes sl-ev{0%{transform:translateX(-60px);opacity:0}15%{opacity:1}100%{transform:translateX(0);opacity:1}}
+@keyframes sl-fire{0%,62%{background:rgba(230,82,111,0.10);border-color:#F9DCE2}66%{background:rgba(230,82,111,0.35);border-color:#CC3D5C}100%{background:rgba(230,82,111,0.14);border-color:#F9DCE2}}
+@keyframes sl-row{0%,66%{opacity:0;transform:translateY(-6px)}74%,100%{opacity:1;transform:translateY(0)}}
+@keyframes sl-late{0%,40%{transform:translate(0,0)}60%{transform:translate(0,-18px)}100%{transform:translate(40px,70px)}}
+@keyframes sl-draw{0%{stroke-dashoffset:300}100%{stroke-dashoffset:0}}
+@keyframes sl-drop{0%{transform:translate(-120px,-60px) rotate(-3deg);opacity:.9}60%{transform:translate(0,0) rotate(0deg)}70%{transform:scale(1.03)}100%{transform:scale(1)}}
+@keyframes sl-toast{0%,10%{transform:translateY(24px);opacity:0}20%,80%{transform:translateY(0);opacity:1}90%,100%{transform:translateY(8px);opacity:0}}
+@keyframes sl-panel{0%,10%{transform:translateX(100%)}30%,80%{transform:translateX(0)}95%,100%{transform:translateX(100%)}}
+@keyframes sl-tick{0%,45%{opacity:1}50%{opacity:.35}55%,100%{opacity:1}}
+@keyframes sl-pulse{0%,100%{stroke-opacity:.35}50%{stroke-opacity:1}}
+@keyframes sl-flow{0%{stroke-dashoffset:24}100%{stroke-dashoffset:0}}
+@keyframes sl-step1{0%,8%{opacity:.3}12%,100%{opacity:1}}
+@keyframes sl-step2{0%,28%{opacity:.3}32%,100%{opacity:1}}
+@keyframes sl-step3{0%,48%{opacity:.3}52%,100%{opacity:1}}
+@keyframes sl-step4{0%,68%{opacity:.3}72%,100%{opacity:1}}
+@keyframes sl-dialog{0%,10%{transform:scale(.96);opacity:0}22%,85%{transform:scale(1);opacity:1}95%,100%{transform:scale(.98);opacity:0}}
+@keyframes sl-scrim{0%,10%{opacity:0}22%,85%{opacity:1}95%,100%{opacity:0}}
+@keyframes sl-spin{to{transform:rotate(360deg)}}
+@keyframes sl-skel{0%,100%{opacity:1}50%{opacity:.55}}
+@media (prefers-reduced-motion: reduce){*{animation:none !important;transition:none !important}}
+</style>
+</helmet>
+<div style="min-height: 760px; position: relative; overflow: hidden; background: #FFFFFF; color: #1F1416; font-family: 'Outfit', system-ui, sans-serif; box-sizing: border-box">
+<div style="padding: 40px; display: flex; flex-direction: column; gap: 20px"><div style="display: flex; flex-direction: column; gap: 8px; min-width: 0; "><span style="font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 12px; color: #CC3D5C">MOTION · JOB GRAPH</span><h1 style="margin: 0; font-size: 28px; line-height: 1.2; font-weight: 600; letter-spacing: -0.02em; ">Backpressure on the job graph</h1><p style="margin: 0; font-size: 15px; line-height: 1.6; color: #6B5A5D; ">Backpressured edges flow slowly in orange; the busy operator's border pulses. The pulse stops as soon as busy time drops under 90%.</p></div><div style="border: 1px solid #EDE5E6; border-radius: 14px; padding: 28px; background: #FFFFFF; position: relative; overflow: hidden; min-height: 240px"><svg width="100%" viewBox="0 0 700 150" aria-hidden="true"><rect x="10" y="40" width="180" height="70" rx="12" fill="#FEF3E8" stroke="#F2994A" stroke-width="2"/><text x="26" y="80" font-family="Outfit" font-size="14" font-weight="600" fill="#1F1416">Validate → Lookup</text><path d="M190 75 L500 75" stroke="#F2994A" stroke-width="3" stroke-dasharray="8 4" style="animation: sl-flow 1.6s linear infinite"/><rect x="500" y="40" width="180" height="70" rx="12" fill="#FDEDEB" stroke="#B42318" stroke-width="2" style="animation: sl-pulse 1.6s ease-in-out infinite"/><text x="516" y="80" font-family="Outfit" font-size="14" font-weight="600" fill="#1F1416">Window · busy 97%</text></svg></div><div style="overflow-x: auto; border: 1px solid #EDE5E6; border-radius: 12px; background: #FFFFFF"><table style="width: 100%; border-collapse: collapse; font-family: 'Outfit', system-ui, sans-serif; color: #1F1416"><thead><tr><th style="text-align: left; font-size: 12px; font-weight: 500; color: #6B5A5D; padding: 10px 14px; border-bottom: 1px solid #EDE5E6; background: #FAF7F7; white-space: nowrap">Property</th><th style="text-align: left; font-size: 12px; font-weight: 500; color: #6B5A5D; padding: 10px 14px; border-bottom: 1px solid #EDE5E6; background: #FAF7F7; white-space: nowrap">Value</th></tr></thead><tbody><tr style="background: #FFFFFF"><td style="font-size: 14px; padding: 10px 14px; border-bottom: 1px solid #EDE5E6; white-space: nowrap; vertical-align: middle">Edge flow</td><td style="font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 12px; padding: 10px 14px; border-bottom: 1px solid #EDE5E6; white-space: nowrap; vertical-align: middle">1.6 s linear loop</td></tr><tr style="background: #FFFFFF"><td style="font-size: 14px; padding: 10px 14px; border-bottom: 1px solid #EDE5E6; white-space: nowrap; vertical-align: middle">Busy pulse</td><td style="font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 12px; padding: 10px 14px; border-bottom: 1px solid #EDE5E6; white-space: nowrap; vertical-align: middle">1.6 s ease-in-out</td></tr><tr style="background: #FFFFFF"><td style="font-size: 14px; padding: 10px 14px; border-bottom: 1px solid #EDE5E6; white-space: nowrap; vertical-align: middle">Threshold</td><td style="font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 12px; padding: 10px 14px; border-bottom: 1px solid #EDE5E6; white-space: nowrap; vertical-align: middle">busy ≥ 90%</td></tr></tbody></table></div></div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":760}}'>
+class Component extends DCLogic {
+renderVals() {
+return {};
+}
+}
+</script>
+</body>
+</html>

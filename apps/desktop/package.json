@@ -1,0 +1,6 @@
+{
+  "name": "@sl/desktop",
+  "private": true,
+  "type": "module",
+  "scripts": {}
+}

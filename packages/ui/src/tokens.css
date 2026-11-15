@@ -1,0 +1,212 @@
+:root {
+  --sl-color-surface: #ffffff;
+  --sl-color-subtle: #faf7f7;
+  --sl-color-ink: #1f1416;
+  --sl-color-muted: #6b5a5d;
+  --sl-color-line: #ede5e6;
+  --sl-color-line-strong: #9c8c90;
+  --sl-color-rose-50: #fdf1f3;
+  --sl-color-rose-100: #f9dce2;
+  --sl-color-rose-500: #e6526f;
+  --sl-color-rose-600: #cc3d5c;
+  --sl-color-rose-700: #a92f4b;
+  --sl-color-orange-50: #fef3e8;
+  --sl-color-orange-500: #f2994a;
+  --sl-color-orange-700: #a8540f;
+  --sl-color-success-50: #eaf5ef;
+  --sl-color-success-600: #1e7f4f;
+  --sl-color-danger-50: #fdedeb;
+  --sl-color-danger-600: #b42318;
+  --sl-color-scrim: rgba(31, 20, 22, 0.4);
+  --sl-node-category-sources-accent: #7b3fa0;
+  --sl-node-category-sources-tint: #f4ecf8;
+  --sl-node-category-transform-accent: #0f766e;
+  --sl-node-category-transform-tint: #e6f4f2;
+  --sl-node-category-enrich-accent: #8a5a44;
+  --sl-node-category-enrich-tint: #f5eeea;
+  --sl-node-category-time-state-accent: #cc3d5c;
+  --sl-node-category-time-state-tint: #fdf1f3;
+  --sl-node-category-quality-accent: #b45309;
+  --sl-node-category-quality-tint: #fef3e2;
+  --sl-node-category-outputs-accent: #3b2a2e;
+  --sl-node-category-outputs-tint: #f3efef;
+  --sl-font-sans: 'Outfit', system-ui, sans-serif;
+  --sl-font-mono: 'JetBrains Mono', ui-monospace, monospace;
+  --sl-shadow-card: 0 1px 2px rgba(31, 20, 22, 0.04), 0 12px 32px rgba(31, 20, 22, 0.06);
+  --sl-shadow-pop: 0 2px 6px rgba(31, 20, 22, 0.06), 0 24px 64px rgba(31, 20, 22, 0.16);
+  --sl-radius-sm: 6px;
+  --sl-radius-md: 8px;
+  --sl-radius-lg: 12px;
+  --sl-radius-xl: 16px;
+  --sl-radius-pill: 999px;
+  --sl-space-1: 4px;
+  --sl-space-2: 8px;
+  --sl-space-3: 12px;
+  --sl-space-4: 16px;
+  --sl-space-5: 20px;
+  --sl-space-6: 24px;
+  --sl-space-8: 32px;
+  --sl-space-10: 40px;
+  --sl-space-12: 48px;
+  --sl-motion-ease-out: cubic-bezier(0.2, 0, 0, 1);
+  --sl-motion-fast: 150ms;
+  --sl-motion-base: 260ms;
+  --sl-motion-slow: 420ms;
+  --sl-motion-stagger: 50ms;
+}
+
+/* Global motion (from the designs) */
+@keyframes sl-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@keyframes sl-pop {
+  from {
+    opacity: 0;
+    transform: scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@keyframes sl-fade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+@keyframes sl-up {
+  from {
+    transform: translateY(100%);
+  }
+  to {
+    transform: none;
+  }
+}
+@keyframes sl-left {
+  from {
+    transform: translateX(100%);
+  }
+  to {
+    transform: none;
+  }
+}
+@keyframes sl-rise {
+  from {
+    opacity: 0;
+    transform: translateY(16px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@keyframes sl-dash {
+  to {
+    stroke-dashoffset: -20;
+  }
+}
+@keyframes sl-glow {
+  0%,
+  100% {
+    box-shadow:
+      0 0 0 3px rgba(230, 82, 111, 0.18),
+      0 0 18px rgba(230, 82, 111, 0.25);
+  }
+  50% {
+    box-shadow:
+      0 0 0 5px rgba(230, 82, 111, 0.28),
+      0 0 28px rgba(230, 82, 111, 0.38);
+  }
+}
+@keyframes sl-blink {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.35;
+  }
+}
+@keyframes sl-travel {
+  from {
+    transform: translateX(0);
+  }
+  to {
+    transform: translateX(var(--d, 200px));
+  }
+}
+@keyframes sl-spot {
+  from {
+    opacity: 0;
+    transform: scale(1.06);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+main > * {
+  animation: sl-in 0.42s cubic-bezier(0.2, 0, 0, 1) both;
+}
+main > *:nth-child(2) {
+  animation-delay: 0.05s;
+}
+main > *:nth-child(3) {
+  animation-delay: 0.1s;
+}
+main > *:nth-child(4) {
+  animation-delay: 0.15s;
+}
+main > *:nth-child(5) {
+  animation-delay: 0.2s;
+}
+main > *:nth-child(n + 6) {
+  animation-delay: 0.25s;
+}
+[role='dialog'] {
+  animation: sl-pop 0.26s cubic-bezier(0.2, 0, 0, 1) 0.08s both;
+}
+.sl-scrim {
+  animation: sl-fade 0.2s ease-out both;
+}
+.sl-drawer-r {
+  animation: sl-left 0.3s cubic-bezier(0.2, 0, 0, 1) both;
+}
+.sl-drawer-b {
+  animation: sl-up 0.32s cubic-bezier(0.2, 0, 0, 1) both;
+}
+[role='status'].sl-toast {
+  animation: sl-rise 0.3s cubic-bezier(0.2, 0, 0, 1) 0.2s both;
+}
+.sl-flow {
+  stroke-dasharray: 6 4;
+  animation: sl-dash 0.8s linear infinite;
+}
+.sl-glow {
+  animation: sl-glow 1.8s ease-in-out infinite;
+}
+.sl-blink {
+  animation: sl-blink 1.2s ease-in-out infinite;
+}
+.sl-travel {
+  animation: sl-travel 2.4s linear infinite;
+}
+.sl-spot {
+  animation: sl-spot 0.36s cubic-bezier(0.2, 0, 0, 1) both;
+}
+@media (prefers-reduced-motion: reduce) {
+  * {
+    animation: none !important;
+    transition: none !important;
+  }
+}

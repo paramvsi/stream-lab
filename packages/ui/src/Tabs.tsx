@@ -1,0 +1,57 @@
+import { Tabs as R } from 'radix-ui';
+import type { ReactNode } from 'react';
+
+export interface TabItem {
+  value: string;
+  label: ReactNode;
+  count?: number;
+  content: ReactNode;
+}
+
+/** Board D08: 14 px / 500, muted → ink when active, 2 px rose-600 underline, count pill in subtle. */
+export function Tabs({
+  items,
+  value,
+  defaultValue,
+  onValueChange,
+  label,
+}: {
+  items: TabItem[];
+  value?: string;
+  defaultValue?: string;
+  onValueChange?: (v: string) => void;
+  /** Accessible name of the tab list. */
+  label: string;
+}) {
+  return (
+    <R.Root
+      {...(value !== undefined ? { value } : {})}
+      defaultValue={defaultValue ?? items[0]?.value}
+      {...(onValueChange ? { onValueChange } : {})}
+      className="flex min-w-0 flex-col"
+    >
+      <R.List aria-label={label} className="flex flex-wrap gap-6 border-b border-line">
+        {items.map((t) => (
+          <R.Trigger
+            key={t.value}
+            value={t.value}
+            className="sl-focus -mb-px inline-flex items-center gap-2 border-b-2 border-transparent px-0.5 py-3 text-[14px] font-medium text-muted transition-colors hover:text-ink data-[state=active]:border-rose-600 data-[state=active]:text-ink"
+          >
+            {t.label}
+            {t.count !== undefined && ' '}
+            {t.count !== undefined && (
+              <span className="rounded-pill bg-subtle px-[7px] py-px font-mono text-[11px] text-muted tabular-nums">
+                {t.count}
+              </span>
+            )}
+          </R.Trigger>
+        ))}
+      </R.List>
+      {items.map((t) => (
+        <R.Content key={t.value} value={t.value} className="sl-focus pt-4">
+          {t.content}
+        </R.Content>
+      ))}
+    </R.Root>
+  );
+}

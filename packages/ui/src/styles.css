@@ -1,0 +1,73 @@
+@import 'tailwindcss';
+@import './tokens.css';
+
+/* Scan every workspace package for class names (apps import @sl/ui through node_modules). */
+@source '../../';
+
+/* Tokens are the only palette: Tailwind's default colours (blue, gray…) are removed on purpose. */
+@theme inline {
+  --color-*: initial;
+  --color-white: #fff;
+  --color-transparent: transparent;
+  --color-current: currentColor;
+  --color-surface: var(--sl-color-surface);
+  --color-subtle: var(--sl-color-subtle);
+  --color-ink: var(--sl-color-ink);
+  --color-muted: var(--sl-color-muted);
+  --color-line: var(--sl-color-line);
+  --color-line-strong: var(--sl-color-line-strong);
+  --color-rose-50: var(--sl-color-rose-50);
+  --color-rose-100: var(--sl-color-rose-100);
+  --color-rose-500: var(--sl-color-rose-500);
+  --color-rose-600: var(--sl-color-rose-600);
+  --color-rose-700: var(--sl-color-rose-700);
+  --color-orange-50: var(--sl-color-orange-50);
+  --color-orange-500: var(--sl-color-orange-500);
+  --color-orange-700: var(--sl-color-orange-700);
+  --color-success-50: var(--sl-color-success-50);
+  --color-success-600: var(--sl-color-success-600);
+  --color-danger-50: var(--sl-color-danger-50);
+  --color-danger-600: var(--sl-color-danger-600);
+  --color-scrim: var(--sl-color-scrim);
+
+  --font-sans: var(--sl-font-sans);
+  --font-mono: var(--sl-font-mono);
+
+  --radius-sm: var(--sl-radius-sm);
+  --radius-md: var(--sl-radius-md);
+  --radius-lg: var(--sl-radius-lg);
+  --radius-xl: var(--sl-radius-xl);
+  --radius-pill: var(--sl-radius-pill);
+
+  --shadow-card: var(--sl-shadow-card);
+  --shadow-pop: var(--sl-shadow-pop);
+
+  --ease-sl: var(--sl-motion-ease-out);
+  --default-transition-duration: var(--sl-motion-fast);
+  --default-transition-timing-function: var(--sl-motion-ease-out);
+}
+
+@layer base {
+  body {
+    background: var(--sl-color-surface);
+    color: var(--sl-color-ink);
+    font-family: var(--sl-font-sans);
+    font-size: 14px;
+  }
+  a {
+    color: var(--sl-color-rose-600);
+  }
+  a:hover {
+    color: var(--sl-color-rose-700);
+  }
+}
+
+/* Focus: 2 px rose-600 ring + 2 px white offset (DESIGN_SYSTEM.md). */
+@utility sl-focus {
+  outline: none;
+  &:focus-visible {
+    box-shadow:
+      0 0 0 2px var(--sl-color-surface),
+      0 0 0 4px var(--sl-color-rose-600);
+  }
+}

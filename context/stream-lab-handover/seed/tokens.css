@@ -1,0 +1,109 @@
+:root{
+  --sl-color-surface: #FFFFFF;
+  --sl-color-subtle: #FAF7F7;
+  --sl-color-ink: #1F1416;
+  --sl-color-muted: #6B5A5D;
+  --sl-color-line: #EDE5E6;
+  --sl-color-line-strong: #9C8C90;
+  --sl-color-rose-50: #FDF1F3;
+  --sl-color-rose-100: #F9DCE2;
+  --sl-color-rose-500: #E6526F;
+  --sl-color-rose-600: #CC3D5C;
+  --sl-color-rose-700: #A92F4B;
+  --sl-color-orange-50: #FEF3E8;
+  --sl-color-orange-500: #F2994A;
+  --sl-color-orange-700: #A8540F;
+  --sl-color-success-50: #EAF5EF;
+  --sl-color-success-600: #1E7F4F;
+  --sl-color-danger-50: #FDEDEB;
+  --sl-color-danger-600: #B42318;
+  --sl-color-scrim: rgba(31, 20, 22, 0.40);
+  --sl-node-category-sources-accent: #7B3FA0;
+  --sl-node-category-sources-tint: #F4ECF8;
+  --sl-node-category-transform-accent: #0F766E;
+  --sl-node-category-transform-tint: #E6F4F2;
+  --sl-node-category-enrich-accent: #8A5A44;
+  --sl-node-category-enrich-tint: #F5EEEA;
+  --sl-node-category-time-state-accent: #CC3D5C;
+  --sl-node-category-time-state-tint: #FDF1F3;
+  --sl-node-category-quality-accent: #B45309;
+  --sl-node-category-quality-tint: #FEF3E2;
+  --sl-node-category-outputs-accent: #3B2A2E;
+  --sl-node-category-outputs-tint: #F3EFEF;
+  --sl-font-sans: 'Outfit', system-ui, sans-serif;
+  --sl-font-mono: 'JetBrains Mono', ui-monospace, monospace;
+  --sl-shadow-card: 0 1px 2px rgba(31,20,22,0.04), 0 12px 32px rgba(31,20,22,0.06);
+  --sl-shadow-pop: 0 2px 6px rgba(31,20,22,0.06), 0 24px 64px rgba(31,20,22,0.16);
+  --sl-radius-sm: 6px;
+  --sl-radius-md: 8px;
+  --sl-radius-lg: 12px;
+  --sl-radius-xl: 16px;
+  --sl-radius-pill: 999px;
+  --sl-space-1: 4px;
+  --sl-space-2: 8px;
+  --sl-space-3: 12px;
+  --sl-space-4: 16px;
+  --sl-space-5: 20px;
+  --sl-space-6: 24px;
+  --sl-space-8: 32px;
+  --sl-space-10: 40px;
+  --sl-space-12: 48px;
+  --sl-motion-ease-out: cubic-bezier(.2,0,0,1);
+  --sl-motion-fast: 150ms;
+  --sl-motion-base: 260ms;
+  --sl-motion-slow: 420ms;
+  --sl-motion-stagger: 50ms;
+}
+
+/* Global motion (from the designs) */
+@keyframes sl-in{from{opacity:0;transform:translateY(8px)}
+to{opacity:1;transform:none}
+}
+@keyframes sl-pop{from{opacity:0;transform:scale(.96)}
+to{opacity:1;transform:none}
+}
+@keyframes sl-fade{from{opacity:0}
+to{opacity:1}
+}
+@keyframes sl-up{from{transform:translateY(100%)}
+to{transform:none}
+}
+@keyframes sl-left{from{transform:translateX(100%)}
+to{transform:none}
+}
+@keyframes sl-rise{from{opacity:0;transform:translateY(16px)}
+to{opacity:1;transform:none}
+}
+@keyframes sl-dash{to{stroke-dashoffset:-20}
+}
+@keyframes sl-glow{0%,100%{box-shadow:0 0 0 3px rgba(230,82,111,.18),0 0 18px rgba(230,82,111,.25)}
+50%{box-shadow:0 0 0 5px rgba(230,82,111,.28),0 0 28px rgba(230,82,111,.38)}
+}
+@keyframes sl-blink{0%,100%{opacity:1}
+50%{opacity:.35}
+}
+@keyframes sl-travel{from{transform:translateX(0)}
+to{transform:translateX(var(--d,200px))}
+}
+@keyframes sl-spot{from{opacity:0;transform:scale(1.06)}
+to{opacity:1;transform:none}
+}
+main>*{animation:sl-in .42s cubic-bezier(.2,0,0,1) both}
+main>*:nth-child(2){animation-delay:.05s}
+main>*:nth-child(3){animation-delay:.1s}
+main>*:nth-child(4){animation-delay:.15s}
+main>*:nth-child(5){animation-delay:.2s}
+main>*:nth-child(n+6){animation-delay:.25s}
+[role=dialog]{animation:sl-pop .26s cubic-bezier(.2,0,0,1) .08s both}
+.sl-scrim{animation:sl-fade .2s ease-out both}
+.sl-drawer-r{animation:sl-left .3s cubic-bezier(.2,0,0,1) both}
+.sl-drawer-b{animation:sl-up .32s cubic-bezier(.2,0,0,1) both}
+[role=status].sl-toast{animation:sl-rise .3s cubic-bezier(.2,0,0,1) .2s both}
+.sl-flow{stroke-dasharray:6 4;animation:sl-dash .8s linear infinite}
+.sl-glow{animation:sl-glow 1.8s ease-in-out infinite}
+.sl-blink{animation:sl-blink 1.2s ease-in-out infinite}
+.sl-travel{animation:sl-travel 2.4s linear infinite}
+.sl-spot{animation:sl-spot .36s cubic-bezier(.2,0,0,1) both}
+@media (prefers-reduced-motion: reduce){*{animation:none !important;transition:none !important}
+}
+

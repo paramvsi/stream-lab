@@ -1,0 +1,8 @@
+node_modules
+dist
+storybook-static
+.turbo
+coverage
+*.log
+.DS_Store
+context/*.zip

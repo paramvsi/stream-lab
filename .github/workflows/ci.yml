@@ -1,0 +1,25 @@
+name: ci
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+# TESTING.md: lint, typecheck, unit, catalog, component and a11y on every PR.
+# e2e + the Flink version matrix run nightly and on release branches (added in M1/M6).
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm lint
+      - run: pnpm format:check
+      - run: pnpm typecheck
+      - run: pnpm test # unit + catalog (errors.test.ts) + component + axe on every story
+      - run: pnpm build
+      - run: pnpm build-storybook

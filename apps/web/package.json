@@ -14,8 +14,14 @@
   },
   "dependencies": {
     "@sl/errors": "workspace:*",
+    "@sl/graph": "workspace:*",
     "@sl/ui": "workspace:*",
+    "@xyflow/react": "^12.12.1",
+    "elkjs": "^0.12.1",
+    "idb": "^8.0.4",
     "react": "^19.3.1",
-    "react-dom": "^19.3.1"
+    "react-dom": "^19.3.1",
+    "zundo": "^2.3.0",
+    "zustand": "^5.1.0"
   }
 }

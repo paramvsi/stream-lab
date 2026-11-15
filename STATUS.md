@@ -56,21 +56,20 @@ Gate (ROADMAP): SIM-01…15, 20, 22, 23.
 
 Gate (ROADMAP): NODE-01…07. The e2e files ran at 1440×900 and 1280×800.
 
-| Criterion                                                    | Evidence                                                                                   | Status                      |
-| ------------------------------------------------------------ | ------------------------------------------------------------------------------------------ | --------------------------- |
-| NODE-01 drawer, four tabs, Enter/double-click opens          | `drawer.spec.ts` (NODE-01, NODE-06), axe on the dialog                                     | pass                        |
-| NODE-02 generated forms, inline errors, live badge           | `drawer.spec.ts` (NODE-02 ×2), `checks.test.ts`, `drawer-audit.spec.ts` (audits 2, 3, 7+9) | pass                        |
-| NODE-03 CEL highlighting, autocomplete, squiggle, quick fix  | `drawer.spec.ts` (NODE-03), `checks.test.ts` (CEL-*)                                       | pass                        |
-| NODE-04 5 events before/after, state per key                 | `preview.test.ts`, `drawer.spec.ts` (NODE-04 ×2)                                           | pass, with the limits below |
-| NODE-05 Run to here (drawer, toolbar, menu)                  | `drawer.spec.ts` (NODE-05), `preview.test.ts`                                              | pass, with the limits below |
-| NODE-06 all Phase 1 node types with their codes              | `graph.test.ts`, `checks.test.ts`, `drawer.spec.ts` (NODE-06)                              | pass                        |
-| NODE-07 one undo step per edit, resize, collapse, Esc → node | `drawer.spec.ts` (NODE-07 ×2), `store.test.ts`, `drawer-audit.spec.ts` (audits 1, 4, 6)    | pass                        |
+| Criterion                                                                                              | Evidence                                                                                   | Status                      |
+| ------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------ | --------------------------- |
+| NODE-01 drawer, four tabs, Enter/double-click opens                                                    | `drawer.spec.ts` (NODE-01, NODE-06), axe on the dialog                                     | pass                        |
+| NODE-02 generated forms, inline errors, live badge                                                     | `drawer.spec.ts` (NODE-02 ×2), `checks.test.ts`, `drawer-audit.spec.ts` (audits 2, 3, 7+9) | pass                        |
+| NODE-03 CEL highlighting, autocomplete, squiggle, quick fix                                            | `drawer.spec.ts` (NODE-03), `checks.test.ts` (CEL-*)                                       | pass                        |
+| NODE-04 5 events before/after, state per key (the run engine on samples; also under the Settings form) | `preview.test.ts`, `drawer.spec.ts` (NODE-04 ×2)                                           | pass, with the limits below |
+| NODE-05 Run to here (drawer, toolbar, menu)                                                            | `drawer.spec.ts` (NODE-05), `preview.test.ts`                                              | pass, with the limits below |
+| NODE-06 all Phase 1 node types with their codes                                                        | `graph.test.ts`, `checks.test.ts`, `drawer.spec.ts` (NODE-06)                              | pass                        |
+| NODE-07 one undo step per edit, resize, collapse, Esc → node                                           | `drawer.spec.ts` (NODE-07 ×2), `store.test.ts`, `drawer-audit.spec.ts` (audits 1, 4, 6)    | pass                        |
 
 ### Not done in M2, and why
 
-| Item                                                                                              | Why                                                                                                                                  | Where it lands |
-| ------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------ | -------------- |
-| Preview has no watermarks: the Late side output is always 0; windows are buckets over the samples | The preview runs on a synchronous mini-engine (`packages/engine/src/preview.ts`), which the M2 prompt allows until the Worker engine | M3             |
-| Lookup preview: every event misses                                                                | No reference tables until DATA (MORNING D33)                                                                                         | M3             |
-| Pattern and SQL node forms run nothing                                                            | v1 (NODE-08, Pattern)                                                                                                                | v1             |
-| Board pixel-match for W10*                                                                        | No approved visual baselines yet (TESTING.md "Visual")                                                                               | M11            |
+| Item                                   | Why                                                    | Where it lands |
+| -------------------------------------- | ------------------------------------------------------ | -------------- |
+| Lookup preview: every event misses     | No reference tables until DATA (MORNING D33)           | M3             |
+| Pattern and SQL node forms run nothing | v1 (NODE-08, Pattern)                                  | v1             |
+| Board pixel-match for W10*             | No approved visual baselines yet (TESTING.md "Visual") | M11            |

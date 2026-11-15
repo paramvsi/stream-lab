@@ -10,7 +10,7 @@ import {
   type Schema,
 } from '@sl/graph';
 import { subtaskOf } from './keygroups';
-import { rng, type Event } from './preview';
+import { rng, type Event } from './random';
 
 /**
  * The run engine (M3): event-time simulation with Flink semantics (ARCHITECTURE.md "Engine semantics").
@@ -48,6 +48,15 @@ export interface RunOptions {
   sourceGapMs?: Record<string, number>;
   /** Cap on rows kept per sink / dead-letter for the Output tab. */
   keep?: number;
+  /** Events per source instead of the Generator's count (the drawer preview uses 5 or 50). */
+  sample?: number;
+  /** Record what this node receives and emits (preview, NODE-04). */
+  tap?: string;
+  /**
+   * Finished sources keep their last watermark until one more step() after the input ends, so open state can
+   * be read before the final flush (the preview's "state per key").
+   */
+  holdFinalWatermark?: boolean;
 }
 
 export interface NodeStats {
@@ -231,6 +240,8 @@ interface Operator {
   /** Called when the input watermark advances (before it is forwarded downstream). */
   advance?(wm: number): void;
   keys?(): number;
+  /** Open state per key, as rows (NODE-04 "state per key"). */
+  snapshot?(): Event[];
 }
 
 const keyOf = (e: Event, keys: string[]) => keys.map((k) => String(e[k] ?? '∅')).join('|');
@@ -375,6 +386,18 @@ function windowOp(n: PipelineNode, x: Ctx): Operator {
       }
     },
     keys: () => state.size,
+    snapshot: () =>
+      [...state.values()].flatMap((ws) =>
+        [...ws.values()].map((w) => {
+          const r = result(w).data;
+          // Board W10y: key, window as a range, then the aggregates.
+          const hm = (ms: number) => iso(ms).slice(11, 19);
+          const aggs = Object.entries(r).filter(
+            ([k]) => !(k in w.keyData) && k !== 'window_start' && k !== 'window_end',
+          );
+          return { ...w.keyData, window: `${hm(w.start)}–${hm(w.end)}`, ...Object.fromEntries(aggs) };
+        }),
+      ),
   };
 }
 
@@ -453,8 +476,10 @@ function operator(
     }
   };
   if (n.disabled) {
+    // Disabled: the first input port passes through to the first output (not every input or branch).
     const first = spec(n.type).outputs(c)[0]?.id;
-    return { process: (_p, ev) => first && x.emit(first, ev) };
+    const inPort = spec(n.type).inputs(c)[0]?.id ?? 'main';
+    return { process: (p, ev) => p === inPort && first && x.emit(first, ev) };
   }
   switch (n.type) {
     case 'Filter':
@@ -531,6 +556,11 @@ function operator(
           }
         },
         keys: () => seen.size,
+        snapshot: () =>
+          [...seen].map(([k, at]) => ({
+            key: k.replaceAll('|', ' · '),
+            first_seen: `${(at / 1000).toFixed(1)} s into the run`,
+          })),
       };
     }
     case 'Top-N': {
@@ -626,6 +656,10 @@ export interface Run {
   /** Process up to `n` arrivals; at the end of input, flush (final watermark). */
   advance(n: number): void;
   stats(): RunStats;
+  /** What the `tap` node received and emitted, per port. */
+  tapped(): { input: Record<string, Event[]>; output: Record<string, Event[]> };
+  /** Open state of a stateful node (see RunOptions.holdFinalWatermark). */
+  snapshot(id: string): Event[] | undefined;
   /** Simulation time of the next arrival, or undefined at the end of input. */
   next(): number | undefined;
 }
@@ -680,8 +714,15 @@ export function createRun(g: Graph, opts: RunOptions = {}): Run {
       : generate(
           schema,
           n.type === 'Generator'
-            ? (c as typeof GEN_DEFAULTS & { seed: number })
-            : { ...GEN_DEFAULTS, seed: (opts.seed ?? 42) + si },
+            ? {
+                ...(c as typeof GEN_DEFAULTS & { seed: number }),
+                ...(opts.sample ? { count: opts.sample } : {}),
+              }
+            : {
+                ...GEN_DEFAULTS,
+                seed: (opts.seed ?? 42) + si,
+                ...(opts.sample ? { count: opts.sample } : {}),
+              },
           timeField,
           ooo,
         );
@@ -697,14 +738,17 @@ export function createRun(g: Graph, opts: RunOptions = {}): Run {
   const deliver = (from: string, port: string, ev: SimEvent) => {
     const st = ns(from);
     st.out[port] = (st.out[port] ?? 0) + 1;
+    if (from === opts.tap) (tapped.output[port] ??= []).push(ev.data);
     for (const e of out.get(from) ?? [])
       if (e.sourceHandle === port) {
         stats.edges[e.id] = (stats.edges[e.id] ?? 0) + 1;
         receive(e.target, e.targetHandle, ev, from);
       }
   };
+  const tapped = { input: {} as Record<string, Event[]>, output: {} as Record<string, Event[]> };
   const receive = (id: string, port: string, ev: SimEvent, from: string) => {
     ns(id).in++;
+    if (id === opts.tap) (tapped.input[port] ??= []).push(ev.data);
     ops.get(id)?.process(port, ev, from);
   };
   for (const n of order) {
@@ -751,7 +795,7 @@ export function createRun(g: Graph, opts: RunOptions = {}): Run {
       if (w) {
         // FLINK: BoundedOutOfOrdernessWatermarks emits maxTimestamp − outOfOrderness − 1; a finished
         // bounded source emits Long.MAX_VALUE.
-        wm = w.left === 0 ? Infinity : w.max - w.ooo - 1;
+        wm = w.left === 0 && (!opts.holdFinalWatermark || ended) ? Infinity : w.max - w.ooo - 1;
       } else {
         const ins = (inEdges.get(n.id) ?? []).filter((e) => {
           const up = srcWm.get(e.source);
@@ -771,13 +815,15 @@ export function createRun(g: Graph, opts: RunOptions = {}): Run {
   };
 
   let i = 0;
+  let ended = false;
   const step = () => {
     const a = arrivals[i];
     if (!a) {
-      if (!stats.done) {
+      if (!ended) {
+        ended = true;
         propagateWm();
-        stats.done = true;
       }
+      stats.done = true;
       return false;
     }
     i++;
@@ -790,9 +836,7 @@ export function createRun(g: Graph, opts: RunOptions = {}): Run {
     w.left--;
     deliver(src.id, 'main', a.ev);
     propagateWm();
-    if (i === arrivals.length) {
-      stats.done = true;
-    }
+    if (i === arrivals.length && !opts.holdFinalWatermark) stats.done = true;
     return true;
   };
 
@@ -802,6 +846,8 @@ export function createRun(g: Graph, opts: RunOptions = {}): Run {
     advance: (n) => {
       for (let k = 0; k < n && step(); k++);
     },
+    tapped: () => tapped,
+    snapshot: (id) => ops.get(id)?.snapshot?.(),
     stats: () => {
       for (const [id, op] of ops) if (op.keys) ns(id).keys = op.keys();
       return stats;

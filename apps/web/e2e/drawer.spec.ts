@@ -177,7 +177,11 @@ test('NODE-04 a stateful node shows its state per key (W10y)', async ({ page }) 
   await d.getByRole('tab', { name: 'Output preview' }).click();
   const state = d.getByRole('table', { name: 'State per key' });
   await expect(state).toBeVisible();
-  await expect(state.locator('tbody tr').first()).toContainText(/c_\d+ · \d\d:\d\d/);
+  // Board W10y: key, window range, aggregates.
+  await expect(state.locator('thead')).toContainText('card_id');
+  await expect(state.locator('thead')).toContainText('window');
+  await expect(state.locator('tbody tr').first()).toContainText(/c_\d+\s*\d\d:\d\d:\d\d–\d\d:\d\d:\d\d/);
+  await expect(d.getByText(/^Open windows \d+$/)).toBeVisible();
   await expect(d.getByText('Late')).toBeVisible(); // the late side output is counted
 });
 

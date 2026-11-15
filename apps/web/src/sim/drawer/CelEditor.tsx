@@ -9,7 +9,7 @@ import { AppError, present } from '@sl/errors';
 import type { Issue, Schema } from '@sl/graph';
 import { Button, useFieldContext } from '@sl/ui';
 import { Wand2 } from 'lucide-react';
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
 /** CEL tokens for highlighting (NODE-03). */
 const cel = StreamLanguage.define<null>({
@@ -109,7 +109,7 @@ export function CelEditor({
   // The Field's id, so its <label for> and error wiring reach the editor (audit2 5).
   const field = useFieldContext();
   const contentId = field?.id ?? id;
-  const aria = useRef(new Compartment()).current;
+  const [aria] = useState(() => new Compartment());
   const view = useRef<EditorView | null>(null);
   // Latest callbacks/schema for the editor's extensions (created once).
   const live = useRef({ onLive, onFocus, onBlur, schema });
@@ -197,7 +197,7 @@ export function CelEditor({
         }),
       ),
     });
-  }, [describedBy, invalid]);
+  }, [aria, describedBy, invalid]);
 
   // Validation issue → inline squiggle.
   useEffect(() => {

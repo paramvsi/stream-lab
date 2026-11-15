@@ -207,3 +207,41 @@ test('audit2 6: a multi-line expression can still be edited; Enter adds no line'
   await d.getByLabel('Expression').blur();
   expect(await cfg(page, 'flt', 'expr')).toBe('payments > 3 &&\npayments < 1');
 });
+
+// ---- Audit 3 (01e5c27, 4debbce) ----
+test('audit3 1+7: Settings shows a live preview under the form; expression errors are a count, not a banner', async ({
+  page,
+}) => {
+  await scenario(page, 'Card fraud bursts');
+  const d = await open(page, 'More than 3');
+  const live = d.getByRole('region', { name: 'Live preview' });
+  await expect(live).toContainText(/\d+ of \d+ sample events pass/);
+  await d.getByLabel('Expression').fill('payments >');
+  await d.getByRole('tab', { name: 'Output preview' }).click();
+  await expect(d.getByText(/^Failed/)).toBeVisible();
+  await expect(d.getByText('They were sent to Dead-letter')).toHaveCount(0);
+});
+
+test('audit3 3: a connected node with no events this sample does not say "connect it"', async ({ page }) => {
+  await scenario(page, 'Card fraud bursts');
+  const d = await open(page, 'Fraud alerts');
+  await d.getByRole('tab', { name: 'Output preview' }).click();
+  await expect(d.getByText(/Connect (it|this node) to a source/)).toHaveCount(0);
+  await expect(
+    d
+      .getByRole('table', { name: 'Events before the node' })
+      .or(d.getByText('No events from upstream in this sample.')),
+  ).toBeVisible();
+});
+
+test('audit3 8: after Run to here, the next edit goes back to the 5-event live preview', async ({ page }) => {
+  await scenario(page, 'Card fraud bursts');
+  const d = await open(page, 'More than 3');
+  await d.getByRole('button', { name: 'Run to here' }).click();
+  await expect(d).toContainText('Sample of 50 events per source');
+  await d.getByRole('tab', { name: 'Settings' }).click();
+  await d.getByLabel('Expression').fill('payments >= 1.0');
+  await d.getByLabel('Expression').blur();
+  await d.getByRole('tab', { name: 'Output preview' }).click();
+  await expect(d).toContainText('Sample of 5 events per source');
+});

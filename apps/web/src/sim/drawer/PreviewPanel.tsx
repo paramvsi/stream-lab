@@ -1,6 +1,5 @@
 import { runToHere, type Event } from '@sl/engine';
-import { AppError, ErrorBanner } from '@sl/errors';
-import { configOf, labelOf, spec } from '@sl/graph';
+import { configOf, spec } from '@sl/graph';
 import { EmptyState, Table, type Column } from '@sl/ui';
 import { Cable } from 'lucide-react';
 import { useGraph } from '../store';
@@ -13,9 +12,9 @@ const cell = (v: Event[string]) =>
       ? v.toLocaleString('en-US', { maximumFractionDigits: 2 })
       : String(v).replace(ISO, '$1');
 
-function Events({ rows, label }: { rows: Event[]; label: string }) {
+function Events({ rows, label, empty = 'No events.' }: { rows: Event[]; label: string; empty?: string }) {
   const keys = [...new Set(rows.flatMap((r) => Object.keys(r)))];
-  if (!rows.length) return <p className="m-0 text-[13px] text-muted">No events.</p>;
+  if (!rows.length) return <p className="m-0 text-[13px] text-muted">{empty}</p>;
   return (
     <Table
       dense
@@ -27,92 +26,109 @@ function Events({ rows, label }: { rows: Event[]; label: string }) {
         key: k,
         header: k,
         mono: true,
-        align: typeof rows[0]![k] === 'number' ? 'right' : 'left',
+        // Align by the first value that is there (a left-join miss leaves nulls).
+        align: typeof rows.find((r) => r[k] != null)?.[k] === 'number' ? 'right' : 'left',
         render: (x) => cell(x.r[k] ?? null),
       }))}
     />
   );
 }
 
+const Count = ({ label, n, after }: { label: string; n: number; after?: string }) => (
+  <span>
+    {label} <b className="font-mono text-ink tabular-nums">{n}</b>
+    {after}
+  </span>
+);
+
 /**
- * NODE-04 live preview (board W10y): sample events before and after the node, counts per output, and state per
- * key for stateful nodes. NODE-05 "Run to here" uses the same run with more events. Recomputed on every edit.
+ * NODE-04 live preview (board W10y): the engine on sample events, tapped at this node — events before and after,
+ * counts per output, and open state per key for stateful nodes. NODE-05 "Run to here" uses more events.
+ * `compact`: the short version under the Settings form (NODES.md "form + live preview", boards W10-*).
  */
-export function PreviewPanel({ nodeId, events }: { nodeId: string; events: number }) {
+export function PreviewPanel({
+  nodeId,
+  events,
+  compact,
+}: {
+  nodeId: string;
+  events: number;
+  compact?: boolean;
+}) {
   const nodes = useGraph((s) => s.nodes);
   const edges = useGraph((s) => s.edges);
   const node = nodes.find((n) => n.id === nodeId);
-  // ponytail: recomputed per render (5–50 events, microseconds); memoize if the Worker engine makes it costly.
+  // ponytail: recomputed per render (audit 3 measured 0.5–2 ms for a 20-node chain); memoize if it grows.
   const p = runToHere({ nodes, edges }, nodeId, events);
   if (!node || !p) return null;
   const s = spec(node.type);
   const ports = s.outputs(configOf(node));
   const isSource = s.inputs(configOf(node)).length === 0;
+  const connected = edges.some((e) => e.target === nodeId);
   const input = Object.values(p.input).flat();
-  const show = events <= 5 ? 5 : events;
-  if (!isSource && !input.length)
+  const after = p.out['main'] ?? [];
+  if (!isSource && !connected)
     return (
-      <EmptyState icon={Cable} title="Nothing reaches this node yet" level={3}>
-        Connect it to a source to see sample events before and after it.
+      <EmptyState icon={Cable} title="Nothing connected yet" level={3}>
+        Connect this node to a source to see sample events before and after it.
       </EmptyState>
+    );
+  if (compact)
+    return (
+      <section aria-label="Live preview" className="flex flex-col gap-2 border-t border-line pt-4">
+        <h3 className="m-0 text-[13px] font-semibold">
+          Live preview{' '}
+          <span className="font-normal text-muted">
+            · {Math.min(3, after.length)} of {after.length} rows
+          </span>
+        </h3>
+        <p aria-live="polite" className="m-0 text-[13px] text-muted">
+          {isSource
+            ? `${after.length} sample events`
+            : `${after.length} of ${input.length} sample events pass`}
+          {p.failed > 0 && `, ${p.failed} failed`}.
+        </p>
+        <Events rows={after.slice(0, 3)} label="Live preview" empty="No rows come out of this sample yet." />
+      </section>
     );
   return (
     <div className="flex flex-col gap-4">
       <p aria-live="polite" className="m-0 flex flex-wrap gap-4 text-[13px] text-muted">
-        {!isSource && (
-          <span>
-            In <b className="font-mono text-ink tabular-nums">{input.length}</b>
-          </span>
-        )}
+        {!isSource && <Count label="In" n={input.length} />}
         {ports.map((port) => (
-          <span key={port.id}>
-            {port.id === 'main' ? 'Out' : port.label}{' '}
-            <b className="font-mono text-ink tabular-nums">{p.run.out[port.id]?.length ?? 0}</b>
-            {port.id !== 'main' && ' side output'}
-          </span>
+          <Count
+            key={port.id}
+            label={port.id === 'main' ? 'Out' : port.label}
+            n={p.out[port.id]?.length ?? 0}
+            {...(port.id !== 'main' ? { after: ' side output' } : {})}
+          />
         ))}
-        {p.run.state && (
-          <span>
-            Keys <b className="font-mono text-ink tabular-nums">{p.run.state.length}</b>
-          </span>
+        {p.failed > 0 && (
+          <Count label="Failed" n={p.failed} after=" (expression errors, kept as dead letters)" />
         )}
+        {p.state && <Count label={node.type === 'Window' ? 'Open windows' : 'Keys'} n={p.state.length} />}
         <span>Sample of {events} events per source; same seed, same events.</span>
       </p>
-      {p.run.failed > 0 && (
-        <ErrorBanner
-          error={
-            new AppError('SIM-RUNTIME-EXPR', {
-              n: p.run.failed,
-              node: labelOf(node),
-              reason: 'the expression could not be evaluated on these values',
-            })
-          }
-        />
-      )}
       {!isSource && (
         <section className="flex flex-col gap-2">
           <h3 className="m-0 text-[13px] font-semibold">Before</h3>
-          <Events rows={input.slice(0, show)} label="Events before the node" />
+          <Events
+            rows={input.slice(0, events)}
+            label="Events before the node"
+            empty="No events from upstream in this sample."
+          />
         </section>
       )}
       <section className="flex flex-col gap-2">
         <h3 className="m-0 text-[13px] font-semibold">After</h3>
-        <Events rows={(p.run.out['main'] ?? []).slice(0, show)} label="Events after the node" />
+        <Events rows={after.slice(0, events)} label="Events after the node" />
       </section>
-      {p.run.state && (
+      {p.state && (
         <section className="flex flex-col gap-2">
-          <h3 className="m-0 text-[13px] font-semibold">State per key</h3>
-          <Table
-            dense
-            label="State per key"
-            maxHeight={200}
-            rows={p.run.state}
-            rowKey={(r) => r.key}
-            columns={[
-              { key: 'key', header: 'Key', mono: true, render: (r) => r.key },
-              { key: 'value', header: 'State', render: (r) => r.value },
-            ]}
-          />
+          <h3 className="m-0 text-[13px] font-semibold">
+            State per key{node.type === 'Window' ? ' (open windows)' : ''}
+          </h3>
+          <Events rows={p.state} label="State per key" empty="Nothing held in state." />
         </section>
       )}
     </div>

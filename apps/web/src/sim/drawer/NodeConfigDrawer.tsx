@@ -72,8 +72,13 @@ export function NodeConfigDrawer({
   const [height, setHeight] = useState(DEFAULT);
   const [collapsed, setCollapsed] = useState(false);
   const [tab, setTab] = useState<string>(initialTab);
-  // NODE-04 live preview uses 5 events per source; NODE-05 "Run to here" runs on more.
-  const [events, setEvents] = useState(initialTab === 'preview' ? RUN_EVENTS : 5);
+  // NODE-04 live preview uses 5 events per source; NODE-05 "Run to here" runs on more, for the pipeline as it
+  // was when it ran: the next edit goes back to the 5-event live preview (audit 3 #8).
+  const nodes = useGraph((st) => st.nodes);
+  const [ranOn, setRanOn] = useState<unknown>(() =>
+    initialTab === 'preview' ? useGraph.getState().nodes : null,
+  );
+  const events = ranOn === nodes ? RUN_EVENTS : 5;
   // Uncontrolled, re-keyed on the label: an undo of a rename shows in the field (audit 4).
   const nameInput = useRef<HTMLInputElement>(null);
   const panel = useRef<HTMLElement>(null);
@@ -208,7 +213,7 @@ export function NodeConfigDrawer({
             icon={<Play size={14} aria-hidden="true" />}
             onClick={() => {
               setCollapsed(false);
-              setEvents(RUN_EVENTS);
+              setRanOn(nodes);
               setTab('preview');
             }}
           >
@@ -275,6 +280,9 @@ export function NodeConfigDrawer({
                         renderCel: celEditor ?? ((p) => <CelEditor {...p} />),
                       }}
                     />
+                    <div className="mt-5">
+                      <PreviewPanel nodeId={node.id} events={5} compact />
+                    </div>
                   </div>
                 ),
               },

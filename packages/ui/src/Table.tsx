@@ -38,8 +38,9 @@ export function Table<T>({
     <div
       className="sl-focus overflow-auto rounded-lg border border-line bg-surface"
       style={maxHeight ? { maxHeight } : undefined}
-      // A scrolling body must be reachable by keyboard (axe scrollable-region-focusable).
-      {...(maxHeight ? { tabIndex: 0, role: 'region', 'aria-label': label } : {})}
+      // A scrolling body must be reachable by keyboard (axe scrollable-region-focusable); the table inside
+      // carries the name, so the wrapper has none (no double announcement).
+      {...(maxHeight ? { tabIndex: 0 } : {})}
     >
       <table aria-label={label} className="w-full border-collapse text-ink">
         <thead>

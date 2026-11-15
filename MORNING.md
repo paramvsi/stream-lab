@@ -63,3 +63,7 @@ Overnight log. **Decisions** need your call; **Commands** need you to run them. 
 
 - On the first `pnpm typecheck`, `@sl/engine` failed with no compiler output; it did not reproduce in 3 uncached runs. Found later: `turbo.json` had no `^typecheck` dependency or global inputs, so cached results could be stale. Fixed; the original failure is still unexplained.
 - Colour contrast is not checked by axe under jsdom. A real-browser axe pass is part of M11.
+- Drawer audit (e39c898 + 09d0650), not fixed, written down only:
+  - Undoing a node delete while its drawer was open reopens the drawer, because `drawerFor` is never cleared. This may be intended.
+  - No graph-level issue flags an edge whose source port no longer exists. Removing a Route rule now removes its edge (audit 5), but an imported or hand-edited pipeline could still carry one, and React Flow only logs a console warning.
+  - Every keystroke in the drawer recomputes the whole canvas (`structKey` stringify + propagate). Not measured.

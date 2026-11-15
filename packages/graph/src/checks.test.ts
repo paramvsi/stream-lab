@@ -151,6 +151,8 @@ describe('NODE-02 / NODE-06 · node checks', () => {
       edges: [edge(a, j, 'main', 'left'), edge(b, j, 'main', 'right'), edge(j, k)],
     });
     expect(all.filter((i) => i.nodeId === j.id).map((i) => i.code)).toEqual(['JOIN-NO-BOUND']);
+    // Drawer audit 7: the warning sits under the bound that is open.
+    expect(all.find((i) => i.code === 'JOIN-NO-BOUND')?.field).toBe('upperMs');
   });
 
   it('DEDUP-NO-TTL (warning) without a TTL', () => {
@@ -283,6 +285,14 @@ describe('M2 audit · checks', () => {
       params: { field: 'N', rule: 'at least 1' },
     });
     expect(codes(node('Deduplicate', { ttlMs: 0 }))).toContain('NODE-RANGE');
+  });
+
+  it('drawer audit 8: NODE-RANGE for a fraction in a whole-number setting', () => {
+    expect(issuesOf(node('Top-N', { n: 2.5 }))[0]).toMatchObject({
+      code: 'NODE-RANGE',
+      params: { field: 'N', rule: 'a whole number' },
+      field: 'n',
+    });
   });
 
   it('#12 NODE-REQUIRED names nested settings by their row', () => {

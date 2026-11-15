@@ -79,7 +79,15 @@ export function nodeIssues(n: PipelineNode, inputs: Record<string, Schema[]>, ct
             ? `${b.inclusive === false ? 'more than' : 'at least'} ${b.minimum}`
             : `${b.inclusive === false ? 'less than' : 'at most'} ${b.maximum}`;
         out.push(at({ code: 'NODE-RANGE', params: { field: label(i.path), rule }, field: i.path.join('.') }));
-      }
+      } else if (i.code === 'invalid_type' && (i as { expected?: string }).expected === 'int')
+        // zod .int() on a fraction
+        out.push(
+          at({
+            code: 'NODE-RANGE',
+            params: { field: label(i.path), rule: 'a whole number' },
+            field: i.path.join('.'),
+          }),
+        );
     }
   const required = new Set(out.map((i) => i.field));
 
@@ -189,7 +197,9 @@ export function nodeIssues(n: PipelineNode, inputs: Record<string, Schema[]>, ct
     }
     case 'Join':
       if (cfg.lowerMs == null || cfg.upperMs == null)
-        out.push(at({ code: 'JOIN-NO-BOUND', params: {}, field: 'lowerMs' }));
+        out.push(
+          at({ code: 'JOIN-NO-BOUND', params: {}, field: cfg.upperMs == null ? 'upperMs' : 'lowerMs' }),
+        );
       break;
     case 'Deduplicate':
       if (cfg.ttlMs == null) out.push(at({ code: 'DEDUP-NO-TTL', params: {}, field: 'ttlMs' }));

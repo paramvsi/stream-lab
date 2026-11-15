@@ -35,7 +35,8 @@ export interface GraphState extends Snapshot {
   /** One step for many moves (auto-layout). */
   setPositions(positions: Record<string, { x: number; y: number }>, label: string): void;
   /** Config edits are committed on field blur by the drawer (M2), so each call is one step. */
-  updateConfig(id: string, config: unknown): void;
+  /** `dropHandles`: output ports that no longer exist (a removed Route rule); their edges go in the same step. */
+  updateConfig(id: string, config: unknown, dropHandles?: string[]): void;
   /**
    * NODE-07: a field edit session. beginEdit on focus; liveConfig while typing (no history, so validation and
    * the node badge update live); endEdit on blur records ONE "Changed … settings" step if anything changed.
@@ -204,10 +205,13 @@ export const useGraph = create<GraphState>()(
           label,
         }),
 
-      updateConfig: (id, config) => {
+      updateConfig: (id, config, dropHandles = []) => {
         const n = get().nodes.find((x) => x.id === id);
         set({
           nodes: get().nodes.map((x) => (x.id === id ? { ...x, config } : x)),
+          ...(dropHandles.length
+            ? { edges: get().edges.filter((e) => !(e.source === id && dropHandles.includes(e.sourceHandle))) }
+            : {}),
           label: `Changed ${n ? labelOf(n) : 'node'} settings`,
         });
       },

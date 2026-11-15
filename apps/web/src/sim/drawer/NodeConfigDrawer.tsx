@@ -69,8 +69,12 @@ export function NodeConfigDrawer({
   const issues = useIssues((s) => s.byNode[nodeId] ?? EMPTY);
   const [height, setHeight] = useState(DEFAULT);
   const [collapsed, setCollapsed] = useState(false);
-  const [name, setName] = useState(node?.label ?? '');
+  // Uncontrolled, re-keyed on the label: an undo of a rename shows in the field (audit 4).
+  const nameInput = useRef<HTMLInputElement>(null);
   const panel = useRef<HTMLElement>(null);
+  // Closing mid-edit (Esc unmounts the field without a blur) still records the edit and resumes history
+  // (audit 1). endEdit is a no-op without an open edit.
+  useEffect(() => () => useGraph.getState().endEdit(nodeId), [nodeId]);
   const onCloseRef = useRef(onClose);
   useEffect(() => {
     onCloseRef.current = () => {
@@ -120,7 +124,9 @@ export function NodeConfigDrawer({
     );
   };
   const commitName = () => {
-    if (name !== (node.label ?? '')) useGraph.getState().rename(node.id, name);
+    useGraph.getState().endEdit(node.id);
+    const name = nameInput.current?.value;
+    if (name !== undefined && name !== (node.label ?? '')) useGraph.getState().rename(node.id, name);
   };
   const resizeBy = (dy: number) => setHeight((h) => Math.max(MIN, Math.min(max(), h + dy)));
 
@@ -180,10 +186,11 @@ export function NodeConfigDrawer({
           {node.type}
         </span>
         <input
+          key={node.label ?? ''}
+          ref={nameInput}
           aria-label="Name"
           placeholder={node.type}
-          value={name}
-          onChange={(e) => setName(e.target.value)}
+          defaultValue={node.label ?? ''}
           onBlur={commitName}
           className="sl-focus min-w-0 rounded-md border border-transparent bg-transparent px-1.5 py-0.5 text-[15px] font-semibold hover:border-line"
         />

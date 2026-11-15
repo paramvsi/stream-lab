@@ -2,7 +2,7 @@ import { AppError, present } from '@sl/errors';
 import type { Issue, Schema } from '@sl/graph';
 import { Button, Field, Input, Select, Textarea } from '@sl/ui';
 import { Plus, Trash2 } from 'lucide-react';
-import { useId, type ReactNode } from 'react';
+import { useId, useRef, useState, type ReactNode } from 'react';
 import type { z } from 'zod';
 import { newId, useGraph } from '../store';
 
@@ -138,10 +138,11 @@ export interface FormCtx {
   }) => ReactNode;
 }
 
-const errorFor = (issues: Issue[], path: string) => {
-  const i = issues.find((x) => x.field === path);
-  return i ? present(new AppError(i.code, i.params)).message : undefined;
-};
+const errorFor = (issues: Issue[], path: string) =>
+  issues
+    .filter((x) => x.field === path)
+    .map((i) => present(new AppError(i.code, i.params)).message)
+    .join(' ') || undefined;
 
 function setPath(obj: unknown, path: (string | number)[], value: unknown): unknown {
   if (!path.length) return value;
@@ -185,11 +186,14 @@ export function SchemaForm({ schema, ctx }: { schema: z.ZodType; ctx: FormCtx })
       setPath(g().nodes.find((n) => n.id === ctx.nodeId)?.config ?? ctx.config, path, v),
     );
   // Discrete edits: one step each.
-  const commit = (path: (string | number)[], v: unknown) =>
+  const commit = (path: (string | number)[], v: unknown, dropHandles?: string[]) =>
     g().updateConfig(
       ctx.nodeId,
       setPath(g().nodes.find((n) => n.id === ctx.nodeId)?.config ?? ctx.config, path, v),
+      dropHandles,
     );
+  // Nullable settings: the value before "No …" was ticked, so unticking restores it (audit 9).
+  const lastSet = useRef(new Map<string, unknown>());
   const editProps = { onFocus: () => g().beginEdit(), onBlur: () => g().endEdit(ctx.nodeId) };
 
   const port = (path: (string | number)[]) =>
@@ -229,7 +233,8 @@ export function SchemaForm({ schema, ctx }: { schema: z.ZodType; ctx: FormCtx })
           )}
         </Field>
       );
-    if (t === 'string' && PICK.has(key) && fields.length)
+    // A Map assignment names a new output field: free text, not a picker (audit 2).
+    if (t === 'string' && PICK.has(key) && fields.length && path[0] !== 'assignments')
       return (
         <Field key={p} label={labelOf(key)} error={err}>
           <Select value={String(value ?? '')} onChange={(e) => commit(path, e.target.value)}>
@@ -308,9 +313,16 @@ export function SchemaForm({ schema, ctx }: { schema: z.ZodType; ctx: FormCtx })
               type="checkbox"
               className="sl-focus size-4 accent-rose-600"
               checked={none}
-              onChange={(e) =>
-                commit(path, e.target.checked ? null : blank(inner) === 0 ? 60000 : blank(inner))
-              }
+              onChange={(e) => {
+                if (e.target.checked) lastSet.current.set(`${ctx.nodeId}:${p}`, value);
+                commit(
+                  path,
+                  e.target.checked
+                    ? null
+                    : (lastSet.current.get(`${ctx.nodeId}:${p}`) ??
+                        (blank(inner) === 0 ? 60000 : blank(inner))),
+                );
+              }}
             />
             No {labelOf(key).toLowerCase()}
           </label>
@@ -381,6 +393,8 @@ export function SchemaForm({ schema, ctx }: { schema: z.ZodType; ctx: FormCtx })
                   commit(
                     path,
                     rows.filter((_, j) => j !== i),
+                    // A Route rule is an output port: its edge goes with it.
+                    key === 'routes' ? [`route-${String(row.id)}`] : undefined,
                   )
                 }
               >
@@ -487,22 +501,42 @@ function Duration({
   onLive: (v: number) => void;
   edit: { onFocus: () => void; onBlur: () => void };
 }) {
-  const [unit, factor] = UNITS.find(([, f]) => ms % f === 0 && ms >= f) ?? (['s', 1000] as const);
+  // The unit is the user's choice, picked once from the value; recomputing it per keystroke changed the
+  // meaning of what was typed (audit 3). Negative bounds (Join lower) pick by magnitude.
+  const [unit, setUnit] = useState(
+    () => (UNITS.find(([, f]) => ms !== 0 && Math.abs(ms) % f === 0) ?? UNITS[2])[0],
+  );
+  const factor = UNITS.find(([u]) => u === unit)![1];
+  // What is in the box while typing: an empty box is not a zero.
+  const [draft, setDraft] = useState<string | null>(null);
+  const unitId = useId();
+  const shown = draft ?? String(ms / factor);
   return (
     <Field label={label} error={error}>
       <span className="flex gap-2">
         <Input
           type="number"
-          min={0}
-          value={String(ms / factor)}
-          onChange={(e) => onLive(Number(e.target.value) * factor)}
-          {...edit}
+          value={shown}
+          onChange={(e) => {
+            setDraft(e.target.value);
+            if (e.target.value !== '') onLive(Number(e.target.value) * factor);
+          }}
+          onFocus={edit.onFocus}
+          onBlur={() => {
+            setDraft(null);
+            edit.onBlur();
+          }}
         />
         <Select
+          id={unitId}
           aria-label={`${label} unit`}
           value={unit}
           className="!w-24"
-          onChange={(e) => onLive((ms / factor) * (UNITS.find(([u]) => u === e.target.value)?.[1] ?? 1))}
+          onChange={(e) => {
+            const next = UNITS.find(([u]) => u === e.target.value) ?? UNITS[2];
+            setUnit(next[0]);
+            onLive((shown === '' ? 0 : Number(shown)) * next[1]);
+          }}
           {...edit}
         >
           {UNITS.map(([u]) => (

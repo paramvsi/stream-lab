@@ -337,7 +337,10 @@ function Canvas() {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const t = e.target as HTMLElement | null;
-      if (t?.closest('input, textarea, select, [contenteditable], [role="dialog"]')) return;
+      // The settings drawer is a non-modal dialog: history keys still work from its radios and buttons.
+      if (t?.closest('input:not([type="radio"]):not([type="checkbox"]), textarea, select, [contenteditable]'))
+        return;
+      if (t?.closest('[role="dialog"]:not([aria-modal="false"])')) return;
       // Mid-drag, history keys would be reverted by endDrag (it records the pre-drag state): ignore them.
       if (g().isDragging()) return;
       const mod = e.metaKey || e.ctrlKey;

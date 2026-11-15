@@ -1,4 +1,4 @@
-import { AppError, present, toProblems } from '@sl/errors';
+import { AppError, ErrorPage, present, toProblems } from '@sl/errors';
 import {
   connectionIssue,
   labelOf,
@@ -28,12 +28,31 @@ import {
   type IsValidConnection,
   type NodeChange,
 } from '@xyflow/react';
-import { Link } from '@tanstack/react-router';
+import { Link, useNavigate } from '@tanstack/react-router';
 import '@xyflow/react/dist/base.css';
 import './canvas.css';
-import { AlertTriangle, Check, History, LayoutGrid, Play, Redo2, Undo2, Workflow } from 'lucide-react';
+import {
+  AlertTriangle,
+  Check,
+  History,
+  LayoutGrid,
+  MonitorSmartphone,
+  Play,
+  Redo2,
+  Undo2,
+  Workflow,
+} from 'lucide-react';
 import { Popover } from 'radix-ui';
-import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent, type ReactNode } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  useSyncExternalStore,
+  type DragEvent,
+  type ReactNode,
+} from 'react';
 import { useStore } from 'zustand';
 import {
   CanvasMenu,
@@ -47,6 +66,7 @@ import {
   type NodeActionsApi,
 } from './CanvasExtras';
 import { snapGuides, type Guides } from './geometry';
+import { CommandPalette, ShortcutsSheet } from './Commands';
 import { setIssues, useIssues } from './issues';
 import { useSaveState } from './saveState';
 import { accent } from './look';
@@ -57,6 +77,8 @@ import { historyEntries, useGraph, type ConnectFrom } from './store';
 import { ConnectionHint, EdgeActions, setHoveredEdge, StreamEdge, type SlEdge } from './StreamEdge';
 
 const nodeTypes = { sl: NodeCard };
+export const LARGE_GRAPH = 150;
+export const SMALL_SCREEN = '(max-width: 899px)';
 
 /** Would a fresh node of `type` connect where quick-add was opened from? (Same rules as a drag.) */
 function attachable(type: NodeType, from: ConnectFrom): boolean {
@@ -140,6 +162,22 @@ function Canvas() {
   const [drawerFor, setDrawerFor] = useState<string | null>(null);
   const [connectFor, setConnectFor] = useState<string | null>(null);
   const [guides, setGuides] = useState<Omit<Guides, 'pos'>>({});
+  const [commandsOpen, setCommandsOpen] = useState(false);
+  const [keysOpen, setKeysOpen] = useState(false);
+  // SIM-23: past 150 nodes, performance mode (render only what is on screen) and a one-time notice.
+  const large = nodes.length > LARGE_GRAPH;
+  const toldLarge = useRef(false);
+  useEffect(() => {
+    if (!large) {
+      toldLarge.current = false;
+      return;
+    }
+    if (toldLarge.current) return;
+    toldLarge.current = true;
+    const p = present(new AppError('SIM-LARGE-GRAPH'));
+    // ponytail: the catalog's "Settings" action has no settings page yet (M10); the toast goes without it.
+    toast({ severity: p.severity, message: p.message });
+  }, [large, toast]);
   const layout = useAutoLayout();
 
   // SIM-14: validation on every change (NODES.md: debounced 150 ms).
@@ -306,7 +344,9 @@ function Canvas() {
       const k = e.key.toLowerCase();
       const h = useGraph.temporal.getState();
       const textSelected = (window.getSelection()?.toString() ?? '').length > 0;
-      if (mod && k === 'z' && !e.shiftKey) h.undo();
+      if (mod && k === 'k') setCommandsOpen(true);
+      else if (!mod && e.key === '?') setKeysOpen(true);
+      else if (mod && k === 'z' && !e.shiftKey) h.undo();
       else if (mod && ((k === 'z' && e.shiftKey) || k === 'y')) h.redo();
       // Copy/paste nodes only when there is something to copy/paste; otherwise leave the browser's own.
       else if (mod && k === 'c' && g().selected.length && !textSelected) g().copySelection();
@@ -471,6 +511,7 @@ function Canvas() {
               panOnScroll
               defaultEdgeOptions={{ type: 'stream' }}
               proOptions={{ hideAttribution: false }}
+              onlyRenderVisibleElements={large}
               aria-label="Pipeline canvas"
             >
               <Background variant={BackgroundVariant.Dots} gap={20} size={1} color="var(--sl-color-line)" />
@@ -519,6 +560,15 @@ function Canvas() {
           <NodeDrawer key={drawerNode.id} node={drawerNode} onClose={() => setDrawerFor(null)} />
         )}
         {connectFor && <ConnectPicker fromId={connectFor} onClose={() => setConnectFor(null)} />}
+        {commandsOpen && (
+          <CommandPalette
+            onClose={() => setCommandsOpen(false)}
+            onAdd={(t) => g().addNode(t, center())}
+            onLayout={() => void layout()}
+            onShortcuts={() => setKeysOpen(true)}
+          />
+        )}
+        {keysOpen && <ShortcutsSheet onClose={() => setKeysOpen(false)} />}
       </EdgeActions.Provider>
     </NodeActions.Provider>
   );
@@ -718,6 +768,16 @@ function ProblemsBar() {
 
 /** W09 workspace: header, palette, canvas, run pill, problems. */
 export function Workspace({ banners }: { banners?: ReactNode }) {
+  const small = useSyncExternalStore(
+    (cb) => {
+      const m = window.matchMedia(SMALL_SCREEN);
+      m.addEventListener('change', cb);
+      return () => m.removeEventListener('change', cb);
+    },
+    () => window.matchMedia(SMALL_SCREEN).matches,
+  );
+  // SIM-23: under 900 px the builder is replaced by a read-only state (board WX09).
+  if (small) return <SmallScreen />;
   return (
     <ReactFlowProvider>
       <div className="flex h-screen flex-col bg-surface">
@@ -727,5 +787,24 @@ export function Workspace({ banners }: { banners?: ReactNode }) {
         <ProblemsBar />
       </div>
     </ReactFlowProvider>
+  );
+}
+
+function SmallScreen() {
+  const navigate = useNavigate();
+  return (
+    <main className="flex min-h-screen items-center justify-center px-4">
+      <h1 className="sr-only">Stream Lab simulator</h1>
+      <ErrorPage
+        icon={MonitorSmartphone}
+        error={new AppError('SIM-SMALL-SCREEN')}
+        onAction={(label) => {
+          // ponytail: "Watch scenario" opens the gallery until runs exist (M3), D29.
+          if (label === 'Watch scenario') void navigate({ to: '/new' });
+          else
+            window.location.href = `mailto:?subject=${encodeURIComponent('Stream Lab pipeline')}&body=${encodeURIComponent(window.location.href)}`;
+        }}
+      />
+    </main>
   );
 }

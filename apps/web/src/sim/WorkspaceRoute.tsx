@@ -124,13 +124,14 @@ export function WorkspaceRoute({ id }: { id: string }) {
     );
   if (status === 'missing')
     return (
-      <div className="flex min-h-screen items-center justify-center">
+      <main className="flex min-h-screen items-center justify-center">
+        <h1 className="sr-only">Stream Lab simulator</h1>
         <ErrorPage
           icon={FileQuestion}
           error={new AppError('PIPELINE-NOT-FOUND')}
           onAction={(label) => void navigate({ to: label === 'My pipelines' ? '/pipelines' : '/new' })}
         />
-      </div>
+      </main>
     );
 
   return (

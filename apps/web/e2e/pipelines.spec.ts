@@ -111,6 +111,9 @@ test('SIM-02 IMPORT-INVALID dialog for a non-pipeline file; a valid export impor
 test('PIPELINE-NOT-FOUND for an id not saved in this browser', async ({ page }) => {
   await page.goto('/#/sim/p_nope');
   await expect(page.getByText('This pipeline is not saved in this browser')).toBeVisible();
+  await page.waitForFunction(() => document.getAnimations().every((x) => x.playState !== 'running'));
+  const r = await new AxeBuilder({ page }).analyze();
+  expect(r.violations.map((v) => v.id)).toEqual([]);
   await page.getByRole('button', { name: 'My pipelines' }).click();
   await expect(page).toHaveURL(/#\/pipelines$/);
 });

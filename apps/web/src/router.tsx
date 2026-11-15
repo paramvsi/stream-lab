@@ -18,7 +18,8 @@ import { WorkspaceRoute } from './sim/WorkspaceRoute';
 function NotFound() {
   const navigate = useNavigate();
   return (
-    <div className="flex min-h-screen items-center justify-center">
+    <main className="flex min-h-screen items-center justify-center">
+      <h1 className="sr-only">Page not found</h1>
       <EmptyState
         icon={Compass}
         title="404 · event arrived after the watermark"
@@ -30,7 +31,7 @@ function NotFound() {
       >
         This page was dropped as late data. The link may be old, or the page moved.
       </EmptyState>
-    </div>
+    </main>
   );
 }
 

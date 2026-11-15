@@ -159,7 +159,11 @@ function Canvas() {
     setMenuTarget(t);
     setMenuOpen(true);
   };
-  const [drawerFor, setDrawerFor] = useState<string | null>(null);
+  // `run` > 0: opened by "Run to here" (NODE-05), on the Output preview; a new run remounts the drawer.
+  const [drawer, setDrawer] = useState<{ id: string; run: number } | null>(null);
+  const drawerFor = drawer?.id ?? null;
+  const setDrawerFor = useCallback((id: string | null) => setDrawer(id ? { id, run: 0 } : null), []);
+  const runToHere = useCallback((id: string) => setDrawer((d) => ({ id, run: (d?.run ?? 0) + 1 })), []);
   const [connectFor, setConnectFor] = useState<string | null>(null);
   const [guides, setGuides] = useState<Omit<Guides, 'pos'>>({});
   const [commandsOpen, setCommandsOpen] = useState(false);
@@ -367,7 +371,7 @@ function Canvas() {
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [g, openQuick]);
+  }, [g, openQuick, setDrawerFor]);
 
   const insertAt = useCallback(
     (edgeId: string, x: number, y: number) =>
@@ -435,6 +439,7 @@ function Canvas() {
 
   const actions: NodeActionsApi = {
     configure: setDrawerFor,
+    runToHere,
     connectFrom: setConnectFor,
     remove: (ids) => removeWithUndo(ids),
     layout: () => void layout(),
@@ -559,8 +564,9 @@ function Canvas() {
             <CanvasMenu target={menu} open={menuOpen} onClose={() => setMenuOpen(false)} />
             {drawerNode && (
               <NodeConfigDrawer
-                key={drawerNode.id}
+                key={`${drawerNode.id}:${drawer?.run ?? 0}`}
                 nodeId={drawerNode.id}
+                initialTab={drawer?.run ? 'preview' : 'settings'}
                 inputs={Object.fromEntries(
                   Object.entries(schemas.in.get(drawerNode.id) ?? {}).map(([p, list]) => [p, list[0] ?? []]),
                 )}

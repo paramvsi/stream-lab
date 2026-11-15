@@ -149,3 +149,64 @@ test('NODE-03 CEL editor: squiggle on the bad part, field autocomplete, quick fi
     [],
   );
 });
+
+test('NODE-04 the output preview shows events before and after, live as the expression changes', async ({
+  page,
+}) => {
+  await scenario(page, 'Card fraud bursts');
+  const d = await open(page, 'More than 3');
+  await d.getByRole('tab', { name: 'Output preview' }).click();
+  await expect(d.getByRole('table', { name: 'Events before the node' })).toBeVisible();
+  const counts = d.locator('p[aria-live="polite"]');
+  const inN = Number((await counts.locator('b').first().textContent()) ?? '0');
+  expect(inN).toBeGreaterThan(0);
+  await d.getByRole('tab', { name: 'Settings' }).click();
+  await d.getByLabel('Expression').fill('payments >= 1.0');
+  await d.getByRole('tab', { name: 'Output preview' }).click();
+  // Every window row has at least one payment: all pass.
+  await expect(counts.locator('b').nth(1)).toHaveText(String(inN));
+  await expect(d.getByRole('table', { name: 'Events after the node' }).locator('tbody tr')).toHaveCount(
+    Math.min(inN, 5),
+  );
+  await shot(page, 'W10y-preview');
+});
+
+test('NODE-04 a stateful node shows its state per key (W10y)', async ({ page }) => {
+  await scenario(page, 'Card fraud bursts');
+  const d = await open(page, 'Bursts per card');
+  await d.getByRole('tab', { name: 'Output preview' }).click();
+  const state = d.getByRole('table', { name: 'State per key' });
+  await expect(state).toBeVisible();
+  await expect(state.locator('tbody tr').first()).toContainText(/c_\d+ · \d\d:\d\d/);
+  await expect(d.getByText('Late')).toBeVisible(); // the late side output is counted
+});
+
+test('NODE-05 Run to here from the drawer, the toolbar and the menu opens the preview on a bigger run', async ({
+  page,
+}) => {
+  await scenario(page, 'Card fraud bursts');
+  const d = await open(page, 'More than 3');
+  await d.getByRole('button', { name: 'Run to here' }).click();
+  await expect(d.getByRole('tab', { name: 'Output preview' })).toHaveAttribute('aria-selected', 'true');
+  await expect(d).toContainText('Sample of 50 events per source');
+  await d.getByRole('button', { name: 'Close settings' }).click();
+  await nodes(page).filter({ hasText: 'Bursts per card' }).click({ button: 'right' });
+  await page.getByRole('menuitem', { name: 'Run to here' }).click();
+  const d2 = page.getByRole('dialog', { name: 'Window settings' });
+  await expect(d2.getByRole('tab', { name: 'Output preview' })).toHaveAttribute('aria-selected', 'true');
+  await expect(d2.getByRole('table', { name: 'State per key' })).toBeVisible();
+  await d2.getByRole('button', { name: 'Close settings' }).click();
+  await nodes(page).filter({ hasText: 'More than 3' }).click();
+  await page
+    .getByRole('toolbar', { name: 'More than 3 actions' })
+    .getByRole('button', { name: 'Run to here' })
+    .click();
+  await expect(
+    page.getByRole('dialog', { name: 'Filter settings' }).getByRole('tab', { name: 'Output preview' }),
+  ).toHaveAttribute('aria-selected', 'true');
+  await page.waitForFunction(() => document.getAnimations().every((a) => a.playState !== 'running'));
+  const r = await new AxeBuilder({ page }).include('[role="dialog"]').analyze();
+  expect(r.violations.map((v) => `${v.id}: ${v.nodes.map((n) => n.target.join(' ')).join(' | ')}`)).toEqual(
+    [],
+  );
+});

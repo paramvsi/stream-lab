@@ -1,17 +1,19 @@
 import { configOf, labelOf, spec, type Issue, type Schema } from '@sl/graph';
 import { Button, IconButton, Tabs } from '@sl/ui';
 import { ChevronDown, ChevronUp, Maximize2, Minimize2, Play, X } from 'lucide-react';
-import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useIssues } from '../issues';
 import { accent, NodeIcon } from '../look';
 import { useGraph } from '../store';
 import { CelEditor } from './CelEditor';
 import { NODE_DOCS } from './docs';
+import { PreviewPanel } from './PreviewPanel';
 import { SchemaForm } from './SchemaForm';
 
 const MIN = 200;
 const DEFAULT = 360; // SIMULATOR.md: node config 360 px
 const COLLAPSED = 40;
+const RUN_EVENTS = 50;
 const EMPTY: Issue[] = [];
 
 function SchemaTable({ schema, caption }: { schema: Schema; caption: string }) {
@@ -54,21 +56,24 @@ export function NodeConfigDrawer({
   inputs,
   outputs,
   onClose,
-  preview,
+  initialTab = 'settings',
   celEditor,
 }: {
   nodeId: string;
   inputs: Record<string, Schema>;
   outputs: Record<string, Schema>;
   onClose: () => void;
-  /** Output preview tab content (NODE-04). */
-  preview?: ReactNode;
+  /** "Run to here" from the node toolbar or menu opens on the Output preview (NODE-05). */
+  initialTab?: 'settings' | 'preview';
   celEditor?: Parameters<typeof SchemaForm>[0]['ctx']['renderCel'];
 }) {
   const node = useGraph((s) => s.nodes.find((n) => n.id === nodeId));
   const issues = useIssues((s) => s.byNode[nodeId] ?? EMPTY);
   const [height, setHeight] = useState(DEFAULT);
   const [collapsed, setCollapsed] = useState(false);
+  const [tab, setTab] = useState<string>(initialTab);
+  // NODE-04 live preview uses 5 events per source; NODE-05 "Run to here" runs on more.
+  const [events, setEvents] = useState(initialTab === 'preview' ? RUN_EVENTS : 5);
   // Uncontrolled, re-keyed on the label: an undo of a rename shows in the field (audit 4).
   const nameInput = useRef<HTMLInputElement>(null);
   const panel = useRef<HTMLElement>(null);
@@ -199,7 +204,11 @@ export function NodeConfigDrawer({
             size="sm"
             variant="ghost"
             icon={<Play size={14} aria-hidden="true" />}
-            disabledReason="Running arrives with the engine (next build)."
+            onClick={() => {
+              setCollapsed(false);
+              setEvents(RUN_EVENTS);
+              setTab('preview');
+            }}
           >
             Run to here
           </Button>
@@ -244,6 +253,8 @@ export function NodeConfigDrawer({
       {!collapsed && (
         <div className="min-h-0 flex-1 overflow-y-auto px-4 pb-4">
           <Tabs
+            value={tab}
+            onValueChange={setTab}
             label={`${labelOf(node)} settings`}
             items={[
               {
@@ -292,7 +303,7 @@ export function NodeConfigDrawer({
               {
                 value: 'preview',
                 label: 'Output preview',
-                content: preview ?? <SchemaTable schema={outputs['main'] ?? []} caption="Output fields" />,
+                content: <PreviewPanel nodeId={node.id} events={events} />,
               },
               {
                 value: 'docs',

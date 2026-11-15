@@ -11,6 +11,8 @@ import { useGraph } from './store';
 
 export interface NodeActionsApi {
   configure: (id: string) => void;
+  /** NODE-05: open the drawer on the Output preview with a fresh run. */
+  runToHere: (id: string) => void;
   connectFrom: (id: string) => void;
   remove: (ids: string[]) => void;
   layout: () => void;
@@ -237,6 +239,7 @@ export function CanvasMenu({
   const a: NodeActionsApi = {
     ...raw,
     configure: (id) => later(() => raw.configure(id))(),
+    runToHere: (id) => later(() => raw.runToHere(id))(),
     connectFrom: (id) => later(() => raw.connectFrom(id))(),
     addAt: (x, y) => later(() => raw.addAt(x, y))(),
     insertOnEdge: (id, x, y) => later(() => raw.insertOnEdge(id, x, y))(),
@@ -272,9 +275,7 @@ export function CanvasMenu({
               <Item kbd="Enter" onSelect={() => a.configure(node.id)}>
                 Configure
               </Item>
-              <Item disabled hint="Arrives with the engine (next build)">
-                Run to here
-              </Item>
+              <Item onSelect={() => a.runToHere(node.id)}>Run to here</Item>
               <Item kbd="⌘D" onSelect={() => g().duplicate([node.id])}>
                 Duplicate
               </Item>

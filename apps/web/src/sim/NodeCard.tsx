@@ -147,7 +147,7 @@ function Toolbar({ node }: { node: PipelineNode }) {
         variant="ghost"
         className={btn}
         aria-label="Run to here"
-        disabledReason="Running arrives with the engine (next build)."
+        onClick={() => a.runToHere(node.id)}
       >
         <Play size={16} aria-hidden="true" />
       </Button>

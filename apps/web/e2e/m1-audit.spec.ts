@@ -175,7 +175,11 @@ test('A2#7 a connection dropped on a node body does not open quick-add', async (
 test('A2#10 disabled menu items say why', async ({ page }) => {
   await add(page, 'Filter');
   await nodes(page).first().click({ button: 'right' });
-  await expect(page.getByRole('menuitem', { name: /^Run to here/ })).toContainText('next build');
+  // Run to here is live since M2 (NODE-05); the disabled Paste below still says why.
+  await expect(page.getByRole('menuitem', { name: /^Run to here/ })).not.toHaveAttribute(
+    'aria-disabled',
+    'true',
+  );
   await page.keyboard.press('Escape');
   await page.locator('.react-flow__pane').click({ button: 'right', position: { x: 40, y: 40 } });
   await expect(page.getByRole('menuitem', { name: /^Paste/ })).toContainText('Nothing copied');

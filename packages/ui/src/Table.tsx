@@ -36,8 +36,10 @@ export function Table<T>({
   const pad = dense ? 'py-2 px-3.5' : 'py-[13px] px-3.5';
   return (
     <div
-      className="overflow-auto rounded-lg border border-line bg-surface"
+      className="sl-focus overflow-auto rounded-lg border border-line bg-surface"
       style={maxHeight ? { maxHeight } : undefined}
+      // A scrolling body must be reachable by keyboard (axe scrollable-region-focusable).
+      {...(maxHeight ? { tabIndex: 0, role: 'region', 'aria-label': label } : {})}
     >
       <table aria-label={label} className="w-full border-collapse text-ink">
         <thead>

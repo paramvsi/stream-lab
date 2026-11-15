@@ -58,7 +58,7 @@ describe('NODE-04/05 · run to here', () => {
     expect(e0['amount_x2']).toBeCloseTo((e0['amount'] as number) * 2);
     const w = runToHere(g, 'w', 12)!;
     expect(w.run.state!.length).toBeGreaterThan(0);
-    expect(w.run.state!.map((s) => s.key).every((k) => /^c_\d+$/.test(k))).toBe(true);
+    expect(w.run.state!.map((s) => s.key).every((k) => /^c_\d+ · \d\d:\d\d$/.test(k))).toBe(true);
   });
 
   it('a bad expression counts failures instead of throwing', () => {

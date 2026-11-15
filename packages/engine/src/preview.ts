@@ -235,7 +235,8 @@ export function runNode(
       return {
         out: { main: rows, late: [] },
         state: rows.map((r) => ({
-          key: keyOf(r, keyBy),
+          // One row per key and window (a key has a window per bucket).
+          key: `${keyOf(r, keyBy)} · ${String(r.window_start).slice(11, 16)}`,
           value: aggs.map((a) => `${a.as} ${r[a.as]}`).join(', '),
         })),
         failed,

@@ -108,3 +108,15 @@ test('axe: 0 violations on the workspace (empty and with nodes)', async ({ page 
     [],
   );
 });
+
+test('SIM-UNDO-EMPTY / SIM-REDO-EMPTY: disabled Undo/Redo say why', async ({ page }) => {
+  const undo = page.getByRole('button', { name: /^Undo/ }).first();
+  const redo = page.getByRole('button', { name: /^Redo/ });
+  await expect(undo).toHaveAttribute('aria-disabled', 'true');
+  await expect(undo).toHaveAccessibleDescription('Nothing to undo.');
+  await expect(redo).toHaveAccessibleDescription('Nothing to redo.');
+  await page.getByRole('button', { name: /^Source/ }).press('Enter');
+  await expect(undo).not.toHaveAttribute('aria-disabled', 'true');
+  await undo.click();
+  await expect(redo).not.toHaveAttribute('aria-disabled', 'true');
+});

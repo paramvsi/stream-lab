@@ -10,6 +10,8 @@ import {
   onSavedElsewhere,
   savePipeline,
   TAB,
+  takeRescue,
+  writeRescue,
 } from './storage';
 
 beforeEach(async () => {
@@ -82,5 +84,19 @@ describe('SIM-TAB-CONFLICT · two tabs', () => {
     expect(heard).toEqual(['T2']);
     off();
     other.close();
+  });
+});
+
+describe('SIM-20 · unload rescue', () => {
+  it('a rescue copy is read back once, then gone', () => {
+    const r = p('r', 'Rescued', '2026-11-15T12:00:00Z');
+    expect(writeRescue(r)).toBe(true);
+    expect(takeRescue('r')?.name).toBe('Rescued');
+    expect(takeRescue('r')).toBeNull();
+  });
+
+  it('a corrupt rescue copy is ignored, not thrown', () => {
+    localStorage.setItem('streamlab:rescue:bad', '{nope');
+    expect(takeRescue('bad')).toBeNull();
   });
 });

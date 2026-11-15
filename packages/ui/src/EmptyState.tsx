@@ -12,10 +12,13 @@ export interface EmptyStateProps {
   actions?: ReactNode;
   /** Omit for a plain empty state; set for a full-page error/warning state. */
   severity?: Severity;
+  /** Heading level in the page outline (default 2: under the page's h1). */
+  level?: 2 | 3;
 }
 
 /** Board D07c: 52 px tile radius 14 (rose-50 / rose-600), title 18/600, body 14/22 muted max 420. */
-export function EmptyState({ icon: Icon, title, children, actions, severity }: EmptyStateProps) {
+export function EmptyState({ icon: Icon, title, children, actions, severity, level = 2 }: EmptyStateProps) {
+  const H = level === 2 ? 'h2' : 'h3';
   const tone = severity ? `${TONE[severity].bg} ${TONE[severity].accent}` : 'bg-rose-50 text-rose-600';
   const filled = useLiveFill();
   const show = filled || !severity;
@@ -27,7 +30,7 @@ export function EmptyState({ icon: Icon, title, children, actions, severity }: E
       <span className={`flex size-[52px] items-center justify-center rounded-[14px] ${tone}`}>
         <Icon size={24} aria-hidden="true" />
       </span>
-      {show && <h3 className="m-0 text-[18px] font-semibold">{title}</h3>}
+      {show && <H className="m-0 text-[18px] font-semibold">{title}</H>}
       {show && children && (
         <p className="m-0 max-w-[420px] text-[14px] leading-[22px] text-muted">{children}</p>
       )}

@@ -1,5 +1,6 @@
 import AxeBuilder from '@axe-core/playwright';
 import { expect, test, type Page } from '@playwright/test';
+import { openBlank } from './helpers';
 
 const shot = (page: Page, name: string) =>
   page.screenshot({ path: `test-results/shots/${test.info().project.name}-${name}.png` });
@@ -9,7 +10,7 @@ test.beforeEach(async ({ page }) => {
   page.on('pageerror', (e) => errors.push(e.message));
   page.on('console', (m) => m.type() === 'error' && errors.push(m.text()));
   (page as Page & { errors: string[] }).errors = errors;
-  await page.goto('/');
+  await openBlank(page);
 });
 
 const errorsOf = (page: Page) => (page as Page & { errors: string[] }).errors;

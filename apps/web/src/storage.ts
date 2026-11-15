@@ -81,6 +81,32 @@ export async function deletePipeline(id: string): Promise<void> {
   }
 }
 
+/* ---------- unload rescue (SIM-20) ---------- */
+
+// An IndexedDB write started while the page unloads may never finish. On unload the pending change is also
+// written synchronously to localStorage; the next load prefers it when newer, writes it back, and clears it.
+const RESCUE = (id: string) => `streamlab:rescue:${id}`;
+
+export function writeRescue(p: Pipeline & { scenario?: string }) {
+  try {
+    localStorage.setItem(RESCUE(p.id), JSON.stringify(p));
+  } catch {
+    // Storage blocked: nothing more can be done synchronously; the async save was also attempted.
+    return false;
+  }
+  return true;
+}
+
+export function takeRescue(id: string): (Pipeline & { scenario?: string }) | null {
+  try {
+    const raw = localStorage.getItem(RESCUE(id));
+    localStorage.removeItem(RESCUE(id));
+    return raw ? (JSON.parse(raw) as Pipeline & { scenario?: string }) : null;
+  } catch {
+    return null;
+  }
+}
+
 /* ---------- multi-tab (SIM-TAB-CONFLICT) ---------- */
 
 export const TAB = Math.random().toString(36).slice(2);

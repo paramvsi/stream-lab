@@ -1,19 +1,16 @@
 import '@sl/ui/src/fonts.css';
 import '@sl/ui/styles.css';
-import { ErrorBoundary } from '@sl/errors';
 import { ToastProvider, TooltipProvider } from '@sl/ui';
+import { RouterProvider } from '@tanstack/react-router';
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
-import { Workspace } from './sim/Workspace';
+import { router } from './router';
 
-// ponytail: the workspace is the whole app until routes (/, /learn, /sim/:id …) land with the gallery slice.
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <TooltipProvider>
       <ToastProvider>
-        <ErrorBoundary>
-          <Workspace />
-        </ErrorBoundary>
+        <RouterProvider router={router} />
       </ToastProvider>
     </TooltipProvider>
   </StrictMode>,

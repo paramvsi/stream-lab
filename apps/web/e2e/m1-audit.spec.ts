@@ -1,5 +1,6 @@
 import AxeBuilder from '@axe-core/playwright';
 import { expect, test, type Page } from '@playwright/test';
+import { openBlank } from './helpers';
 
 const nodes = (page: Page) => page.locator('.react-flow__node');
 const add = (page: Page, type: string) =>
@@ -23,7 +24,7 @@ async function connected(page: Page) {
   await expect(page.locator('.react-flow__edge')).toHaveCount(1);
 }
 
-test.beforeEach(async ({ page }) => page.goto('/'));
+test.beforeEach(async ({ page }) => openBlank(page));
 
 test('#4 the delete toast restores what was deleted even after another step', async ({ page }) => {
   await add(page, 'Source');

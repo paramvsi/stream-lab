@@ -28,11 +28,12 @@ import {
   type IsValidConnection,
   type NodeChange,
 } from '@xyflow/react';
+import { Link } from '@tanstack/react-router';
 import '@xyflow/react/dist/base.css';
 import './canvas.css';
-import { History, LayoutGrid, Play, Redo2, Undo2, Workflow } from 'lucide-react';
+import { AlertTriangle, Check, History, LayoutGrid, Play, Redo2, Undo2, Workflow } from 'lucide-react';
 import { Popover } from 'radix-ui';
-import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent, type ReactNode } from 'react';
 import { useStore } from 'zustand';
 import {
   CanvasMenu,
@@ -47,6 +48,7 @@ import {
 } from './CanvasExtras';
 import { snapGuides, type Guides } from './geometry';
 import { setIssues, useIssues } from './issues';
+import { useSaveState } from './saveState';
 import { accent } from './look';
 import { NODE_H, NODE_W, NodeCard, type SlNode } from './NodeCard';
 import { DRAG_TYPE, Palette } from './Palette';
@@ -549,13 +551,13 @@ function Header() {
   return (
     <header className="flex h-14 shrink-0 items-center gap-3.5 border-b border-line bg-surface px-4">
       <h1 className="sr-only">Pipeline editor</h1>
-      <a
-        href="#/"
+      <Link
+        to="/pipelines"
         className="flex items-center gap-2.5 text-[16px] font-semibold tracking-[-0.02em] text-ink no-underline"
       >
         <img src="/logo-mark.svg" width={24} height={24} alt="" />
         stream<span className="text-rose-600">lab</span>
-      </a>
+      </Link>
       <span aria-hidden="true" className="text-line-strong">
         /
       </span>
@@ -565,6 +567,7 @@ function Header() {
         onChange={(e) => useGraph.getState().setName(e.target.value)}
         className="sl-focus min-w-0 rounded-md border border-transparent bg-transparent px-1.5 py-1 text-[15px] font-semibold hover:border-line"
       />
+      <SaveIndicator />
       <div className="flex gap-0.5 rounded-lg border border-line p-0.5">
         <UndoButton
           label="Undo"
@@ -583,6 +586,21 @@ function Header() {
         <HistoryPopover />
       </div>
     </header>
+  );
+}
+
+function SaveIndicator() {
+  const state = useSaveState((s) => s.state);
+  const text = state === 'saved' ? 'Saved' : state === 'saving' ? 'Saving…' : 'Not saved';
+  return (
+    <span role="status" className="flex items-center gap-1.5 text-[12px] text-muted">
+      {state === 'error' ? (
+        <AlertTriangle size={14} aria-hidden="true" className="text-danger-600" />
+      ) : (
+        <Check size={14} aria-hidden="true" />
+      )}
+      {text}
+    </span>
   );
 }
 
@@ -699,11 +717,12 @@ function ProblemsBar() {
 }
 
 /** W09 workspace: header, palette, canvas, run pill, problems. */
-export function Workspace() {
+export function Workspace({ banners }: { banners?: ReactNode }) {
   return (
     <ReactFlowProvider>
       <div className="flex h-screen flex-col bg-surface">
         <Header />
+        {banners && <div className="flex flex-col gap-2 px-4 pt-3 empty:hidden">{banners}</div>}
         <Canvas />
         <ProblemsBar />
       </div>

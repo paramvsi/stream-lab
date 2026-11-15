@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
+import { openBlank } from './helpers';
 
 const nodes = (page: Page) => page.locator('.react-flow__node');
 
@@ -7,7 +8,7 @@ async function add(page: Page, type: string) {
 }
 
 test.beforeEach(async ({ page }) => {
-  await page.goto('/');
+  await openBlank(page);
 });
 
 test('SIM-10 toolbar on single selection: duplicate, disable, delete', async ({ page }) => {

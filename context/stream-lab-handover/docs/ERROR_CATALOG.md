@@ -10,7 +10,7 @@ Rules for implementers:
 4. Every code needs a test that triggers it and asserts the message, placement and actions (`TESTING.md`).
 5. "Board" is the design artboard that shows it. `W…/WX…` are in the Website canvas, `D…/X…/G…` in the Desktop canvas.
 
-Total: **134 codes** (128 from the handover + `CONN-SSH-HOSTKEY`, `API-4XX`, `COPY-FAILED` added in M0, `SIM-DUP-EDGE`, `SIM-PORT-TAKEN`, `SIM-REDO-EMPTY` added in M1).
+Total: **135 codes** (128 from the handover + `CONN-SSH-HOSTKEY`, `API-4XX`, `COPY-FAILED` added in M0, `SIM-DUP-EDGE`, `SIM-PORT-TAKEN`, `SIM-REDO-EMPTY`, `PIPELINE-NOT-FOUND` added in M1).
 
 
 ## Desktop · Connections
@@ -161,6 +161,7 @@ Total: **134 codes** (128 from the handover + `CONN-SSH-HOSTKEY`, `API-4XX`, `CO
 | `SIM-UNDO-EMPTY` | Undo with no history | History stack | info | button disabled + tooltip | Nothing to undo. | — | W09m |
 | `SIM-REDO-EMPTY` | Redo with nothing to redo | Empty redo stack | info | button disabled + tooltip | Nothing to redo. | — | W09m |
 | `SIM-TAB-CONFLICT` | Same pipeline edited in two tabs | BroadcastChannel + version counter in IndexedDB | warning | banner | This pipeline is open in another tab, which saved a newer version. | Load newer version, Keep editing here | WX08 |
+| `PIPELINE-NOT-FOUND` | Opening /sim/:id for a pipeline that is not saved in this browser | `getPipeline` returns nothing | info | full-page state | This pipeline is not saved in this browser. It may have been deleted, or made in another browser. | My pipelines, New pipeline | W09 (not drawn) |
 | `SIM-SMALL-SCREEN` | Viewport < 900 px wide | matchMedia | info | full-page state | The builder needs a wider screen. You can watch scenarios and read the course. | Watch scenario, Email me the link | WX09 |
 | `SIM-LARGE-GRAPH` | More than 150 nodes | Node count | info | toast | Edge animation and live counts are reduced to keep it smooth. | Settings | WX10 |
 | `SIM-UNION-SCHEMA` | Union inputs have different schemas | Schema compare | error | object badge + field | Union inputs must match. {a} has {x}; {b} has {y}. | Add Map before union | W10-* |

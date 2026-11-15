@@ -18,18 +18,23 @@ export function QuickAdd({
   x,
   y,
   need,
+  allow,
   onPick,
   onClose,
 }: {
   x: number;
   y: number;
   need: QuickAddNeed;
+  /** Extra filter: only nodes the connection rules would accept from where quick-add was opened. */
+  allow?: ((type: NodeType) => boolean) | undefined;
   onPick: (type: NodeType) => void;
   onClose: () => void;
 }) {
   const [q, setQ] = useState('');
   const [active, setActive] = useState(0);
   const input = useRef<HTMLInputElement>(null);
+  // Esc returns focus to where quick-add was opened from (a pick moves it to the new node instead).
+  const opener = useRef<Element | null>(typeof document !== 'undefined' ? document.activeElement : null);
   const listId = useId();
   const items = useMemo(() => {
     const s = q.trim().toLowerCase();
@@ -37,10 +42,16 @@ export function QuickAdd({
       (n) =>
         !('v1' in n && n.v1) &&
         fits(n.type, need) &&
+        (!allow || allow(n.type)) &&
         (!s || `${n.type} ${n.description}`.toLowerCase().includes(s)),
     );
-  }, [q, need]);
+  }, [q, need, allow]);
   useEffect(() => input.current?.focus(), []);
+  const close = () => {
+    onClose();
+    const el = opener.current;
+    if (el instanceof HTMLElement && el !== document.body && el.isConnected) el.focus();
+  };
   const pick = (i: number) => {
     const n = items[i];
     if (n) onPick(n.type);
@@ -55,7 +66,7 @@ export function QuickAdd({
       onKeyDown={(e) => {
         if (e.key === 'Escape') {
           e.stopPropagation();
-          onClose();
+          close();
         }
       }}
     >
@@ -86,13 +97,17 @@ export function QuickAdd({
         }}
         className="sl-focus h-9 rounded-md border border-line-strong px-2.5 text-[14px]"
       />
+      {items.length === 0 && (
+        <p role="status" className="m-0 px-2.5 py-2 text-[13px] text-muted">
+          No nodes match
+        </p>
+      )}
       <ul
         id={listId}
         role="listbox"
         aria-label="Nodes"
         className="m-0 max-h-[320px] list-none overflow-y-auto p-0"
       >
-        {items.length === 0 && <li className="px-2.5 py-2 text-[13px] text-muted">No nodes match</li>}
         {items.map((n, i) => (
           <li
             key={n.type}

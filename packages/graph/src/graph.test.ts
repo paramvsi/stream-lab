@@ -65,8 +65,8 @@ describe('NODE-06 · registry', () => {
   it('Route has one output per rule plus default', () => {
     const c = {
       routes: [
-        { name: 'a', expr: 'true' },
-        { name: 'b', expr: 'true' },
+        { id: 'a', name: 'a', expr: 'true' },
+        { id: 'b', name: 'b', expr: 'true' },
       ],
       defaultBranch: true,
     };
@@ -74,7 +74,7 @@ describe('NODE-06 · registry', () => {
       spec('Route')
         .outputs(c)
         .map((p) => p.id),
-    ).toEqual(['route-0', 'route-1', 'default']);
+    ).toEqual(['route-a', 'route-b', 'default']);
   });
 });
 
@@ -215,7 +215,7 @@ describe('SIM-14 · graph validation', () => {
     const issues = validate({ nodes: [src, j, sink], edges: [edge(src, j, 'main', 'left'), edge(j, sink)] });
     expect(issues).toContainEqual({
       code: 'SIM-DISCONNECTED',
-      params: { node: 'Refund match' },
+      params: { node: 'Refund match (right)' },
       nodeId: j.id,
     });
   });
@@ -268,6 +268,89 @@ describe('SIM-14 · graph validation', () => {
   });
 });
 
+describe('M1 audit fixes · graph', () => {
+  it('#9 Route handles follow the rule id, so removing a rule does not re-point edges', () => {
+    const c = {
+      routes: [
+        { id: 'a', name: 'a', expr: 'true' },
+        { id: 'b', name: 'b', expr: 'true' },
+      ],
+      defaultBranch: false,
+    };
+    expect(
+      spec('Route')
+        .outputs(c)
+        .map((p) => p.id),
+    ).toEqual(['route-a', 'route-b']);
+    expect(
+      spec('Route')
+        .outputs({ ...c, routes: [c.routes[1]!] })
+        .map((p) => p.id),
+    ).toEqual(['route-b']);
+  });
+
+  it('#10 one SIM-SCHEMA-DRIFT per (node, field), however many rules read it', () => {
+    const src = node('Source');
+    const m = node('Map', { drop: ['amount'] });
+    const v = node('Validate', {
+      rules: [
+        { name: 'a', expr: 'amount > 0', severity: 'error' },
+        { name: 'b', expr: 'amount < 9', severity: 'error' },
+      ],
+    });
+    const k = node('Sink');
+    const issues = validate({ nodes: [src, m, v, k], edges: [edge(src, m), edge(m, v), edge(v, k)] });
+    expect(issues.filter((i) => i.code === 'SIM-SCHEMA-DRIFT')).toHaveLength(1);
+  });
+
+  it('#11 a disabled Join passes its left input through (schema checks stay on downstream)', () => {
+    const a = node('Source');
+    const b = node('Source');
+    const j = node('Join', {}, { disabled: true });
+    const w = node('Window', { keyBy: ['nonexistent'] });
+    const k = node('Sink');
+    const issues = validate({
+      nodes: [a, b, j, w, k],
+      edges: [edge(a, j, 'main', 'left'), edge(b, j, 'main', 'right'), edge(j, w), edge(w, k)],
+    });
+    expect(issues.map((i) => i.code)).toContain('SIM-SCHEMA-DRIFT');
+  });
+
+  it('#15 SIM-PORT-TYPE when a numeric aggregate reads a string field', () => {
+    const src = node('Source', {}, { id: 'p' });
+    const w = node('Window', { aggregates: [{ fn: 'sum', field: 'currency', as: 's' }] }, { id: 'w' });
+    expect(
+      connectionIssue(
+        { nodes: [src, w], edges: [] },
+        { source: 'p', sourceHandle: 'main', target: 'w', targetHandle: 'main' },
+      ),
+    ).toMatchObject({ code: 'SIM-PORT-TYPE', params: { needs: 'currency (number)' } });
+  });
+
+  it('#16 a disabled target takes any schema (as validate does)', () => {
+    const src = node('Source', {}, { id: 'p' });
+    const f = node('Filter', { expr: 'zzz > 1' }, { id: 'f', disabled: true });
+    expect(
+      connectionIssue(
+        { nodes: [src, f], edges: [] },
+        { source: 'p', sourceHandle: 'main', target: 'f', targetHandle: 'main' },
+      ),
+    ).toBeNull();
+  });
+
+  it('#17 a half-connected Join names the missing input', () => {
+    const a = node('Source');
+    const j = node('Join', {}, { label: 'Refund match' });
+    const k = node('Sink');
+    const issues = validate({ nodes: [a, j, k], edges: [edge(a, j, 'main', 'left'), edge(j, k)] });
+    expect(issues).toContainEqual({
+      code: 'SIM-DISCONNECTED',
+      params: { node: 'Refund match (right)' },
+      nodeId: j.id,
+    });
+  });
+});
+
 describe('SIM-02 · import (IMPORT-INVALID)', () => {
   const good = () => {
     const p = newPipeline('p_1', 'Card bursts', new Date('2026-11-15T00:00:00Z'));
@@ -292,7 +375,7 @@ describe('SIM-02 · import (IMPORT-INVALID)', () => {
   });
 
   it('IMPORT-INVALID: unknown node type, missing node, duplicate id, loop, bad setting', () => {
-    expect(reason({ ...good(), nodes: [{ ...good().nodes[0]!, type: 'Kafka' }] })).toMatch(/nodes\.0\.type/);
+    expect(reason({ ...good(), nodes: [{ ...good().nodes[0]!, type: 'Kafka' }] })).toMatch(/unknown type/);
     expect(reason({ ...good(), edges: [{ ...good().edges[0]!, target: 'ghost' }] })).toMatch(/missing node/);
     expect(reason({ ...good(), nodes: [good().nodes[0]!, good().nodes[0]!] })).toMatch(/used twice/);
     const f1 = node('Filter', {}, { id: 'f1' });
@@ -303,6 +386,33 @@ describe('SIM-02 · import (IMPORT-INVALID)', () => {
     expect(reason({ ...good(), nodes: [node('Filter', { expr: 42 }, { id: 'f' })], edges: [] })).toMatch(
       /node "f" has a bad setting \(expr\)/,
     );
+  });
+
+  it('#2 IMPORT-INVALID: unknown handle, edge id reused, two edges into one input', () => {
+    const g = good();
+    const e = g.edges[0]!;
+    expect(reason({ ...g, edges: [{ ...e, sourceHandle: 'bogus' }] })).toMatch(
+      /edge "e-s-main-k-main" uses an output "bogus"/,
+    );
+    expect(reason({ ...g, edges: [{ ...e, targetHandle: 'nope' }] })).toMatch(/uses an input "nope"/);
+    const s2 = node('Source', {}, { id: 's2' });
+    expect(reason({ ...g, nodes: [...g.nodes, s2], edges: [e, { ...e, source: 's2' }] })).toMatch(
+      /used twice/,
+    );
+    expect(reason({ ...g, nodes: [...g.nodes, s2], edges: [e, { ...e, id: 'e2', source: 's2' }] })).toMatch(
+      /takes one edge on its input/,
+    );
+  });
+
+  it('#14 too-small numbers are refused; only empty text/lists pass through to the drawer', () => {
+    expect(reason({ ...good(), nodes: [node('Top-N', { n: 0 }, { id: 't' })], edges: [] })).toMatch(
+      /bad setting \(n\)/,
+    );
+  });
+
+  it('#18 reasons are plain words, not schema-validator text', () => {
+    const r = reason({ ...good(), nodes: [{ ...good().nodes[0]!, type: 'Kafka' }] });
+    expect(r).toBe('node 1 has an unknown type "Kafka"');
   });
 
   it('a half-filled setting (empty required name) still imports; the drawer flags it', () => {

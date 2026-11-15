@@ -59,9 +59,9 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button
       {children}
     </button>
   );
-  if (!disabledReason) return btn;
+  // Always the same wrapper: toggling the reason must not re-mount the <button> (it would drop focus).
   return (
-    <Tooltip content={disabledReason} describe>
+    <Tooltip content={disabledReason} describe off={!disabledReason}>
       {btn}
     </Tooltip>
   );

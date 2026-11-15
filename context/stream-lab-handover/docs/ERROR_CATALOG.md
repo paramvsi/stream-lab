@@ -10,7 +10,7 @@ Rules for implementers:
 4. Every code needs a test that triggers it and asserts the message, placement and actions (`TESTING.md`).
 5. "Board" is the design artboard that shows it. `W…/WX…` are in the Website canvas, `D…/X…/G…` in the Desktop canvas.
 
-Total: **133 codes** (128 from the handover + `CONN-SSH-HOSTKEY`, `API-4XX`, `COPY-FAILED` added in M0, `SIM-DUP-EDGE`, `SIM-PORT-TAKEN` added in M1).
+Total: **134 codes** (128 from the handover + `CONN-SSH-HOSTKEY`, `API-4XX`, `COPY-FAILED` added in M0, `SIM-DUP-EDGE`, `SIM-PORT-TAKEN`, `SIM-REDO-EMPTY` added in M1).
 
 
 ## Desktop · Connections
@@ -159,6 +159,7 @@ Total: **133 codes** (128 from the handover + `CONN-SSH-HOSTKEY`, `API-4XX`, `CO
 | `SIM-RUNTIME-EXPR` | Expression throws at runtime for an event (e.g. divide by zero, null field) | Engine try/catch per event | warning | node badge count + Problems row + event marked in Timeline | {n} events failed in {node}: {reason}. They were sent to Dead-letter. | Show events | W09l |
 | `SIM-DELETE-UNDO` | Node(s) deleted | User action | success | toast with Undo (8 s) | Deleted {n} node(s). | Undo | W09n |
 | `SIM-UNDO-EMPTY` | Undo with no history | History stack | info | button disabled + tooltip | Nothing to undo. | — | W09m |
+| `SIM-REDO-EMPTY` | Redo with nothing to redo | Empty redo stack | info | button disabled + tooltip | Nothing to redo. | — | W09m |
 | `SIM-TAB-CONFLICT` | Same pipeline edited in two tabs | BroadcastChannel + version counter in IndexedDB | warning | banner | This pipeline is open in another tab, which saved a newer version. | Load newer version, Keep editing here | WX08 |
 | `SIM-SMALL-SCREEN` | Viewport < 900 px wide | matchMedia | info | full-page state | The builder needs a wider screen. You can watch scenarios and read the course. | Watch scenario, Email me the link | WX09 |
 | `SIM-LARGE-GRAPH` | More than 150 nodes | Node count | info | toast | Edge animation and live counts are reduced to keep it smooth. | Settings | WX10 |

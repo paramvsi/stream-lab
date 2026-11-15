@@ -1,4 +1,11 @@
-import { labelOf, spec, type NodeType, type PipelineEdge, type PipelineNode } from '@sl/graph';
+import {
+  connectionIssue,
+  labelOf,
+  spec,
+  type NodeType,
+  type PipelineEdge,
+  type PipelineNode,
+} from '@sl/graph';
 import { temporal } from 'zundo';
 import { create } from 'zustand';
 
@@ -32,14 +39,24 @@ export interface GraphState extends Snapshot {
   rename(id: string, label: string): void;
   toggleDisabled(ids: string[]): void;
   duplicate(ids: string[]): string[];
-  /** Returns how many nodes were deleted (SIM-DELETE-UNDO). */
-  deleteSelection(): number;
+  /** Returns what was removed, so "Undo" in the SIM-DELETE-UNDO toast can put exactly that back. */
+  deleteSelection(): Removed;
+  /** Re-add removed nodes/edges as a new step (edges to nodes that no longer exist are dropped). */
+  restore(r: Removed): void;
+  /** A move outside a drag (arrow keys): one labelled step. */
+  nudge(positions: Record<string, { x: number; y: number }>): void;
+  isDragging(): boolean;
   removeEdge(id: string): void;
   insertOnEdge(edgeId: string, type: NodeType): string;
   copySelection(): void;
   paste(): string[];
   select(nodes: string[], edges?: string[]): void;
   setName(name: string): void;
+}
+
+export interface Removed {
+  nodes: PipelineNode[];
+  edges: PipelineEdge[];
 }
 
 export interface ConnectFrom {
@@ -91,6 +108,7 @@ export const useGraph = create<GraphState>()(
           edges: p.edges,
           label: 'Opened',
           selected: [],
+          selectedEdges: [],
         });
         useGraph.temporal.getState().clear();
       },
@@ -104,7 +122,9 @@ export const useGraph = create<GraphState>()(
             const e = from.fromTarget
               ? { source: n.id, sourceHandle: port, target: from.nodeId, targetHandle: from.handleId }
               : { source: from.nodeId, sourceHandle: from.handleId, target: n.id, targetHandle: port };
-            edges.push({ id: edgeId(e), ...e });
+            // Same rules as a drag (SIM-PORT-TAKEN, SIM-PORT-TYPE…): if refused, the node is added unconnected.
+            if (!connectionIssue({ nodes: [...get().nodes, n], edges }, e))
+              edges.push({ id: edgeId(e), ...e });
           }
         }
         set({ nodes: [...get().nodes, n], edges, selected: [n.id], label: `Added ${type}` });
@@ -180,6 +200,8 @@ export const useGraph = create<GraphState>()(
       },
 
       duplicate: (ids) => {
+        // Nothing (or only stale ids) to copy: no history step, redo stays intact.
+        if (!get().nodes.some((n) => ids.includes(n.id))) return [];
         const copies = get()
           .nodes.filter((n) => ids.includes(n.id))
           .map((n) => ({
@@ -199,7 +221,7 @@ export const useGraph = create<GraphState>()(
       deleteSelection: () => {
         const { selected, selectedEdges, nodes, edges } = get();
         const gone = new Set(selected);
-        if (!gone.size && !selectedEdges.length) return 0;
+        if (!gone.size && !selectedEdges.length) return { nodes: [], edges: [] };
         const left = edges.filter(
           (e) => !gone.has(e.source) && !gone.has(e.target) && !selectedEdges.includes(e.id),
         );
@@ -216,8 +238,39 @@ export const useGraph = create<GraphState>()(
                 ? `Deleted ${removed.length} nodes`
                 : `Deleted ${edges.length - left.length} edge${edges.length - left.length === 1 ? '' : 's'}`,
         });
-        return removed.length;
+        return { nodes: removed, edges: edges.filter((e) => !left.includes(e)) };
       },
+
+      restore: (r) => {
+        const have = new Set(get().nodes.map((n) => n.id));
+        const nodes = r.nodes.filter((n) => !have.has(n.id));
+        const ids = new Set([...have, ...nodes.map((n) => n.id)]);
+        const known = new Set(get().edges.map((e) => e.id));
+        const edges = r.edges.filter((e) => ids.has(e.source) && ids.has(e.target) && !known.has(e.id));
+        if (!nodes.length && !edges.length) return;
+        set({
+          nodes: [...get().nodes, ...nodes],
+          edges: [...get().edges, ...edges],
+          selected: nodes.map((n) => n.id),
+          label:
+            nodes.length === 1
+              ? `Restored ${labelOf(nodes[0]!)}`
+              : nodes.length
+                ? `Restored ${nodes.length} nodes`
+                : 'Restored edges',
+        });
+      },
+
+      nudge: (positions) => {
+        const moved = get().nodes.filter((n) => positions[n.id]);
+        if (!moved.length) return;
+        set({
+          nodes: get().nodes.map((n) => (positions[n.id] ? { ...n, position: positions[n.id]! } : n)),
+          label: moved.length === 1 ? `Moved ${labelOf(moved[0]!)}` : `Moved ${moved.length} nodes`,
+        });
+      },
+
+      isDragging: () => dragSnapshot !== null,
 
       removeEdge: (id) => set({ edges: get().edges.filter((e) => e.id !== id), label: 'Removed edge' }),
 

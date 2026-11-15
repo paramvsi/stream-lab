@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { topoOrder } from './graph';
+import { inputsOf, outputsOf, topoOrder } from './graph';
 import { NODES, spec } from './nodes';
 import type { Field, FieldType, Issue, NodeType, PipelineEdge, PipelineNode, Schema } from './types';
 
@@ -99,10 +99,7 @@ export function parsePipeline(input: unknown, file: string): Parsed {
     return fail(file, `version ${raw.schemaVersion} can not be upgraded`);
   }
   const r = PipelineV1.safeParse(migrated);
-  if (!r.success) {
-    const i = r.error.issues[0]!;
-    return fail(file, `${i.path.join('.') || 'the file'} is invalid (${i.message})`);
-  }
+  if (!r.success) return fail(file, plainReason(r.error.issues[0]!.path, migrated));
   const p = r.data as Pipeline;
 
   const ids = new Set<string>();
@@ -113,16 +110,55 @@ export function parsePipeline(input: unknown, file: string): Parsed {
       ...(spec(n.type).defaults() as object),
       ...(n.config as object),
     });
-    const hard = shape.success ? [] : shape.error.issues.filter((i) => i.code !== 'too_small');
+    // Empty text or lists are half-filled fields the drawer flags (NODE-REQUIRED); anything else is broken.
+    const soft = (i: { code: string; origin?: string }) =>
+      i.code === 'too_small' && (i.origin === 'string' || i.origin === 'array');
+    const hard = shape.success
+      ? []
+      : shape.error.issues.filter((i) => !soft(i as { code: string; origin?: string }));
     if (hard.length) return fail(file, `node "${n.id}" has a bad setting (${hard[0]!.path.join('.')})`);
+  }
+  const edgeIds = new Set<string>();
+  for (const e of p.edges) {
+    if (edgeIds.has(e.id)) return fail(file, `edge id "${e.id}" is used twice`);
+    edgeIds.add(e.id);
   }
   for (const e of p.edges) {
     const src = p.nodes.find((n) => n.id === e.source);
     const tgt = p.nodes.find((n) => n.id === e.target);
     if (!src || !tgt) return fail(file, `edge "${e.id}" points to a missing node`);
+    if (!outputsOf(src).some((o) => o.id === e.sourceHandle))
+      return fail(file, `edge "${e.id}" uses an output "${e.sourceHandle}" that ${src.type} does not have`);
+    const port = inputsOf(tgt).find((i) => i.id === e.targetHandle);
+    if (!port)
+      return fail(file, `edge "${e.id}" uses an input "${e.targetHandle}" that ${tgt.type} does not have`);
+    if (
+      !port.multi &&
+      p.edges.some((x) => x !== e && x.target === e.target && x.targetHandle === e.targetHandle)
+    )
+      return fail(
+        file,
+        `node "${tgt.id}" takes one edge on ${port.id === 'main' ? 'its input' : `its ${port.label} input`} but has several`,
+      );
   }
   if (topoOrder(p).length !== p.nodes.length) return fail(file, 'it contains a loop');
   return { ok: true, pipeline: p };
+}
+
+/** IMPORT-INVALID reasons in plain words (never schema-validator text). */
+function plainReason(path: PropertyKey[], raw: Record<string, unknown>): string {
+  const [top, idx, field] = path;
+  if (top === 'nodes' && typeof idx === 'number' && field === 'type') {
+    const t = (raw.nodes as { type?: unknown }[] | undefined)?.[idx]?.type;
+    return `node ${idx + 1} has an unknown type "${String(t)}"`;
+  }
+  if (top === 'nodes' && typeof idx === 'number')
+    return `node ${idx + 1} is missing "${String(field ?? 'its settings')}"`;
+  if (top === 'edges' && typeof idx === 'number')
+    return `edge ${idx + 1} is missing "${String(field ?? 'its ends')}"`;
+  return top === undefined
+    ? 'the file is not a pipeline'
+    : `"${String(top)}" is missing or has the wrong shape`;
 }
 
 /* ---------- SIM-25: schema inferred from sample data, shown as JSON Schema ---------- */

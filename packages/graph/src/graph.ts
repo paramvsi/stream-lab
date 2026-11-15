@@ -64,9 +64,10 @@ export function propagate(g: Graph, ctx: SchemaCtx = EMPTY_CTX): Schemas {
         (ins[e.targetHandle] ??= []).push(schema);
       }
     s.in.set(n.id, ins);
-    // A disabled node passes its main input straight through.
+    // A disabled node passes its first input straight through (Join: left).
+    const firstIn = inputsOf(n)[0]?.id;
     const outs = n.disabled
-      ? Object.fromEntries(outputsOf(n).map((p) => [p.id, ins['main']?.[0] ?? []]))
+      ? Object.fromEntries(outputsOf(n).map((p) => [p.id, (firstIn && ins[firstIn]?.[0]) || []]))
       : spec(n.type).outputSchema(ins, configOf(n), ctx);
     s.out.set(n.id, outs);
   }
@@ -122,12 +123,17 @@ export function connectionIssue(g: Graph, c: Connection, ctx: SchemaCtx = EMPTY_
     return { code: 'SIM-PORT-TAKEN', params: { port: inPort.label, node: labelOf(tgt) }, nodeId: tgt.id };
 
   const has = propagate(g, ctx).out.get(src.id)?.[c.sourceHandle] ?? [];
-  // Nothing known upstream yet (e.g. an unconnected Filter): accept; validation re-checks later.
-  if (has.length === 0) return null;
+  // Nothing known upstream yet (e.g. an unconnected Filter), or a disabled target (it passes events through
+  // untouched, as validate() treats it): accept; validation re-checks later.
+  if (has.length === 0 || tgt.disabled) return null;
   const missing = spec(tgt.type)
     .requires(configOf(tgt))
-    .filter((r) => r.port === c.targetHandle && !has.some((f) => f.name === r.field))
-    .map((r) => r.field);
+    .filter((r) => r.port === c.targetHandle)
+    .filter((r) => {
+      const f = has.find((x) => x.name === r.field);
+      return !f || (r.type !== undefined && f.type !== r.type);
+    })
+    .map((r) => (r.type ? `${r.field} (${r.type})` : r.field));
   if (missing.length)
     return {
       code: 'SIM-PORT-TYPE',
@@ -151,18 +157,34 @@ export function validate(g: Graph, ctx: SchemaCtx = EMPTY_CTX): Issue[] {
   for (const n of g.nodes) {
     const node = labelOf(n);
     const ins = s.in.get(n.id) ?? {};
-    if (inputsOf(n).some((p) => !ins[p.id]?.length))
-      issues.push({ code: 'SIM-DISCONNECTED', params: { node }, nodeId: n.id });
+    const ports = inputsOf(n);
+    const open = ports.filter((p) => !ins[p.id]?.length);
+    // A node with several inputs (Join) names the one that is missing.
+    if (open.length)
+      issues.push({
+        code: 'SIM-DISCONNECTED',
+        params: { node: ports.length > 1 && open.length === 1 ? `${node} (${open[0]!.label})` : node },
+        nodeId: n.id,
+      });
 
     const mainOuts = outputsOf(n).filter((p) => p.kind === 'main');
     if (mainOuts.some((p) => !g.edges.some((e) => e.source === n.id && e.sourceHandle === p.id)))
       issues.push({ code: 'SIM-NO-SINK', params: { node }, nodeId: n.id });
 
+    const drifted = new Set<string>();
     if (!n.disabled)
       for (const r of spec(n.type).requires(configOf(n))) {
         const edge = g.edges.find((e) => e.target === n.id && e.targetHandle === r.port);
         const schema = edge ? s.edge.get(edge.id) : undefined;
-        if (edge && schema?.length && !schema.some((f) => f.name === r.field))
+        // One row per (port, field), however many rules read it.
+        const key = `${r.port}:${r.field}`;
+        if (
+          edge &&
+          schema?.length &&
+          !schema.some((f) => f.name === r.field) &&
+          !drifted.has(key) &&
+          drifted.add(key)
+        )
           issues.push({
             code: 'SIM-SCHEMA-DRIFT',
             params: { node, field: r.field, upstream: labelOf(byId.get(edge.source)!) },

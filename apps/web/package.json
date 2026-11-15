@@ -10,12 +10,14 @@
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.3.5",
+    "fake-indexeddb": "^6.2.8",
     "tailwindcss": "^4.3.5"
   },
   "dependencies": {
     "@sl/errors": "workspace:*",
     "@sl/graph": "workspace:*",
     "@sl/ui": "workspace:*",
+    "@tanstack/react-router": "^1.170.46",
     "@xyflow/react": "^12.12.1",
     "elkjs": "^0.12.1",
     "idb": "^8.0.4",

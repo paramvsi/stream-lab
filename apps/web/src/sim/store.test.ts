@@ -94,6 +94,57 @@ describe('SIM-08 / SIM-09 · quick-add from a handle, insert on edge', () => {
   });
 });
 
+describe('M1 audit fixes · store', () => {
+  it('#1 auto-connect from quick-add obeys the connection rules (no second edge into a single input)', () => {
+    const s = g().addNode('Source', { x: 0, y: 0 });
+    const f = g().addNode('Filter', { x: 200, y: 0 }, { nodeId: s, handleId: 'main' });
+    g().addNode('Generator', { x: 0, y: 200 }, { nodeId: f, handleId: 'main', fromTarget: true });
+    expect(g().edges.filter((e) => e.target === f)).toHaveLength(1);
+  });
+
+  it('#3 duplicate with nothing (or only stale ids) selected adds no step and keeps redo', () => {
+    g().addNode('Source', { x: 0, y: 0 });
+    t().undo();
+    const future = t().futureStates.length;
+    const past = t().pastStates.length;
+    expect(g().duplicate(['gone'])).toEqual([]);
+    expect(g().duplicate([])).toEqual([]);
+    expect(t().pastStates.length).toBe(past);
+    expect(t().futureStates.length).toBe(future);
+  });
+
+  it('#4 restore puts back exactly what a delete removed, even after later steps', () => {
+    const a = g().addNode('Source', { x: 0, y: 0 });
+    const b = g().addNode('Sink', { x: 200, y: 0 });
+    g().connect({ source: a, sourceHandle: 'main', target: b, targetHandle: 'main' });
+    g().select([b]);
+    const removed = g().deleteSelection();
+    const f = g().addNode('Filter', { x: 0, y: 200 });
+    g().restore(removed);
+    expect(
+      g()
+        .nodes.map((n) => n.id)
+        .sort(),
+    ).toEqual([a, b, f].sort());
+    expect(g().edges).toHaveLength(1);
+    expect(historyEntries().at(-1)).toBe('Restored Sink');
+  });
+
+  it('#5 a move outside a drag (arrow keys) is its own "Moved …" step', () => {
+    const a = g().addNode('Window', { x: 0, y: 0 });
+    g().nudge({ [a]: { x: 8, y: 0 } });
+    expect(historyEntries().at(-1)).toBe('Moved Window');
+    t().undo();
+    expect(g().nodes[0]!.position).toEqual({ x: 0, y: 0 });
+  });
+
+  it('#20 load resets the edge selection', () => {
+    g().select([], ['e_x']);
+    g().load({ id: 'p2', name: 'x', nodes: [], edges: [] });
+    expect(g().selectedEdges).toEqual([]);
+  });
+});
+
 describe('SIM-11 · multi-select, delete, copy and paste', () => {
   it('pastes with +24 px offset, new ids, and only the internal edges', () => {
     const a = g().addNode('Source', { x: 0, y: 0 });
@@ -129,7 +180,7 @@ describe('SIM-11 · multi-select, delete, copy and paste', () => {
     const b = g().addNode('Filter', { x: 200, y: 0 });
     g().connect({ source: a, sourceHandle: 'main', target: b, targetHandle: 'main' });
     g().select([a, b]);
-    expect(g().deleteSelection()).toBe(2);
+    expect(g().deleteSelection().nodes).toHaveLength(2);
     expect(g().edges).toHaveLength(0);
     expect(historyEntries().at(-1)).toBe('Deleted 2 nodes');
     t().undo();

@@ -4,7 +4,7 @@ Unzip this at the root of a new repo, then open Claude Code there. Claude Code r
 
 1. Run `prompts/M0-foundations.md` first, then go in order (`docs/ROADMAP.md`).
 2. The designs are in `design/web` and `design/desktop`. Each `.dc.html` file is one board; open it in a browser. The live canvases (with comments and motion) are linked in `docs/SCREENS.md`.
-3. `docs/COVERAGE.md` is the end-to-end audit. `docs/ERROR_CATALOG.md` lists every error case (133). `docs/TRACEABILITY.md` maps all 77 original features with their MVP/v1/Later priority.
+3. `docs/COVERAGE.md` is the end-to-end audit. `docs/ERROR_CATALOG.md` lists every error case (134). `docs/TRACEABILITY.md` maps all 77 original features with their MVP/v1/Later priority.
 
 | File | What it is |
 |---|---|

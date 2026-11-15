@@ -45,10 +45,9 @@
   opacity: 0;
   transition: opacity var(--sl-motion-fast) var(--sl-motion-ease-out);
 }
-.react-flow__edge:hover ~ .sl-edge-tools,
+.sl-edge-tools-on,
 .sl-edge-tools:hover,
-.sl-edge-tools:focus-within,
-.react-flow__edgelabel-renderer .sl-edge-tools:hover {
+.sl-edge-tools:focus-within {
   opacity: 1;
 }
 

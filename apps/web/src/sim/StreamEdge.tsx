@@ -10,7 +10,12 @@ import {
 } from '@xyflow/react';
 import { Plus } from 'lucide-react';
 import { createContext, memo, useContext, useEffect, useState } from 'react';
+import { create } from 'zustand';
 import { useGraph } from './store';
+
+/** Which edge the pointer is over (React Flow's edge and its label live in different DOM subtrees). */
+const useHover = create<{ id: string | null }>(() => ({ id: null }));
+export const setHoveredEdge = (id: string | null) => useHover.setState({ id });
 
 export type SlEdge = Edge<{ schema: Schema }, 'stream'>;
 
@@ -23,6 +28,7 @@ export const EdgeActions = createContext<{ insertAt: (edgeId: string, x: number,
 export const StreamEdge = memo(function StreamEdge(p: EdgeProps<SlEdge>) {
   const [path, lx, ly] = getBezierPath(p);
   const { insertAt } = useContext(EdgeActions);
+  const hovered = useHover((h) => h.id === p.id);
   const fields = p.data?.schema.map((f) => `${f.name}: ${f.type}${f.required ? '' : '?'}`) ?? [];
   return (
     <>
@@ -37,18 +43,32 @@ export const StreamEdge = memo(function StreamEdge(p: EdgeProps<SlEdge>) {
       />
       <EdgeLabelRenderer>
         <div
-          className="nodrag nopan sl-edge-tools pointer-events-auto absolute flex items-center gap-1"
+          className={`nodrag nopan sl-edge-tools pointer-events-auto absolute flex items-center ${hovered || p.selected ? 'sl-edge-tools-on' : ''}`}
           style={{ transform: `translate(-50%, -50%) translate(${lx}px, ${ly}px)` }}
         >
           <button
             type="button"
             aria-label="Insert a node on this edge"
             title={fields.length ? `Schema: ${fields.join(', ')}` : 'No schema yet'}
-            onClick={(e) => insertAt(p.id, e.clientX, e.clientY)}
+            onClick={(e) => {
+              const r = e.currentTarget.getBoundingClientRect();
+              // Keyboard clicks report (0, 0): open at the button instead.
+              insertAt(p.id, e.clientX || r.left, e.clientY || r.bottom + 4);
+            }}
+            // Keep Enter/Space for this button: React Flow's edge handler would select the edge instead.
+            onKeyDown={(e) => e.stopPropagation()}
             className="sl-focus flex size-6 items-center justify-center rounded-pill border border-line-strong bg-surface text-muted shadow-card hover:border-rose-600 hover:text-rose-600"
           >
             <Plus size={14} aria-hidden="true" />
           </button>
+          {hovered && fields.length > 0 && (
+            <span
+              role="tooltip"
+              className="absolute top-full left-1/2 mt-1 w-max max-w-[260px] -translate-x-1/2 rounded-md border border-line bg-surface px-2 py-1 font-mono text-[11px] leading-4 text-muted shadow-card"
+            >
+              {fields.join(', ')}
+            </span>
+          )}
         </div>
       </EdgeLabelRenderer>
     </>

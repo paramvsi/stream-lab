@@ -3,7 +3,9 @@ import {
   connectionIssue,
   labelOf,
   propagate,
+  inputsOf,
   runBlocker,
+  type Schema,
   spec,
   validate,
   type NodeType,
@@ -49,9 +51,38 @@ import { NODE_H, NODE_W, NodeCard, type SlNode } from './NodeCard';
 import { DRAG_TYPE, Palette } from './Palette';
 import { QuickAdd, type QuickAddNeed } from './QuickAdd';
 import { historyEntries, useGraph, type ConnectFrom } from './store';
-import { ConnectionHint, EdgeActions, StreamEdge, type SlEdge } from './StreamEdge';
+import { ConnectionHint, EdgeActions, setHoveredEdge, StreamEdge, type SlEdge } from './StreamEdge';
 
 const nodeTypes = { sl: NodeCard };
+
+/** Would a fresh node of `type` connect where quick-add was opened from? (Same rules as a drag.) */
+function attachable(type: NodeType, from: ConnectFrom): boolean {
+  const { nodes, edges } = useGraph.getState();
+  const s = spec(type);
+  const fresh = { id: '__new', type, position: { x: 0, y: 0 }, config: s.defaults() };
+  const port = (from.fromTarget ? s.outputs(fresh.config) : s.inputs(fresh.config))[0]?.id;
+  if (!port) return false;
+  const c = from.fromTarget
+    ? { source: fresh.id, sourceHandle: port, target: from.nodeId, targetHandle: from.handleId }
+    : { source: from.nodeId, sourceHandle: from.handleId, target: fresh.id, targetHandle: port };
+  try {
+    return !connectionIssue({ nodes: [...nodes, fresh], edges }, c);
+  } catch {
+    return false;
+  }
+}
+
+// ponytail: module-level, keyed by edge id; entries for deleted edges linger until reload (a few bytes each).
+const edgeDataCache = new Map<string, { sig: string; data: { schema: Schema } }>();
+function stableData(id: string, schema: Schema) {
+  const cache = edgeDataCache;
+  const sig = JSON.stringify(schema);
+  const hit = cache.get(id);
+  if (hit && hit.sig === sig) return hit.data;
+  const data = { schema };
+  cache.set(id, { sig, data });
+  return data;
+}
 
 const onGrid = (p: { x: number; y: number }) => ({ x: Math.round(p.x / 8) * 8, y: Math.round(p.y / 8) * 8 });
 
@@ -109,7 +140,13 @@ function Canvas() {
     return () => clearTimeout(t);
   }, [nodes, edges]);
 
-  const schemas = useMemo(() => propagate({ nodes, edges }), [nodes, edges]);
+  // SIMULATOR.md: no re-render storms. Schemas depend on structure, not positions: recompute only when the
+  // structure changes (not on every drag frame), and keep each edge's `data` object while its schema is equal.
+  const structKey = JSON.stringify(nodes.map((n) => [n.id, n.type, n.disabled ?? false, n.config]));
+  // `nodes` is left out on purpose: positions change every drag frame and never affect schemas; structKey
+  // captures everything that does.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const schemas = useMemo(() => propagate({ nodes, edges }), [structKey, edges]);
   const rfNodes = useMemo<SlNode[]>(
     () =>
       nodes.map((n) => ({
@@ -128,7 +165,7 @@ function Canvas() {
       edges.map((e) => ({
         ...e,
         type: 'stream',
-        data: { schema: schemas.edge.get(e.id) ?? [] },
+        data: stableData(e.id, schemas.edge.get(e.id) ?? []),
         selected: selectedEdges.includes(e.id),
       })),
     [edges, schemas, selectedEdges],
@@ -165,7 +202,11 @@ function Canvas() {
         pos[id] = snap.pos;
         setGuides(dragging ? { x: snap.x, y: snap.y } : {});
       }
-      if (Object.keys(pos).length) g().dragTo(pos);
+      // Inside a drag: live positions (one step at drag end). Outside (arrow keys): one "Moved …" step each.
+      if (Object.keys(pos).length) {
+        if (g().isDragging()) g().dragTo(pos);
+        else g().nudge(pos);
+      }
       if (sel) g().select([...sel], g().selectedEdges);
     },
     [g],
@@ -222,6 +263,12 @@ function Canvas() {
       if (s.isValid || s.toHandle || !s.fromHandle) return;
       const p = 'changedTouches' in e ? e.changedTouches[0]! : e;
       const fromTarget = s.fromHandle.type === 'target';
+      const fh = s.fromHandle;
+      // An input that already has its one edge can't take another: nothing to offer.
+      const tgt = g().nodes.find((n) => n.id === fh.nodeId);
+      const port = tgt && fromTarget ? inputsOf(tgt).find((x) => x.id === (fh.id ?? 'main')) : undefined;
+      if (port && !port.multi && g().edges.some((x) => x.target === fh.nodeId && x.targetHandle === port.id))
+        return;
       setQuick({
         x: p.clientX,
         y: p.clientY,
@@ -230,7 +277,7 @@ function Canvas() {
         from: { nodeId: s.fromHandle.nodeId, handleId: s.fromHandle.id ?? 'main', fromTarget },
       });
     },
-    [rf],
+    [rf, g],
   );
 
   const openQuick = useCallback(
@@ -282,9 +329,14 @@ function Canvas() {
 
   const pick = (type: NodeType) => {
     if (!quick) return;
-    if (quick.edgeId) g().insertOnEdge(quick.edgeId, type);
-    else g().addNode(type, { x: quick.flow.x - NODE_W / 2, y: quick.flow.y - NODE_H / 2 }, quick.from);
+    const id = quick.edgeId
+      ? g().insertOnEdge(quick.edgeId, type)
+      : g().addNode(type, onGrid({ x: quick.flow.x - NODE_W / 2, y: quick.flow.y - NODE_H / 2 }), quick.from);
     setQuick(null);
+    // Focus goes to the new node (not <body>), so keyboard users carry on from it.
+    requestAnimationFrame(() =>
+      document.querySelector<HTMLElement>(`.react-flow__node[data-id="${CSS.escape(id)}"]`)?.focus(),
+    );
   };
 
   const onDrop = (e: DragEvent) => {
@@ -299,13 +351,15 @@ function Canvas() {
   const removeWithUndo = useCallback(
     (nodeIds: string[], edgeIds: string[] = []) => {
       g().select(nodeIds, edgeIds);
-      const n = g().deleteSelection();
+      const removed = g().deleteSelection();
+      const n = removed.nodes.length;
       if (n > 0) {
         const p = present(new AppError('SIM-DELETE-UNDO', { n }));
         toast({
           severity: p.severity,
           message: p.message,
-          action: { label: 'Undo', onClick: () => useGraph.temporal.getState().undo() },
+          // Puts back exactly these nodes/edges, even if other steps happened since (not "undo the last step").
+          action: { label: 'Undo', onClick: () => g().restore(removed) },
         });
       }
     },
@@ -370,6 +424,8 @@ function Canvas() {
                 g().endDrag();
               }}
               onNodeDoubleClick={(_, n) => setDrawerFor(n.id)}
+              onEdgeMouseEnter={(_, ed) => setHoveredEdge(ed.id)}
+              onEdgeMouseLeave={() => setHoveredEdge(null)}
               onNodeContextMenu={(e, n) => {
                 e.preventDefault();
                 setMenu({ kind: 'node', id: n.id, x: e.clientX, y: e.clientY });
@@ -437,6 +493,7 @@ function Canvas() {
                 x={quick.x}
                 y={quick.y}
                 need={quick.need}
+                allow={quick.from ? (t) => attachable(t, quick.from!) : undefined}
                 onPick={pick}
                 onClose={() => setQuick(null)}
               />
@@ -525,8 +582,7 @@ function UndoButton(p: {
   icon: React.ReactNode;
 }) {
   // SIM-UNDO-EMPTY: "Nothing to undo." (button disabled + tooltip)
-  const reason =
-    p.count === 0 ? (p.label === 'Undo' ? msg('SIM-UNDO-EMPTY') : 'Nothing to redo.') : undefined;
+  const reason = p.count === 0 ? msg(p.label === 'Undo' ? 'SIM-UNDO-EMPTY' : 'SIM-REDO-EMPTY') : undefined;
   return (
     <Button
       size="sm"

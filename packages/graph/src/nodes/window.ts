@@ -41,8 +41,15 @@ export const window = defineNode({
     ],
     late: one(i),
   }),
-  requires: (c) =>
-    [...c.keyBy, ...c.aggregates.filter((a) => a.fn !== 'count' && a.field).map((a) => a.field)].map(
-      (field) => ({ port: 'main', field }),
-    ),
+  requires: (c) => [
+    ...c.keyBy.map((field) => ({ port: 'main', field })),
+    // sum/avg/min/max need a number; count may name any field (or none).
+    ...c.aggregates
+      .filter((a) => a.field)
+      .map((a) => ({
+        port: 'main',
+        field: a.field,
+        ...(a.fn === 'count' ? {} : { type: 'number' as const }),
+      })),
+  ],
 });

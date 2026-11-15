@@ -43,6 +43,26 @@ describe('UI · Button', () => {
     expect(onClick).not.toHaveBeenCalled();
   });
 
+  it('keeps focus when it switches between enabled and disabled-with-reason (M1 audit #8)', async () => {
+    function Harness() {
+      const [n, setN] = useState(1);
+      return (
+        <TooltipProvider>
+          <Button disabledReason={n === 0 ? 'Nothing to undo.' : undefined} onClick={() => setN(0)}>
+            Undo
+          </Button>
+        </TooltipProvider>
+      );
+    }
+    render(<Harness />);
+    const b = screen.getByRole('button', { name: 'Undo' });
+    b.focus();
+    await userEvent.keyboard('{Enter}');
+    expect(screen.getByRole('button', { name: 'Undo' })).toBe(b); // same element, not re-mounted
+    expect(b).toHaveFocus();
+    expect(b).toHaveAccessibleDescription('Nothing to undo.');
+  });
+
   it('loading is busy and does not click', async () => {
     const onClick = vi.fn();
     render(

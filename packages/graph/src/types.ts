@@ -66,8 +66,11 @@ export interface NodeSpec<C = unknown> {
   summary: (config: C) => string;
   /** Output schema per output port. `inputs[port]` lists one schema per incoming edge (Union has several). */
   outputSchema: (inputs: Record<string, Schema[]>, config: C, ctx: SchemaCtx) => Record<string, Schema>;
-  /** Fields this node reads from its input(s); missing ones are SIM-PORT-TYPE / SIM-SCHEMA-DRIFT. */
-  requires: (config: C) => { port: string; field: string }[];
+  /**
+   * Fields this node reads from its input(s); missing ones are SIM-PORT-TYPE / SIM-SCHEMA-DRIFT.
+   * `type`, when set, is also checked on connect (e.g. a sum needs a number).
+   */
+  requires: (config: C) => { port: string; field: string; type?: FieldType }[];
 }
 
 export interface PipelineNode {

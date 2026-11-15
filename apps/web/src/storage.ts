@@ -1,0 +1,119 @@
+import { AppError } from '@sl/errors';
+import type { Pipeline } from '@sl/graph';
+import { openDB, type IDBPDatabase } from 'idb';
+
+/** ARCHITECTURE.md § Website data flow: IndexedDB `pipelines` (versioned JSON), BroadcastChannel `streamlab`. */
+const DB = 'streamlab';
+const VERSION = 1;
+
+let dbp: Promise<IDBPDatabase> | null = null;
+function db() {
+  // Through a promise: some browsers throw synchronously from indexedDB.open (private mode); that must map too.
+  dbp ??= Promise.resolve()
+    .then(() =>
+      openDB(DB, VERSION, {
+        upgrade(d) {
+          if (!d.objectStoreNames.contains('pipelines')) d.createObjectStore('pipelines', { keyPath: 'id' });
+        },
+      }),
+    )
+    .catch((e: unknown) => {
+      dbp = null;
+      // Private mode / blocked storage: work continues in memory, a banner says so (STORE-BLOCKED).
+      throw new AppError('STORE-BLOCKED', {}, e);
+    });
+  return dbp;
+}
+
+/** Map a write failure to the catalog: quota → STORE-FULL ({used} from the browser's estimate), else STORE-BLOCKED. */
+async function storeError(e: unknown): Promise<AppError> {
+  if (e instanceof AppError) return e;
+  const name = (e as { name?: string } | null)?.name;
+  if (name !== 'QuotaExceededError') return new AppError('STORE-BLOCKED', {}, e);
+  const est = await navigator.storage?.estimate?.().catch(() => undefined);
+  const mb = (b?: number) => `${Math.round((b ?? 0) / 1e6)} MB`;
+  return new AppError(
+    'STORE-FULL',
+    { used: est?.quota ? `${mb(est.usage)} of ${mb(est.quota)} used` : 'no space left' },
+    e,
+  );
+}
+
+export interface PipelineMeta {
+  id: string;
+  name: string;
+  updatedAt: string;
+  nodes: number;
+  scenario: string;
+}
+
+export async function listPipelines(): Promise<PipelineMeta[]> {
+  const all = (await (await db()).getAll('pipelines')) as (Pipeline & { scenario?: string })[];
+  return all
+    .map((p) => ({
+      id: p.id,
+      name: p.name,
+      updatedAt: p.updatedAt,
+      nodes: p.nodes.length,
+      scenario: p.scenario ?? 'Blank',
+    }))
+    .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+}
+
+export async function getPipeline(id: string): Promise<(Pipeline & { scenario?: string }) | undefined> {
+  return (await db()).get('pipelines', id);
+}
+
+export async function savePipeline(p: Pipeline & { scenario?: string }): Promise<void> {
+  try {
+    await (await db()).put('pipelines', p);
+  } catch (e) {
+    throw await storeError(e);
+  }
+  announce({ type: 'saved', id: p.id, updatedAt: p.updatedAt, tab: TAB });
+}
+
+export async function deletePipeline(id: string): Promise<void> {
+  try {
+    await (await db()).delete('pipelines', id);
+  } catch (e) {
+    throw await storeError(e);
+  }
+}
+
+/* ---------- multi-tab (SIM-TAB-CONFLICT) ---------- */
+
+export const TAB = Math.random().toString(36).slice(2);
+export interface SavedMsg {
+  type: 'saved';
+  id: string;
+  updatedAt: string;
+  tab: string;
+}
+
+let channel: BroadcastChannel | null = null;
+function chan() {
+  if (typeof BroadcastChannel === 'undefined') return null;
+  channel ??= new BroadcastChannel('streamlab');
+  return channel;
+}
+function announce(m: SavedMsg) {
+  chan()?.postMessage(m);
+}
+/** Calls `fn` when ANOTHER tab saves pipeline `id`. */
+export function onSavedElsewhere(id: string, fn: (m: SavedMsg) => void): () => void {
+  const c = chan();
+  if (!c) return () => {};
+  const h = (e: MessageEvent<SavedMsg>) => {
+    if (e.data?.type === 'saved' && e.data.id === id && e.data.tab !== TAB) fn(e.data);
+  };
+  c.addEventListener('message', h);
+  return () => c.removeEventListener('message', h);
+}
+
+/** Test hook: close and forget the cached connection (so the test can delete the database). */
+export async function _resetForTests() {
+  const p = dbp;
+  dbp = null;
+  (await p?.catch(() => null))?.close();
+}

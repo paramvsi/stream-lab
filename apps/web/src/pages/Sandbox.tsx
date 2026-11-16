@@ -9,6 +9,7 @@ import { dispose, runner, useRun } from '../sim/run';
 import { SCENARIOS } from '../sim/scenarios';
 import { useGraph } from '../sim/store';
 import { SandboxCanvas } from '../sim/Workspace';
+import { simulatorSupported } from '../support';
 
 const STATE: Record<string, [string, BadgeTone]> = {
   ready: ['Idle', 'neutral'],
@@ -24,7 +25,14 @@ const STATE: Record<string, [string, BadgeTone]> = {
  * (it is not one of My pipelines). ponytail: the board's Window size / Allowed lateness controls wait for the
  * chapter text (each chapter names the knobs it needs).
  */
-export function Sandbox({ chapter, scenario }: { chapter: string; scenario: string }) {
+export function Sandbox(props: { chapter: string; scenario: string }) {
+  // BROWSER-UNSUPPORTED: the chapter still reads; the sandbox says why it is not there.
+  if (!simulatorSupported())
+    return <Banner severity="error">{present(new AppError('BROWSER-UNSUPPORTED')).message}</Banner>;
+  return <SandboxBox {...props} />;
+}
+
+function SandboxBox({ chapter, scenario }: { chapter: string; scenario: string }) {
   const state = useRun((s) => s.state);
   const stats = useRun((s) => s.stats);
   const crash = useRun((s) => s.crash);

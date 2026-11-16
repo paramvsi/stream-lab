@@ -15,6 +15,7 @@ import { ConceptDrawer, Glossary } from './pages/Glossary';
 import { Gallery } from './pages/Gallery';
 import { MyPipelines } from './pages/MyPipelines';
 import { NotFound } from './pages/NotFound';
+import { needsSimulator } from './pages/Unsupported';
 import { WorkspaceRoute } from './sim/WorkspaceRoute';
 
 const root = createRootRoute({
@@ -29,7 +30,7 @@ const root = createRootRoute({
 });
 
 const index = createRoute({ getParentRoute: () => root, path: '/', component: Landing });
-const gallery = createRoute({ getParentRoute: () => root, path: '/new', component: Gallery });
+const gallery = createRoute({ getParentRoute: () => root, path: '/new', component: needsSimulator(Gallery) });
 const download = createRoute({ getParentRoute: () => root, path: '/download', component: DownloadPage });
 const glossary = createRoute({ getParentRoute: () => root, path: '/glossary', component: Glossary });
 const learn = createRoute({ getParentRoute: () => root, path: '/learn', component: Course });
@@ -41,25 +42,29 @@ const chapter = createRoute({
     return <ChapterPage key={id} id={id} />;
   },
 });
-const pipelines = createRoute({ getParentRoute: () => root, path: '/pipelines', component: MyPipelines });
+const pipelines = createRoute({
+  getParentRoute: () => root,
+  path: '/pipelines',
+  component: needsSimulator(MyPipelines),
+});
 const sim = createRoute({
   getParentRoute: () => root,
   path: '/sim/$id',
-  component: function Sim() {
+  component: needsSimulator(function Sim() {
     const { id } = sim.useParams();
     // key: switching pipelines remounts the route (fresh load + autosave wiring).
     return <WorkspaceRoute key={id} id={id} />;
-  },
+  }),
 });
 
 // EXP-04 share links: #/s/<data> (D51).
 const shared = createRoute({
   getParentRoute: () => root,
   path: '/s/$data',
-  component: function Shared() {
+  component: needsSimulator(function Shared() {
     const { data } = shared.useParams();
     return <SharedRoute key={data} data={data} />;
-  },
+  }),
 });
 
 /** Hash history: the site is static files with no server rewrites (ARCHITECTURE.md). */

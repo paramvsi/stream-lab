@@ -1,7 +1,7 @@
-import { BUILTIN_TABLES, type BuiltinTable, type Event } from '@sl/engine';
+import { BASE_TIME, BUILTIN_TABLES, type BuiltinTable, type Event } from '@sl/engine';
 import { Button, Drawer, Field, Input, Select, Table } from '@sl/ui';
 import { ArrowLeft, Table2 } from 'lucide-react';
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Events } from './drawer/PreviewPanel';
 
 const n = (x: number) => x.toLocaleString('en-US');
@@ -26,20 +26,32 @@ function rowsAt(t: BuiltinTable, at: string): Event[] {
     if (from > at) continue;
     const k = String(r[t.key]);
     const cur = best.get(k);
-    if (!cur || String(cur['valid_from']) < from) best.set(k, r);
+    // Ties keep the later row, as the engine's binary search does.
+    if (!cur || String(cur['valid_from']) <= from) best.set(k, r);
   }
   return [...best.values()];
 }
 
 function Detail({ t, onBack }: { t: BuiltinTable; onBack: () => void }) {
   const versions = versionsOf(t);
-  const [at, setAt] = useState(versions.at(-1) ?? '');
+  // Default: the version valid when a run starts (what a default run joins), not the last one.
+  const start = new Date(BASE_TIME).toISOString();
+  const [at, setAt] = useState(versions.filter((v) => v <= start).at(-1) ?? versions[0] ?? '');
   const i = versions.indexOf(at);
   const next = versions[i + 1];
   const rows = t.versioned ? rowsAt(t, at) : t.rows;
+  // Times with the date when it is not the run's day (merchants' first version is the day before).
+  const when = (iso: string) =>
+    iso.slice(0, 10) === start.slice(0, 10) ? hms(iso) : `${iso.slice(0, 10)} ${hms(iso)}`;
+  const until = next ? when(new Date(Date.parse(next) - 1000).toISOString()) : null;
+  // The table opened: focus its first control (the drawer's title names the table).
+  const back = useRef<HTMLButtonElement>(null);
+  useEffect(() => back.current?.focus(), []);
+  const near = versions.slice(Math.max(0, i - 2), i + 3);
   return (
     <div className="flex flex-col gap-4">
       <Button
+        ref={back}
         size="sm"
         variant="ghost"
         className="w-fit"
@@ -48,12 +60,25 @@ function Detail({ t, onBack }: { t: BuiltinTable; onBack: () => void }) {
       >
         All tables
       </Button>
-      <h3 className="m-0 font-mono text-[16px] font-semibold">{t.name}</h3>
       <p className="m-0 text-[13px] text-muted">
         {t.description}. Key: <span className="font-mono">{t.key}</span>.
       </p>
       {t.versioned && (
         <>
+          {/* Board W13b: a short timeline of versions around the selected one. */}
+          <div role="group" aria-label="Nearby versions" className="flex flex-wrap gap-1.5">
+            {near.map((v) => (
+              <Button
+                key={v}
+                size="sm"
+                variant={v === at ? 'primary' : 'ghost'}
+                aria-pressed={v === at}
+                onClick={() => setAt(v)}
+              >
+                {when(v)}
+              </Button>
+            ))}
+          </div>
           <Field label="Version valid from">
             <Select value={at} onChange={(e) => setAt(e.target.value)}>
               {versions.map((v) => (
@@ -63,11 +88,14 @@ function Detail({ t, onBack }: { t: BuiltinTable; onBack: () => void }) {
               ))}
             </Select>
           </Field>
-          {/* Board W13b: which events join this version. */}
           <p className="m-0 text-[13px] text-muted">
+            <span className="font-medium text-ink">
+              valid {when(at)}–{until ?? 'on'}
+            </span>
+            .{' '}
             {next
-              ? `An event from ${hms(at)} up to ${hms(new Date(Date.parse(next) - 1000).toISOString())} joins these rows. One at ${hms(next)} or later sees the next version.`
-              : `An event from ${hms(at)} on joins these rows (the latest version).`}
+              ? `An event from ${when(at)} up to ${until} joins these rows. One at ${when(next)} or later sees the next version.`
+              : `An event from ${when(at)} on joins these rows (the latest version).`}
           </p>
         </>
       )}
@@ -85,7 +113,11 @@ export function RefTablesButton() {
   const [open, setOpen] = useState(false);
   const [q, setQ] = useState('');
   const [pick, setPick] = useState<string | null>(null);
-  const tables = Object.values(BUILTIN_TABLES).filter((t) => t.name.includes(q.trim().toLowerCase()));
+  // Name, key or description (W13 "Search tables").
+  const needle = q.trim().toLowerCase();
+  const tables = Object.values(BUILTIN_TABLES).filter((t) =>
+    [t.name, t.key, t.description.toLowerCase()].some((x) => x.includes(needle)),
+  );
   const picked = pick ? BUILTIN_TABLES[pick] : undefined;
   return (
     <>
@@ -103,7 +135,8 @@ export function RefTablesButton() {
           setOpen(o);
           if (!o) setPick(null);
         }}
-        title="Reference tables"
+        // Board W13b: an open table names the drawer.
+        title={picked ? picked.name : 'Reference tables'}
         size={560}
       >
         {picked ? (

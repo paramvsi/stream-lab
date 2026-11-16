@@ -15,7 +15,7 @@ import {
 } from '../storage';
 import { useSaveState } from './saveState';
 import { newId, useGraph } from './store';
-import { copyUploads } from './uploads';
+import { copyUploads, deleteUploads } from './uploads';
 import { Workspace } from './Workspace';
 
 export const AUTOSAVE_MS = 500;
@@ -279,6 +279,7 @@ export function WorkspaceRoute({ id }: { id: string }) {
                   .then(
                     () => void navigate({ to: '/sim/$id', params: { id: copy.id } }),
                     (e: unknown) => {
+                      void deleteUploads(copy.id); // a failed copy leaves no rows behind (they are freed)
                       if (!(e instanceof AppError)) throw e;
                       setStoreError(e);
                     },

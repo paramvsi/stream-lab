@@ -63,7 +63,8 @@ export function Table<T>({
             return (
               <tr
                 key={k}
-                aria-selected={onSelect ? selected : undefined}
+                // Only a table that tracks a selection says "selected"; a list of links-as-rows does not.
+                aria-selected={onSelect && selectedKey !== undefined ? selected : undefined}
                 tabIndex={onSelect ? 0 : undefined}
                 onClick={onSelect ? () => onSelect(r) : undefined}
                 onKeyDown={

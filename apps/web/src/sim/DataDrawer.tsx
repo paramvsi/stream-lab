@@ -2,7 +2,7 @@ import { AppError, present } from '@sl/errors';
 import { effectiveGenerator, generatorIssues, type GeneratorSettings as Gen } from '@sl/graph';
 import { Button, Drawer, Field, Input, Tabs, useToast } from '@sl/ui';
 import { Copy, Database } from 'lucide-react';
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { create } from 'zustand';
 import { useGraph } from './store';
 import { UploadTab } from './UploadTab';
@@ -128,10 +128,25 @@ export const useDataDrawer = create<{ open: boolean }>(() => ({ open: false }));
 
 export function DataButton() {
   const open = useDataDrawer((s) => s.open);
-  const setOpen = (o: boolean) => useDataDrawer.setState({ open: o });
+  const button = useRef<HTMLButtonElement>(null);
+  const setOpen = (o: boolean) => {
+    useDataDrawer.setState({ open: o });
+    // Opened from a toast, the opener is gone by now: focus returns to the Data button (DoD), not to <body>.
+    if (!o)
+      requestAnimationFrame(() => {
+        const a = document.activeElement;
+        if (!a || a === document.body || !a.isConnected || a.closest('ol')) button.current?.focus();
+      });
+  };
+  // The open state is shared (a toast can open it): a workspace never starts with it open, nor leaves it so.
+  useEffect(() => {
+    useDataDrawer.setState({ open: false });
+    return () => useDataDrawer.setState({ open: false });
+  }, []);
   return (
     <>
       <Button
+        ref={button}
         size="sm"
         variant="ghost"
         icon={<Database size={16} aria-hidden="true" />}

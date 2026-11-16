@@ -147,3 +147,16 @@ describe('fintech audit · upload', () => {
     ]);
   });
 });
+
+describe('tables audit · JSON scanner', () => {
+  it('#1 a stray bracket costs one item, never the rest; trailing text and non-objects are reported', async () => {
+    const { parseJson } = await import('./upload');
+    const p = parseJson('[{"a":1}}, {"a":2}, {"a":3}]');
+    expect(p.rows).toEqual([{ a: 2 }, { a: 3 }]);
+    expect(p.bad).toEqual([{ line: 1, reason: 'not valid JSON' }]);
+    expect(parseJson('[{"a":1}, 5]').bad).toEqual([{ line: 1, reason: 'not a JSON object' }]);
+    expect(parseJson('[{"a":1}, "x", {"a":2}]').bad).toEqual([{ line: 1, reason: 'not a JSON object' }]);
+    expect(parseJson('[{"a":1}] [{"a":2}]').bad).toEqual([{ line: 1, reason: 'text after the array' }]);
+    expect(parseJson('[\r{"a":1},\r{"a":2}]').lines).toEqual([2, 3]);
+  });
+});

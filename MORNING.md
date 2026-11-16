@@ -89,3 +89,6 @@ Overnight log. **Decisions** need your call; **Commands** need you to run them. 
   - fx_rates covers BASE −1 h to +7 h; longer runs keep the last rate.
   - Two stray CSV quotes merge the lines between them into one bad record. That CSV is genuinely ambiguous.
   - The copyUploads failure path (STORE-FULL during Duplicate) is not tested.
+- Tables audit:
+  - "Keep a copy" more than 10 minutes after another tab deleted the pipeline: its uploads are already freed. The copy then says so only when it runs (DATA-UPLOAD-UNUSED), not at the moment of copying.
+  - Board W13b's time-axis timeline is a row of nearby-version buttons plus a picker. 480 per-minute versions don't fit an axis.

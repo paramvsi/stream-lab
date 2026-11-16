@@ -150,53 +150,66 @@ export function parseJson(text: string): Parsed {
   const bad: BadRow[] = [];
   const columns = new Set<string>();
   let line = 1;
-  for (let i = 0; i < start; i++) if (text[i] === '\n') line++;
+  const nl = (k: number) => text[k] === '\n' || (text[k] === '\r' && text[k + 1] !== '\n');
+  for (let k = 0; k < start; k++) if (nl(k)) line++;
+  // Items are split at commas outside strings and brackets; a stray bracket only breaks its own item.
   let depth = 0;
   let inStr = false;
-  let itemStart = -1;
+  let item = '';
   let itemLine = 0;
-  for (let i = start + 1; i < text.length; i++) {
-    const ch = text[i]!;
-    if (ch === '\n') line++;
+  let closed = -1;
+  const take = () => {
+    const t = item.trim();
+    item = '';
+    if (!t) return;
+    try {
+      const v: unknown = JSON.parse(t);
+      if (!v || typeof v !== 'object' || Array.isArray(v)) throw new Error('not an object');
+      const row = v as Record<string, string | number | boolean | null>;
+      Object.keys(row).forEach((c) => columns.add(c));
+      rows.push(row);
+      lines.push(itemLine);
+    } catch (e) {
+      bad.push({
+        line: itemLine,
+        reason: (e as Error).message === 'not an object' ? 'not a JSON object' : 'not valid JSON',
+      });
+    }
+  };
+  for (let k = start + 1; k < text.length; k++) {
+    const ch = text[k]!;
+    if (!item.trim() && /\S/.test(ch) && !(ch === ',' && depth === 0)) itemLine = line;
+    if (nl(k)) line++;
     if (inStr) {
-      if (ch === '\\') i++;
+      item += ch;
+      if (ch === '\\') item += text[++k] ?? '';
       else if (ch === '"') inStr = false;
       continue;
     }
     if (ch === '"') inStr = true;
-    if (depth === 0 && !/[\s,\]]/.test(ch) && itemStart < 0) {
-      itemStart = i;
-      itemLine = line;
+    else if (ch === '{' || ch === '[') depth++;
+    else if ((ch === '}' || ch === ']') && depth > 0) depth--;
+    else if (ch === ']' && depth === 0) {
+      take();
+      closed = k;
+      break;
+    } else if (ch === ',' && depth === 0) {
+      take();
+      continue;
     }
-    if (ch === '{' || ch === '[') depth++;
-    else if (ch === '}' || ch === ']') {
-      if (depth === 0) break; // the array's own closing bracket
-      depth--;
-    }
-    if (
-      itemStart >= 0 &&
-      depth === 0 &&
-      (ch === '}' || ch === ']' || text[i + 1] === ',' || /\s/.test(text[i + 1] ?? ' '))
-    ) {
-      const item = text.slice(itemStart, i + 1);
-      itemStart = -1;
-      try {
-        const v: unknown = JSON.parse(item);
-        if (!v || typeof v !== 'object' || Array.isArray(v)) throw new Error('not an object');
-        const row = v as Record<string, string | number | boolean | null>;
-        Object.keys(row).forEach((k) => columns.add(k));
-        rows.push(row);
-        lines.push(itemLine);
-      } catch (e) {
-        bad.push({
-          line: itemLine,
-          reason: (e as Error).message === 'not an object' ? 'not a JSON object' : 'not valid JSON',
-        });
-      }
+    item += ch;
+  }
+  if (closed >= 0) {
+    // Anything but whitespace after the array is reported, not silently ignored.
+    const after = text.slice(closed + 1).search(/\S/);
+    if (after >= 0) {
+      let l = line;
+      for (let k = closed + 1; k < closed + 1 + after; k++) if (nl(k)) l++;
+      bad.push({ line: l, reason: 'text after the array' });
     }
   }
-  // An item still open at the end (a file cut at the limit) is dropped, like the partial last CSV line.
-  return { columns: [...columns], rows, lines, bad };
+  // No closing bracket: the file was cut (200 MB limit); its open last item is dropped, like a partial CSV line.
+  return { columns: [...columns], rows, lines, bad: bad.sort((a, b) => a.line - b.line) };
 }
 
 /** Default mapping: each schema field to the column with the same name (case-insensitive), else unmapped. */

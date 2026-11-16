@@ -775,8 +775,7 @@ function operator(
           if (row) {
             const data: Event = { ...ev.data };
             for (const [k, val] of Object.entries(row))
-              if (k !== tkey && k !== 'valid_from')
-                data[inNames.has(k) || k in ev.data ? `right_${k}` : k] = val;
+              if (k !== tkey && k !== 'valid_from') data[inNames.has(k) ? `right_${k}` : k] = val; // schema names only, exactly as graph merge()
             return x.emit('main', { ts: ev.ts, data });
           }
           if (c.onMiss === 'pass') x.emit('main', ev);

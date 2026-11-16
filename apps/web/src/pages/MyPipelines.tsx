@@ -7,7 +7,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { newId } from '../sim/store';
 import { deletePipeline, getPipeline, listPipelines, savePipeline, type PipelineMeta } from '../storage';
 import { SiteShell } from './SiteShell';
-import { copyUploads, purgeDeletedUploads, restoreUploads } from '../sim/uploads';
+import { copyUploads, deleteUploads, purgeDeletedUploads, restoreUploads } from '../sim/uploads';
 
 const ago = (iso: string) => {
   const s = (Date.now() - Date.parse(iso)) / 1000;
@@ -78,9 +78,11 @@ export function MyPipelines() {
       await copyUploads(p.id, id, Object.keys(p.data.uploads ?? {}));
     } catch (e) {
       if (!(e instanceof AppError)) throw e;
+      void deleteUploads(id); // rows already copied belong to no pipeline: mark them to be freed
       return setStoreError(e);
     }
     await save({ ...p, id, name: `${p.name} copy`, updatedAt: new Date().toISOString() });
+    if (!(await getPipeline(id))) void deleteUploads(id); // the copy was not saved: free its rows
   };
 
   const remove = async (m: PipelineMeta) => {
@@ -107,7 +109,14 @@ export function MyPipelines() {
           severity: 'success',
           message: `Deleted "${m.name}".`,
           // Undo keeps the uploads too (deleting only marks them; see deleteUploads).
-          action: { label: 'Undo', onClick: () => void save(p).then(() => restoreUploads(p.id)) },
+          // Only when the pipeline really came back: else its uploads stay marked and are freed.
+          action: {
+            label: 'Undo',
+            onClick: () =>
+              void save(p)
+                .then(() => getPipeline(p.id))
+                .then((back) => back && restoreUploads(p.id)),
+          },
         });
     } catch (e) {
       // Reading the pipeline failed (storage blocked): say so; the button must not stay busy.

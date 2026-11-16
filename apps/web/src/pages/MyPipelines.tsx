@@ -2,12 +2,20 @@ import { AppError, ErrorBanner, ErrorDialog } from '@sl/errors';
 import { parsePipeline, type Pipeline } from '@sl/graph';
 import { Button, Dialog, EmptyState, Loading, Skeleton, Table, useToast, type Column } from '@sl/ui';
 import { Link, useNavigate } from '@tanstack/react-router';
-import { Copy, FileUp, Plus, Trash2, Workflow } from 'lucide-react';
+import { fileSize } from '@sl/engine';
+import { Copy, DatabaseZap, FileUp, Plus, Trash2, Workflow } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { newId } from '../sim/store';
 import { deletePipeline, getPipeline, listPipelines, savePipeline, type PipelineMeta } from '../storage';
 import { SiteShell } from './SiteShell';
-import { copyUploads, deleteUploads, purgeDeletedUploads, restoreUploads } from '../sim/uploads';
+import {
+  copyUploads,
+  deleteUploads,
+  purgeDeletedUploads,
+  removeUploads,
+  restoreUploads,
+  uploadBytes,
+} from '../sim/uploads';
 
 const ago = (iso: string) => {
   const s = (Date.now() - Date.parse(iso)) / 1000;
@@ -40,8 +48,22 @@ export function MyPipelines() {
       setRows([]);
     }
   }, []);
-  // Free uploads of pipelines deleted longer ago than the grace period.
-  useEffect(() => void purgeDeletedUploads(), []);
+  // DATA-04: how much this browser holds for Stream Lab, and each pipeline's uploaded data.
+  const [usage, setUsage] = useState<{ used: number; quota: number } | null>(null);
+  const [uploads, setUploads] = useState<Record<string, number>>({});
+  const [freeing, setFreeing] = useState<PipelineMeta | null>(null);
+  const measure = useCallback(async () => {
+    const [est, bytes] = await Promise.all([
+      navigator.storage?.estimate?.().catch(() => undefined),
+      uploadBytes().catch(() => ({})),
+    ]);
+    if (est?.quota) setUsage({ used: est.usage ?? 0, quota: est.quota });
+    setUploads(bytes);
+  }, []);
+  // Free uploads of pipelines deleted longer ago than the grace period, then measure.
+  useEffect(() => {
+    void purgeDeletedUploads().then(measure);
+  }, [measure]);
   useEffect(() => {
     let live = true;
     listPipelines().then(
@@ -159,6 +181,13 @@ export function MyPipelines() {
     { key: 'size', header: 'Size', mono: true, render: (m) => `${m.nodes} node${m.nodes === 1 ? '' : 's'}` },
     { key: 'edited', header: 'Edited', mono: true, render: (m) => ago(m.updatedAt) },
     {
+      key: 'uploads',
+      header: 'Uploaded data',
+      mono: true,
+      align: 'right',
+      render: (m) => (uploads[m.id] ? fileSize(uploads[m.id]!) : '—'),
+    },
+    {
       key: 'actions',
       header: <span className="sr-only">Actions</span>,
       align: 'right',
@@ -172,6 +201,16 @@ export function MyPipelines() {
           >
             <Copy size={16} aria-hidden="true" />
           </Button>
+          {uploads[m.id] ? (
+            <Button
+              size="sm"
+              variant="ghost"
+              aria-label={`Delete uploaded data of ${m.name}`}
+              onClick={() => setFreeing(m)}
+            >
+              <DatabaseZap size={16} aria-hidden="true" />
+            </Button>
+          ) : null}
           <Button size="sm" variant="ghost" aria-label={`Delete ${m.name}`} onClick={() => setConfirm(m)}>
             <Trash2 size={16} aria-hidden="true" />
           </Button>
@@ -221,6 +260,21 @@ export function MyPipelines() {
       <p className="m-0 text-[14px] text-muted">
         Stored only in this browser. Clearing site data removes them; export to keep a copy.
       </p>
+      {usage && (
+        <p className="m-0 text-[14px] text-muted" aria-live="polite">
+          Storage: <span className="font-mono text-ink">{fileSize(usage.used)}</span> used of{' '}
+          <span className="font-mono">{fileSize(usage.quota)}</span> this browser gives Stream Lab
+          {Object.keys(uploads).length > 0 && (
+            <>
+              ; uploaded data:{' '}
+              <span className="font-mono text-ink">
+                {fileSize(Object.values(uploads).reduce((a, b) => a + b, 0))}
+              </span>
+            </>
+          )}
+          .
+        </p>
+      )}
       {storeError && <ErrorBanner error={storeError} />}
       {rows === null ? (
         <Loading label="Loading pipelines">
@@ -276,6 +330,45 @@ export function MyPipelines() {
         >
           {/* D24: the board's "cannot be undone" clause is dropped — SIM-02 gives delete an Undo. */}
           <p className="m-0">It is stored only in this browser. Export it first if you may want it later.</p>
+        </Dialog>
+      )}
+      {freeing && (
+        <Dialog
+          open
+          onOpenChange={(o) => !o && setFreeing(null)}
+          severity="warning"
+          title={`Delete uploaded data of "${freeing.name}"?`}
+          footer={
+            <>
+              <Button variant="ghost" onClick={() => setFreeing(null)}>
+                Cancel
+              </Button>
+              <Button
+                variant="danger"
+                onClick={async () => {
+                  const m = freeing;
+                  try {
+                    await removeUploads(m.id);
+                    const p = await getPipeline(m.id);
+                    if (p) await save({ ...p, data: { ...p.data, uploads: {} } });
+                  } catch (e) {
+                    if (!(e instanceof AppError)) throw e;
+                    setStoreError(e);
+                  }
+                  setFreeing(null);
+                  await measure();
+                  toast({ severity: 'success', message: `Uploaded data of "${m.name}" deleted.` });
+                }}
+              >
+                Delete uploaded data
+              </Button>
+            </>
+          }
+        >
+          <p className="m-0">
+            The pipeline stays; its Sources go back to the generator. The uploaded rows can not be brought
+            back: upload the files again to use them.
+          </p>
         </Dialog>
       )}
       {importError && (

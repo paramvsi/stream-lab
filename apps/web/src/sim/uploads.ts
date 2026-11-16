@@ -153,3 +153,37 @@ export async function purgeDeletedUploads(now = Date.now()): Promise<void> {
     }
   }
 }
+
+/** DATA-04: bytes of uploaded rows per pipeline (not counting ones already deleted). */
+export async function uploadBytes(): Promise<Record<string, number>> {
+  const out: Record<string, number> = {};
+  let root: FileSystemDirectoryHandle;
+  try {
+    root = await uploadsRoot();
+  } catch {
+    return out; // no uploads at all
+  }
+  const dirs = (root as unknown as { entries(): AsyncIterable<[string, FileSystemHandle]> }).entries();
+  for await (const [id, h] of dirs) {
+    if (h.kind !== 'directory') continue;
+    const files = (h as unknown as { entries(): AsyncIterable<[string, FileSystemHandle]> }).entries();
+    let bytes = 0;
+    let deleted = false;
+    for await (const [name, f] of files) {
+      if (name === DELETED) deleted = true;
+      else if (f.kind === 'file') bytes += (await (f as FileSystemFileHandle).getFile()).size;
+    }
+    if (!deleted && bytes) out[id] = bytes;
+  }
+  return out;
+}
+
+/** DATA-04 "delete uploaded data": frees a pipeline's uploads now (the pipeline stays). */
+export async function removeUploads(pipelineId: string): Promise<void> {
+  try {
+    await (await uploadsRoot()).removeEntry(pipelineId, { recursive: true });
+  } catch (e) {
+    if ((e as { name?: string } | null)?.name === 'NotFoundError') return; // nothing stored
+    throw new AppError('STORE-BLOCKED', {}, e);
+  }
+}

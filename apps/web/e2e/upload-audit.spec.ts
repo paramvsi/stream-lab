@@ -180,3 +180,30 @@ test('upload audit 3: undoing a delete keeps the upload', async ({ page }) => {
   await run(page);
   await expect(payments(page)).toContainText('in 3 · out 3');
 });
+
+test('DATA-04 My pipelines shows storage used and each pipeline’s uploaded data, and can delete it', async ({
+  page,
+}) => {
+  await upload(page);
+  await page.goto('/#/pipelines');
+  await expect(
+    page.getByText(/^Storage: .+ used of .+ this browser gives Stream Lab; uploaded data: \d+ KB\.$/),
+  ).toBeVisible();
+  const row = page
+    .getByRole('table', { name: 'My pipelines' })
+    .locator('tbody tr')
+    .filter({ hasText: 'Refunds matching' });
+  await expect(row).toContainText('1 KB');
+  await page.getByRole('button', { name: 'Delete uploaded data of Refunds matching' }).click();
+  const dlg = page.getByRole('dialog', { name: 'Delete uploaded data of "Refunds matching"?' });
+  await expect(dlg).toContainText('The pipeline stays');
+  await dlg.getByRole('button', { name: 'Delete uploaded data' }).click();
+  await expect(page.getByText('Uploaded data of "Refunds matching" deleted.')).toBeVisible();
+  await expect(row.locator('td').nth(4)).toHaveText('—');
+  expect(await opfs(page)).toEqual([]);
+  // The pipeline no longer claims the upload.
+  await page.getByRole('link', { name: 'Refunds matching' }).click();
+  await page.getByRole('button', { name: 'Data', exact: true }).click();
+  await page.getByRole('dialog', { name: 'Data' }).getByRole('tab', { name: 'Upload file' }).click();
+  await expect(page.getByText(/reads cards\.csv|cards\.csv is not in this browser/)).toHaveCount(0);
+});

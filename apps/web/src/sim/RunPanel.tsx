@@ -2,8 +2,9 @@ import type { RunStats, TimelineEntry } from '@sl/engine';
 import { AppError, toProblems } from '@sl/errors';
 import { labelOf, runBlocker } from '@sl/graph';
 import { EmptyState, ProblemsPanel, Tabs } from '@sl/ui';
+import { SqlView, Unsupported, useFlinkSql } from './ExportDialog';
 import { useReactFlow } from '@xyflow/react';
-import { Activity, Code2, Route as RouteIcon, Table2 } from 'lucide-react';
+import { Activity, Route as RouteIcon, Table2 } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { create } from 'zustand';
 import { Events } from './drawer/PreviewPanel';
@@ -79,6 +80,17 @@ function Timeline({ stats }: { stats: RunStats | null }) {
         Watermark {wm.length ? hms(wm.at(-1)!.ts) : '—'} · {fmt(fires.length)} window fires ·{' '}
         {fmt(late.length)} late events · grey dots are sampled events, the rose line is the watermark.
       </p>
+    </div>
+  );
+}
+
+/** SIM-21 Flink SQL tab: the live export (EXP-01), as the Export dialog shows it. */
+function LiveSql() {
+  const { sql, unsupported } = useFlinkSql();
+  return (
+    <div className="flex flex-col gap-2">
+      <Unsupported nodes={unsupported} />
+      <SqlView sql={sql} />
     </div>
   );
 }
@@ -254,11 +266,7 @@ export function RunPanel() {
           {
             value: 'sql',
             label: 'Flink SQL',
-            content: (
-              <EmptyState icon={Code2} title="Flink SQL is not available yet" level={3}>
-                It arrives with Export, which turns this pipeline into Flink SQL.
-              </EmptyState>
-            ),
+            content: <LiveSql />,
           },
           { value: 'problems', label: 'Problems', count: issues, content: <ProblemsList /> },
         ]}

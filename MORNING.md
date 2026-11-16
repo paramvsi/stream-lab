@@ -123,3 +123,4 @@ Overnight log. **Decisions** need your call; **Commands** need you to run them. 
   - Validate in the export rejects on every rule, as the simulator does. D37 still decides what a warning should do in both.
   - A Map expression that can be NULL feeds a sink column; columns are now nullable, so nothing enforces a NOT NULL contract.
   - The union-tag test passes on the old code too: the old SQL used `SELECT *`, so the duplicate column was not visible in the text.
+- Escape with a toast showing closes the toast first; a second Escape closes the dialog under it. This is the shared Toast component's behaviour (Radix layers), seen after Export → Copy and Data → Copy seed. Should Escape skip toasts and close the dialog?

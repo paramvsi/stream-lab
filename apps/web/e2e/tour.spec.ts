@@ -51,3 +51,55 @@ test('EXPL-01 Esc skips the tour (stored); the header Tour replays it; running m
   await page.locator('.react-flow__panel.top').getByRole('button', { name: 'Run', exact: true }).click();
   await expect(card(page)).toContainText('Watch the watermark');
 });
+
+test('EXPL-01 audit: the tour never adds to a user pipeline, spotlights the run pill, shares Escape fairly, returns focus', async ({
+  page,
+}) => {
+  await page.goto('/#/new');
+  await page.getByRole('button', { name: /^Use this scenario.*Card fraud bursts/ }).click();
+  await expect(card(page)).toContainText('STEP 1 OF 5');
+  const nodes = await page.locator('.react-flow__node').count();
+  await page.getByRole('button', { name: 'Next' }).click();
+  await expect(card(page)).toContainText('Drop a Source');
+  expect(await page.locator('.react-flow__node').count()).toBe(nodes); // a Generator pipeline gets nothing added
+  expect(
+    await page.evaluate(
+      async () => (await import('/src/sim/store.ts')).useGraph.temporal.getState().pastStates.length,
+    ),
+  ).toBe(0);
+  await page.getByRole('button', { name: 'Next' }).click();
+  await page.getByRole('button', { name: 'Next' }).click();
+  await expect(card(page)).toContainText('Run, step or break it');
+  // Step 4 lights the run pill (top centre), not the minimap (top right).
+  // (The spotlight glides between targets for 300 ms.)
+  const pill = await page.locator('.react-flow__panel.top.center').boundingBox();
+  await expect
+    .poll(async () => {
+      const spot = await page.locator('[data-tour-spot]').boundingBox();
+      return Math.abs(spot!.x + spot!.width / 2 - (pill!.x + pill!.width / 2));
+    })
+    .toBeLessThan(20);
+  // An Escape that closes another dialog does not also skip the tour.
+  await page.getByRole('button', { name: 'Share', exact: true }).click();
+  await page.keyboard.press('Escape');
+  await expect(page.getByRole('dialog', { name: 'Share pipeline' })).toHaveCount(0);
+  await expect(card(page)).toContainText('Run, step or break it');
+  // Skipping returns focus to where it was before the tour (here: the Share button).
+  await page.getByRole('button', { name: 'Skip tour' }).click();
+  await expect(card(page)).toHaveCount(0);
+  await expect(page.locator('body')).not.toBeFocused();
+});
+
+test('EXPL-01 audit: a shared link does not start the tour', async ({ page }) => {
+  await page.goto('/#/new');
+  await page.getByRole('button', { name: /^Start blank/ }).click();
+  await expect(card(page)).toContainText('STEP 1 OF 5');
+  const data = await page.evaluate(async () => {
+    const s = await import('/src/share.ts');
+    return s.encodeShare((await import('/src/sim/ShareDialog.tsx')).currentPipeline());
+  });
+  await page.evaluate(() => localStorage.removeItem('sl.tour.done'));
+  await page.goto(`/#/s/${data}`);
+  await expect(page.getByText('You are viewing a shared pipeline.')).toBeVisible();
+  await expect(card(page)).toHaveCount(0);
+});

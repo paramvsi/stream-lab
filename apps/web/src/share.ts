@@ -104,8 +104,11 @@ export async function decodeShare(data: string): Promise<{ pipeline: Pipeline; r
     !Array.isArray(rows) &&
     Object.entries(rows).every(
       ([id, list]) =>
-        // A plain node id of this pipeline (it becomes a file name when the rows are stored).
-        /^[A-Za-z0-9_-]+$/.test(id) &&
+        // A node id of this pipeline that can be a file name when the rows are stored
+        // (any id the app accepts, except what would be a path: '/', '\\', '.', '..')
+        !/[/\\\0]/.test(id) &&
+        id !== '.' &&
+        id !== '..' &&
         r.pipeline.nodes.some((n) => n.id === id) &&
         Object.hasOwn(uploads, id) &&
         Array.isArray(list) &&

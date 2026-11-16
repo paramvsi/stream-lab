@@ -78,3 +78,16 @@ describe('EXP-04 shared view audit (be4ce5b)', () => {
     await expect(encodeShare(huge)).rejects.toMatchObject({ code: 'SHARE-TOO-LONG' });
   });
 });
+
+describe('EXP-04 tour audit (c2e40c1)', () => {
+  it('#8 node ids the app accepts (src.1) round-trip with their rows; only path-like ids are refused', async () => {
+    const up = {
+      ...p,
+      nodes: [{ ...p.nodes[0]!, id: 'src.1' }],
+      data: { ...p.data, uploads: { 'src.1': { file: 'a.csv', rows: 1 } } },
+    };
+    expect((await decodeShare(await encodeShare(up, { 'src.1': [{ a: 1 }] }))).rows).toEqual({
+      'src.1': [{ a: 1 }],
+    });
+  });
+});

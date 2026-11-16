@@ -1,3 +1,4 @@
+import { traceRow } from './trace';
 import { createRun } from '@sl/engine';
 import { PAYMENTS, type PipelineNode } from '@sl/graph';
 import { describe, expect, it } from 'vitest';
@@ -170,5 +171,35 @@ describe('EXPL-02 audit: narration says what really happened', () => {
       edges: [edge('s', 'f'), edge('f', 'out')],
     };
     expect(explainPath(g, run(g, [pay(1, 'c_1', 5)]), 'out', 0)[1]!.title).toBe('Big is disabled');
+  });
+});
+
+describe('EXPL-02 audit 2: an expression that fails at run time', () => {
+  it('is said to fail, in Explain and Trace, not to pass', () => {
+    const src = node(
+      's',
+      'Source',
+      {
+        name: 'payments',
+        schema: PAYMENTS,
+        eventTime: 'event_time',
+        outOfOrdernessMs: 5000,
+        idleTimeoutMs: 0,
+      },
+      'payments',
+    );
+    const g = {
+      nodes: [
+        src,
+        node('f', 'Filter', { expr: 'int(amount) / 0 > 1' }, 'Big'),
+        node('d', 'Dead-letter', { reasonField: 'reason', retentionMs: 0 }, 'Aside'),
+      ],
+      edges: [edge('s', 'f'), edge('f', 'd', 'rejected')],
+    };
+    const r = createRun(g, { sourceData: { s: [pay(1, 'c_1', 5)] }, trace: true, refTables: {} });
+    r.advance(Infinity);
+    const t = r.trace()!;
+    expect(explainPath(g, t, 'd', 0)[1]!.title).toBe('Its expression fails');
+    expect(traceRow(g, t, 'd', 0)[1]!.text).toMatch(/^Expression failed \(.+\) · set aside$/);
   });
 });

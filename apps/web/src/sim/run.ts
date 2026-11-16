@@ -97,8 +97,13 @@ function connect(): Worker {
     lastSeen = Date.now();
     const m = e.data;
     if (m.type === 'beat') return;
+    // After a Reset (nothing loaded), what a seek still in flight sends is for a run that is gone.
+    if (!loaded && (m.type === 'seeked' || m.type === 'stats' || m.type === 'snapshot')) return;
     if (m.type === 'seeked') return void seekDone();
-    if (m.type === 'chaos') return void useRun.setState({ chaos: m.report });
+    if (m.type === 'chaos') {
+      chaosUsed = true; // only what the engine really injected (not a click it ignored)
+      return void useRun.setState({ chaos: m.report });
+    }
     if (m.type === 'snapshot')
       return void useRun.setState((s) => ({ snapshots: { ...s.snapshots, [m.node]: m.rows } }));
     if (m.type === 'stats')
@@ -209,6 +214,7 @@ let seekBusy = false;
 let seekNext: number | null = null;
 function seekDone() {
   if (seekNext !== null) {
+    chaosUsed = false; // this replay drops Chaos injected meanwhile too
     worker?.postMessage({ type: 'seek', at: seekNext });
     seekNext = null;
   } else {
@@ -219,7 +225,7 @@ function seekDone() {
 function seekClear() {
   seekBusy = false;
   seekNext = null;
-  useRun.setState({ seeking: false });
+  useRun.setState({ seeking: false, snapshots: {} }); // a new run or a reset: the last run's state is gone
 }
 
 async function load() {
@@ -272,10 +278,7 @@ export const runner = {
     return true;
   },
   pause: () => worker?.postMessage({ type: 'pause' }),
-  chaos: () => {
-    chaosUsed = true;
-    worker?.postMessage({ type: 'chaos' });
-  },
+  chaos: () => worker?.postMessage({ type: 'chaos' }),
   async step() {
     if (blocked()) return;
     if (!loaded || useRun.getState().stale) await load();

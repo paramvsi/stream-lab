@@ -4,6 +4,7 @@ import { create } from 'zustand';
 import { AppError } from '@sl/errors';
 import { startExplain, tracedRun, useExplain, useExplainError } from './ExplainCard';
 import { useRun } from './run';
+import { labelOf } from '@sl/graph';
 import { useGraph } from './store';
 import { traceRow, type TraceStep } from './trace';
 
@@ -53,6 +54,8 @@ export async function startTrace(sink: string, row: number) {
 
 export function TracePanel() {
   const t = useTrace();
+  const sinkNode = useGraph((g) => (t ? g.nodes.find((n) => n.id === t.sink) : undefined));
+  const sinkLabel = sinkNode ? labelOf(sinkNode) : '';
   if (!t)
     return (
       <EmptyState icon={RouteIcon} title="Pick an output row to trace it" level={3}>
@@ -75,6 +78,17 @@ export function TracePanel() {
             <span className="text-muted">{s.text}</span>
           </li>
         ))}
+        {/* The row itself, at its sink (numbered last on the canvas too). */}
+        <li className="flex items-baseline gap-3 text-[13px]">
+          <span
+            aria-hidden="true"
+            className="flex size-[22px] shrink-0 items-center justify-center rounded-full bg-rose-50 font-mono text-[11px] font-semibold text-rose-700"
+          >
+            {t.steps.length + 1}
+          </span>
+          <span className="w-[170px] shrink-0 font-medium text-ink">{sinkLabel}</span>
+          <span className="text-muted">Row {t.row + 1}</span>
+        </li>
       </ol>
       <div className="flex gap-2">
         <Button

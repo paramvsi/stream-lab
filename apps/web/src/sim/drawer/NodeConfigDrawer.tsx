@@ -317,7 +317,7 @@ export function NodeConfigDrawer({
                 content: (
                   <div className="flex flex-col gap-4">
                     <PreviewPanel nodeId={node.id} events={events} />
-                    <RunCounts nodeId={node.id} type={node.type} />
+                    <RunCounts node={node} />
                     <StageInspector nodeId={node.id} />
                   </div>
                 ),

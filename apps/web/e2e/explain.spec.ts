@@ -187,3 +187,17 @@ test("EXPL-03 audit 5+6: the traced row's sink stays lit; Reset ends the trace",
   await page.locator('.react-flow__panel.top').getByRole('button', { name: 'Reset' }).click();
   await expect.poll(dim).toBe(0);
 });
+
+test('EXPL-02 audit 3: with the tour open, Escape on the Explain card closes Explain only', async ({
+  page,
+}) => {
+  await finished(page, 'Card fraud bursts');
+  await page.getByRole('button', { name: 'Tour', exact: true }).click();
+  await expect(page.locator('[data-tour-card]')).toBeVisible();
+  await page.getByRole('button', { name: 'Explain run', exact: true }).click();
+  await expect(card(page)).toBeVisible();
+  await card(page).getByRole('button', { name: 'Next' }).focus();
+  await page.keyboard.press('Escape');
+  await expect(card(page)).toHaveCount(0);
+  await expect(page.locator('[data-tour-card]')).toBeVisible();
+});

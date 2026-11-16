@@ -1,5 +1,5 @@
 import { MAX_PARALLELISM } from '@sl/engine';
-import type { NodeType } from '@sl/graph';
+import { configOf, type PipelineNode } from '@sl/graph';
 import { Table } from '@sl/ui';
 import { useEffect } from 'react';
 import { runner, useRun } from '../run';
@@ -17,8 +17,28 @@ const n = (x: number) => x.toLocaleString('en-US');
  * left nowhere; not for nodes that aggregate or hold events back) — and its open state per key while the run is
  * paused or finished (asked of the run, not streamed: it can be big).
  */
-const HOLDS = new Set<NodeType>(['Window', 'Top-N', 'Join', 'Pattern']);
-export function RunCounts({ nodeId, type }: { nodeId: string; type: NodeType }) {
+// No "Dropped" where in ≠ out by design: nodes that hold or aggregate, and the ends (a Sink writes what it gets).
+const NO_DROPPED = new Set([
+  'Window',
+  'Top-N',
+  'Join',
+  'Pattern',
+  'Sink',
+  'Dead-letter',
+  'Source',
+  'Generator',
+]);
+function portName(node: PipelineNode, port: string) {
+  if (port === 'main') return 'Out';
+  if (port === 'default') return 'Default branch';
+  if (port === 'rejected') return 'Rejected';
+  if (port === 'dead-letter') return 'Dead letters';
+  const routes = (configOf(node) as { routes?: { id: string; name: string }[] }).routes ?? [];
+  return routes.find((r) => `route-${r.id}` === port)?.name ?? port;
+}
+export function RunCounts({ node }: { node: PipelineNode }) {
+  const nodeId = node.id;
+  const type = node.type;
   const st = useRun((s) => (s.state !== 'ready' ? s.stats?.nodes[nodeId] : undefined));
   const state = useRun((s) => s.state);
   const processed = useRun((s) => s.stats?.processed ?? 0);
@@ -28,19 +48,22 @@ export function RunCounts({ nodeId, type }: { nodeId: string; type: NodeType }) 
     if (still) runner.snapshot(nodeId);
   }, [still, processed, nodeId]);
   if (!st) return null;
-  const outs = Object.entries(st.out);
+  // Late leaves on a 'late' port too; it is shown once, as Late.
+  const outs = Object.entries(st.out).filter(([port]) => port !== 'late');
   const left = outs.reduce((a, [, v]) => a + v, 0) + st.failed + st.late;
   const dropped = Math.max(0, st.in - left);
   return (
     <section aria-label="This node in the run" className="flex flex-col gap-2 border-t border-line pt-4">
       <h3 className="m-0 text-[13px] font-semibold">This node in the run</h3>
       <p className="m-0 flex flex-wrap gap-x-4 gap-y-1 text-[13px] text-muted">
-        <span>
-          In <b className="font-mono text-ink tabular-nums">{n(st.in)}</b>
-        </span>
+        {type !== 'Source' && type !== 'Generator' && (
+          <span>
+            In <b className="font-mono text-ink tabular-nums">{n(st.in)}</b>
+          </span>
+        )}
         {outs.map(([port, v]) => (
           <span key={port}>
-            {port === 'main' ? 'Out' : port} <b className="font-mono text-ink tabular-nums">{n(v)}</b>
+            {portName(node, port)} <b className="font-mono text-ink tabular-nums">{n(v)}</b>
           </span>
         ))}
         <span>
@@ -49,13 +72,16 @@ export function RunCounts({ nodeId, type }: { nodeId: string; type: NodeType }) 
         <span>
           Late <b className="font-mono text-ink tabular-nums">{n(st.late)}</b>
         </span>
-        {!HOLDS.has(type) && (
+        {!NO_DROPPED.has(type) && (
           <span>
             Dropped <b className="font-mono text-ink tabular-nums">{n(dropped)}</b>
           </span>
         )}
       </p>
       {still && rows && rows.length > 0 && <Events rows={rows} label="State per key in the run" />}
+      {still && rows && rows.length === 0 && (
+        <p className="m-0 text-[13px] text-muted">No state is open for this node at this point of the run.</p>
+      )}
       {!still && <p className="m-0 text-[13px] text-muted">Pause the run to see its state per key.</p>}
     </section>
   );

@@ -44,6 +44,14 @@ export function traceRow(g: Graph, t: Trace, sink: string, row: number): TraceSt
         hi = Math.max(hi, h.ts);
       }
       let text: string;
+      const failed = hops.find((h) => h.port === 'dead-letter');
+      if (failed)
+        return {
+          node: n.id,
+          label: labelOf(n),
+          text: `Expression failed (${failed.reason ?? 'an error'}) · set aside`,
+          count: hops.length,
+        };
       switch (n.type) {
         case 'Source':
         case 'Generator':

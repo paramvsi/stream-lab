@@ -263,3 +263,20 @@ test('EXPL-06: the stage inspector shows the node in the run (in, out, failed, l
     sec.getByRole('table', { name: 'State per key in the run' }).locator('tbody tr').first(),
   ).toContainText('c_');
 });
+
+test('EXPL-06 audit 2+5: a Sink is not said to drop what it wrote; a Route shows its branch names', async ({
+  page,
+}) => {
+  await scenario(page, 'Card fraud bursts');
+  await page.getByText('10×', { exact: true }).click();
+  await page.locator('.react-flow__panel.top').getByRole('button', { name: 'Run', exact: true }).click();
+  await expect(page.locator('.react-flow__panel.top [data-run-label]')).toHaveText(/^Finished/, {
+    timeout: 20000,
+  });
+  const d = await open(page, 'Fraud alerts');
+  await d.getByRole('tab', { name: 'Output preview' }).click();
+  const sec = d.getByRole('region', { name: 'This node in the run' });
+  await expect(sec).toContainText(/In \d+/);
+  await expect(sec).not.toContainText('Dropped');
+  await expect(sec).not.toContainText('main');
+});

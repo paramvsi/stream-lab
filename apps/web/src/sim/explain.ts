@@ -58,6 +58,14 @@ export function explainPath(g: Graph, t: Trace, sink: string, row: number): Expl
         title: `${label} is disabled`,
         text: `${label} is disabled, so it passes the event on.`,
       };
+    // An expression that failed at run time (Filter, Validate, Route, Map…): the event went to the dead letters.
+    if (h.port === 'dead-letter')
+      return {
+        node: h.node,
+        hop: h,
+        title: 'Its expression fails',
+        text: `${label} could not evaluate it (${h.reason ?? 'an error'}), so it goes to the dead letters.`,
+      };
     if (h.port === 'late')
       return {
         node: h.node,

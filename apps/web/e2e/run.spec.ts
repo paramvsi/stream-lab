@@ -373,3 +373,23 @@ test('EXPL-05 audit 1+2: a long seek while running is not a crash; a drag ends w
   await expect(status(page)).toHaveText(/^Finished/, { timeout: 30000 });
   await expect(page.getByText(/the engine stopped responding/)).toHaveCount(0);
 });
+
+test('EXPL-05 audit 4: Reset during a long seek stays reset', async ({ page }) => {
+  await scenario(page, 'Refunds matching');
+  await page.getByRole('button', { name: 'Data', exact: true }).click();
+  const d = page.getByRole('dialog', { name: 'Data' });
+  await d.getByLabel('Events', { exact: true }).fill('20000');
+  await d.getByRole('button', { name: 'Apply and regenerate' }).click();
+  await expect(d).toHaveCount(0);
+  const pill = page.locator('.react-flow__panel.top');
+  await pill.getByRole('button', { name: 'Step', exact: true }).click();
+  await expect(status(page)).toHaveText(/^Paused/);
+  const panel = page.getByRole('region', { name: 'Run panel' });
+  await panel.getByRole('tab', { name: 'Timeline' }).click();
+  const slider = panel.getByRole('slider', { name: 'Replay' });
+  await slider.focus();
+  await page.keyboard.press('End'); // a long replay starts
+  await pill.getByRole('button', { name: 'Reset' }).click();
+  await page.waitForTimeout(8000); // the replay ends meanwhile
+  await expect(status(page)).not.toHaveText(/^Paused|^Finished/);
+});

@@ -166,6 +166,8 @@ export function Tour() {
       if (e.key !== 'Escape') return;
       // Pressed on the tour card: it is the tour's, whatever else is open (a node drawer, say).
       if ((e.target as Element | null)?.closest?.('[data-tour-card]')) return close();
+      // Pressed on the Explain card: it is Explain's.
+      if ((e.target as Element | null)?.closest?.('[data-explain-card]')) return;
       if (e.defaultPrevented || others) return;
       close();
     };

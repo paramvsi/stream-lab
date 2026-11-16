@@ -116,16 +116,33 @@ describe('EXPL-05 · seek (the time scrubber moves the replay)', () => {
 });
 
 describe('EXPL-06 · stage inspector state', () => {
-  it("snapshot(id) posts a node's open state per key (paused mid-run)", () => {
-    const { d, msgs } = setup();
-    for (let i = 0; i < 5; i++) d.step();
-    const id = g.nodes.find((n) => n.type === 'Window' || n.type === 'Deduplicate')?.id ?? g.nodes[1]!.id;
-    d.snapshot(id);
+  it("snapshot(id) posts a window's open windows per key (paused mid-run)", () => {
+    const wg: Graph = {
+      nodes: [
+        node('gen', 'Generator', { count: 100, duplicatePct: 0 }),
+        node('w', 'Window', { sizeMs: 3_600_000, keyBy: ['card_id'] }),
+        node('out', 'Sink'),
+      ],
+      edges: [
+        { id: 'a', source: 'gen', sourceHandle: 'main', target: 'w', targetHandle: 'main' },
+        { id: 'b', source: 'w', sourceHandle: 'main', target: 'out', targetHandle: 'main' },
+      ],
+    };
+    const msgs: DriverMessage[] = [];
+    const d = new Driver(
+      wg,
+      {},
+      (m) => msgs.push(m),
+      () => 0,
+    );
+    for (let i = 0; i < 10; i++) d.step();
+    d.snapshot('w');
     const m = msgs.filter((x) => x.type === 'snapshot').at(-1) as Extract<
       DriverMessage,
       { type: 'snapshot' }
     >;
-    expect(m.node).toBe(id);
-    expect(Array.isArray(m.rows)).toBe(true);
+    expect(m.node).toBe('w');
+    expect(m.rows.length).toBeGreaterThan(0);
+    expect(m.rows[0]).toHaveProperty('card_id');
   });
 });

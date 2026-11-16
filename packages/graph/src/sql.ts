@@ -124,6 +124,17 @@ const SQL_TYPE: Record<FieldType, string> = {
 const columns = (s: Schema) =>
   s.map((f) => `  ${q(f.name)} ${SQL_TYPE[f.type]}${f.required ? ' NOT NULL' : ''}`);
 const secs = (ms: number) => `INTERVAL '${Math.max(0, Math.round(ms / 1000))}' SECOND`;
+/** A duration as a Flink interval literal (sign left to the caller). */
+const ival = (ms: number) => {
+  const a = Math.abs(ms);
+  return a % 60000 === 0 && a
+    ? `INTERVAL '${a / 60000}' MINUTE`
+    : a % 1000 === 0
+      ? `INTERVAL '${a / 1000}' SECOND`
+      : `INTERVAL '${(a / 1000).toFixed(3)}' SECOND`;
+};
+const plus = (t: string, ms: number) => (ms === 0 ? t : `${t} ${ms < 0 ? '-' : '+'} ${ival(ms)}`);
+const AGG: Record<string, string> = { count: 'COUNT', sum: 'SUM', avg: 'AVG', min: 'MIN', max: 'MAX' };
 const KAFKA = (topic: string) =>
   `WITH (\n  'connector' = 'kafka',\n  'topic' = ${str(topic)},\n  'properties.bootstrap.servers' = 'localhost:9092',\n  'format' = 'json'\n)`;
 
@@ -166,6 +177,11 @@ export function toFlinkSql(g: Graph, ctx: SchemaCtx = EMPTY_CTX): SqlExport {
   const inputs = (n: PipelineNode) =>
     g.edges.filter((e) => e.target === n.id).map((e) => ({ e, from: outName(e.source, e.sourceHandle) }));
   const inSchema = (n: PipelineNode, port = 'main') => s.in.get(n.id)?.[port]?.[0] ?? [];
+  const outSchema = (n: PipelineNode, port = 'main') => s.out.get(n.id)?.[port] ?? [];
+  const list = (sch: Schema, prefix = '') => sch.map((f) => `${prefix}${q(f.name)}`).join(', ');
+  // The time attribute each view carries (rowtime), for windows, dedup, joins and as-of lookups.
+  const rt = new Map<string, string | null>();
+  const refDone = new Set<string>();
 
   const parts: string[] = [];
   const inserts: string[] = [];
@@ -184,6 +200,7 @@ export function toFlinkSql(g: Graph, ctx: SchemaCtx = EMPTY_CTX): SqlExport {
     const c = configOf(n) as Record<string, unknown>;
     const me = nameOf.get(n.id)!;
     const from = inputs(n)[0]?.from;
+    const time = from ? (rt.get(from) ?? null) : null;
     if (n.disabled) {
       // A disabled node passes its main input through (as the simulator does).
       if (from) view(me, `SELECT * FROM ${q(from)}`);
@@ -197,6 +214,7 @@ export function toFlinkSql(g: Graph, ctx: SchemaCtx = EMPTY_CTX): SqlExport {
           ? `,\n  WATERMARK FOR ${q(t)} AS ${q(t)} - ${secs(Number(c['outOfOrdernessMs'] ?? 0))}`
           : '';
         parts.push(`CREATE TABLE ${q(me)} (\n${columns(schema).join(',\n')}${wm}\n) ${KAFKA(me)};`);
+        rt.set(me, wm ? t : null);
         break;
       }
       case 'Generator': {
@@ -205,6 +223,7 @@ export function toFlinkSql(g: Graph, ctx: SchemaCtx = EMPTY_CTX): SqlExport {
         parts.push(
           `CREATE TABLE ${q(me)} (\n${columns(schema).join(',\n')},\n  WATERMARK FOR ${q('event_time')} AS ${q('event_time')} - INTERVAL '5' SECOND\n) WITH (\n  'connector' = 'datagen',\n  'rows-per-second' = '${Number(c['rate'] ?? 50)}',\n  'number-of-rows' = '${Number(c['count'] ?? 1000)}'\n);`,
         );
+        rt.set(me, 'event_time');
         break;
       }
       case 'Filter': {
@@ -228,6 +247,8 @@ export function toFlinkSql(g: Graph, ctx: SchemaCtx = EMPTY_CTX): SqlExport {
           ...exprs.map(({ a, sql }) => `CAST(${sql} AS ${SQL_TYPE[a.type]}) AS ${q(a.field)}`),
         ];
         view(me, `SELECT ${cols.join(', ')}\nFROM ${q(from)}`);
+        // A dropped or recomputed time column is no longer a time attribute.
+        rt.set(me, time && !drop.has(time) ? time : null);
         break;
       }
       case 'Validate': {
@@ -292,7 +313,9 @@ export function toFlinkSql(g: Graph, ctx: SchemaCtx = EMPTY_CTX): SqlExport {
       case 'Sink': {
         const schema = inSchema(n);
         parts.push(`CREATE TABLE ${q(me)} (\n${columns(schema).join(',\n')}\n) ${KAFKA(me)};`);
-        for (const i of inputs(n)) inserts.push(`INSERT INTO ${q(me)}\nSELECT * FROM ${q(i.from)};`);
+        // Explicit columns: views may carry extra time columns (window_time, proc_time).
+        for (const i of inputs(n))
+          inserts.push(`INSERT INTO ${q(me)}\nSELECT ${list(schema)} FROM ${q(i.from)};`);
         break;
       }
       case 'Dead-letter': {
@@ -301,13 +324,179 @@ export function toFlinkSql(g: Graph, ctx: SchemaCtx = EMPTY_CTX): SqlExport {
           const t = unique(`${me}_${i.from}`);
           const schema = s.out.get(i.e.source)?.[i.e.sourceHandle] ?? [];
           parts.push(`CREATE TABLE ${q(t)} (\n${columns(schema).join(',\n')}\n) ${KAFKA(t)};`);
-          inserts.push(`INSERT INTO ${q(t)}\nSELECT * FROM ${q(i.from)};`);
+          inserts.push(`INSERT INTO ${q(t)}\nSELECT ${list(schema)} FROM ${q(i.from)};`);
         }
         break;
       }
+      case 'Window': {
+        if (!from || !time) {
+          todo(n, 'its input has no event-time column (a window needs one)');
+          break;
+        }
+        const keys = (c['keyBy'] ?? []) as string[];
+        const k = String(c['kind']);
+        // FLINK: window TVFs, https://nightlies.apache.org/flink/flink-docs-release-1.20/docs/dev/table/sql/queries/window-tvf/
+        // (SESSION as a TVF since 1.19, with PARTITION BY for the keys).
+        const tvf =
+          k === 'hop'
+            ? `HOP(TABLE ${q(from)}, DESCRIPTOR(${q(time)}), ${ival(Number(c['slideMs']))}, ${ival(Number(c['sizeMs']))})`
+            : k === 'cumulate'
+              ? `CUMULATE(TABLE ${q(from)}, DESCRIPTOR(${q(time)}), ${ival(Number(c['slideMs']))}, ${ival(Number(c['sizeMs']))})`
+              : k === 'session'
+                ? `SESSION(TABLE ${q(from)}${keys.length ? ` PARTITION BY ${keys.map(q).join(', ')}` : ''}, DESCRIPTOR(${q(time)}), ${ival(Number(c['gapMs']))})`
+                : `TUMBLE(TABLE ${q(from)}, DESCRIPTOR(${q(time)}), ${ival(Number(c['sizeMs']))})`;
+        const aggs = ((c['aggregates'] ?? []) as { fn: string; field: string; as: string }[]).map((a) => {
+          const typ = outSchema(n).find((f) => f.name === a.as)?.type ?? 'number';
+          const arg = a.fn === 'count' && !a.field ? '*' : q(a.field);
+          return `CAST(${AGG[a.fn]}(${arg}) AS ${SQL_TYPE[typ]}) AS ${q(a.as)}`;
+        });
+        const group = [...keys.map(q), '`window_start`', '`window_end`', '`window_time`'];
+        view(
+          me,
+          `SELECT ${[...keys.map(q), '`window_start`', '`window_end`', '`window_time`', ...aggs].join(', ')}\nFROM TABLE(${tvf})\nGROUP BY ${group.join(', ')}`,
+        );
+        rt.set(me, 'window_time');
+        const late = Number(c['allowedLatenessMs'] ?? 0) > 0;
+        if (late || g.edges.some((e) => e.source === n.id && e.sourceHandle === 'late')) {
+          // FLINK: window TVF aggregation drops late rows and has no allowed lateness or late side output.
+          unsupported.push({ id: n.id, label: labelOf(n), type: n.type });
+          parts.push(
+            `-- TODO (EXPORT-UNSUPPORTED): ${labelOf(n)} — allowed lateness and the late output have no SQL; late rows are dropped.`,
+          );
+        }
+        break;
+      }
+      case 'Join': {
+        const [l, r] = (['left', 'right'] as const).map((port) =>
+          inputs(n).find((i) => i.e.targetHandle === port),
+        );
+        if (!l || !r) {
+          todo(n, 'it needs both inputs');
+          break;
+        }
+        const [lt, rt2] = [rt.get(l.from) ?? null, rt.get(r.from) ?? null];
+        const lo = c['lowerMs'] as number | null;
+        const hi = c['upperMs'] as number | null;
+        const left = inSchema(n, 'left');
+        const leftNames = new Set(left.map((f) => f.name));
+        const right = inSchema(n, 'right').map(
+          (f) => `R.${q(f.name)}${leftNames.has(f.name) ? ` AS ${q(`right_${f.name}`)}` : ''}`,
+        );
+        const on = [`L.${q(String(c['leftKey']))} = R.${q(String(c['rightKey']))}`];
+        const bounded = lo !== null && hi !== null;
+        if (bounded) {
+          if (!lt || !rt2) {
+            todo(n, 'an interval join needs an event-time column on both inputs');
+            break;
+          }
+          // FLINK: interval join, l.t + lower <= r.t <= l.t + upper (the simulator's rule).
+          on.push(`R.${q(rt2)} BETWEEN ${plus(`L.${q(lt)}`, lo)} AND ${plus(`L.${q(lt)}`, hi)}`);
+        }
+        view(
+          me,
+          `${bounded ? '' : '-- Regular join: no time bound, so its state grows without limit (JOIN-NO-BOUND).\n'}SELECT ${[list(left, 'L.'), ...right].filter(Boolean).join(', ')}\nFROM ${q(l.from)} AS L\n${c['kind'] === 'left' ? 'LEFT JOIN' : 'JOIN'} ${q(r.from)} AS R\nON ${on.join('\n  AND ')}`,
+        );
+        // FLINK: an interval join keeps both time attributes; a regular join keeps none.
+        rt.set(me, bounded ? lt : null);
+        break;
+      }
+      case 'Lookup': {
+        const table = String(c['table']);
+        const cols = ctx.refTables[table];
+        if (!from || !cols) {
+          todo(n, `reference table "${table}" is unknown`);
+          break;
+        }
+        const tk = String(c['tableKey']);
+        const asOf = Boolean(c['asOf']) && cols.some((f) => f.name === 'valid_from');
+        const tname = unique(table);
+        if (!refDone.has(table)) {
+          refDone.add(table);
+          // FLINK: a temporal (versioned) table needs a primary key and an event-time attribute; a lookup
+          // table is read per row by key. Connector options are placeholders.
+          parts.push(
+            asOf
+              ? `CREATE TABLE ${q(tname)} (\n${columns(cols).join(',\n')},\n  PRIMARY KEY (${q(tk)}) NOT ENFORCED,\n  WATERMARK FOR ${q('valid_from')} AS ${q('valid_from')}\n) WITH (\n  'connector' = 'upsert-kafka',\n  'topic' = ${str(table)},\n  'properties.bootstrap.servers' = 'localhost:9092',\n  'key.format' = 'json',\n  'value.format' = 'json'\n);`
+              : `CREATE TABLE ${q(tname)} (\n${columns(cols).join(',\n')},\n  PRIMARY KEY (${q(tk)}) NOT ENFORCED\n) WITH (\n  'connector' = 'jdbc',\n  'url' = 'jdbc:postgresql://localhost:5432/streamlab',\n  'table-name' = ${str(table)}\n);`,
+          );
+        }
+        let probe = from;
+        let at: string;
+        if (asOf) {
+          if (!time) {
+            todo(n, 'an as-of lookup needs an event-time column');
+            break;
+          }
+          at = `E.${q(time)}`;
+        } else {
+          // FLINK: a lookup join reads the table at processing time.
+          probe = unique(`${me}_probe`);
+          view(probe, `SELECT *, PROCTIME() AS ${q('proc_time')} FROM ${q(from)}`);
+          at = `E.${q('proc_time')}`;
+        }
+        const ev = inSchema(n);
+        const evNames = new Set(ev.map((f) => f.name));
+        const extra = cols
+          .filter((f) => f.name !== tk)
+          .map((f) => `T.${q(f.name)}${evNames.has(f.name) ? ` AS ${q(`right_${f.name}`)}` : ''}`);
+        const join = (kind: string) =>
+          `FROM ${q(probe)} AS E\n${kind} ${q(tname)} FOR SYSTEM_TIME AS OF ${at} AS T\nON E.${q(String(c['key']))} = T.${q(tk)}`;
+        const miss = String(c['onMiss']);
+        view(
+          me,
+          `SELECT ${[list(ev, 'E.'), ...extra].join(', ')}\n${join(miss === 'pass' ? 'LEFT JOIN' : 'JOIN')}`,
+        );
+        if (miss === 'reject' && g.edges.some((e) => e.source === n.id && e.sourceHandle === 'rejected'))
+          view(
+            outName(n.id, 'rejected'),
+            `SELECT ${list(ev, 'E.')}\n${join('LEFT JOIN')}\nWHERE T.${q(tk)} IS NULL`,
+          );
+        rt.set(me, time);
+        break;
+      }
+      case 'Deduplicate': {
+        const keys = (c['key'] ?? []) as string[];
+        if (!from || !time) {
+          todo(n, 'its input has no event-time column (deduplication orders by it)');
+          break;
+        }
+        // FLINK: deduplication, https://nightlies.apache.org/flink/flink-docs-release-1.20/docs/dev/table/sql/queries/deduplication/
+        // The TTL is the job's state TTL: SET 'table.exec.state.ttl' (not per query).
+        const ttl = c['ttlMs'] as number | null;
+        view(
+          me,
+          `${ttl ? `-- State TTL ${ival(ttl)}: SET 'table.exec.state.ttl' = '${ttl} ms';\n` : ''}SELECT ${list(inSchema(n))}\nFROM (\n  SELECT *, ROW_NUMBER() OVER (PARTITION BY ${keys.map(q).join(', ')} ORDER BY ${q(time)} ${c['keep'] === 'last' ? 'DESC' : 'ASC'}) AS ${q('rn')}\n  FROM ${q(from)}\n)\nWHERE ${q('rn')} = 1`,
+        );
+        rt.set(me, c['keep'] === 'last' ? null : time); // FLINK: keep-last emits updates (no time attribute)
+        break;
+      }
+      case 'Top-N': {
+        if (!from) break;
+        const part = (c['partitionBy'] ?? []) as string[];
+        const within = Boolean(c['withinWindow']);
+        const ins = inSchema(n);
+        if (within && !ins.some((f) => f.name === 'window_start')) {
+          todo(n, '"within window" needs a Window before it (window_start / window_end)');
+          break;
+        }
+        // FLINK: (window) Top-N, https://nightlies.apache.org/flink/flink-docs-release-1.20/docs/dev/table/sql/queries/window-topn/
+        const by = [...(within ? ['`window_start`', '`window_end`'] : []), ...part.map(q)];
+        view(
+          me,
+          `SELECT ${list(ins)}, CAST(${q('rn')} AS DOUBLE) AS ${q('rank')}\nFROM (\n  SELECT *, ROW_NUMBER() OVER (${by.length ? `PARTITION BY ${by.join(', ')} ` : ''}ORDER BY ${q(String(c['orderBy']))} ${c['desc'] ? 'DESC' : 'ASC'}) AS ${q('rn')}\n  FROM ${q(from)}\n)\nWHERE ${q('rn')} <= ${Number(c['n'])}`,
+        );
+        rt.set(me, null);
+        break;
+      }
       default:
-        // ponytail: windows, joins, lookups, dedup, top-N and pattern are the next slice.
-        todo(n, 'not exported yet');
+        // Pattern (MATCH_RECOGNIZE gives one row per match; the node passes each matching event) and the SQL node
+        // are v1.
+        todo(n, 'no direct Flink SQL in this version');
+    }
+    // Views that did not say otherwise keep their input's time attribute.
+    for (const port of ['main', ...g.edges.filter((e) => e.source === n.id).map((e) => e.sourceHandle)]) {
+      const o = outName(n.id, port);
+      if (!rt.has(o)) rt.set(o, time);
     }
   }
   const run =

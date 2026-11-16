@@ -75,7 +75,9 @@ describe('EXP-01 Flink SQL export (sources, filter, map, route, union, validate,
     );
     expect(sql).toContain('CAST(`amount` * 0.27 AS DOUBLE) AS `amount_usd`');
     expect(sql).not.toMatch(/`status`,\s*CAST/); // dropped
-    expect(sql).toContain('INSERT INTO `big_payments`\nSELECT * FROM `map`;');
+    expect(sql).toContain(
+      'INSERT INTO `big_payments`\nSELECT `payment_id`, `card_id`, `merchant_id`, `amount`, `currency`, `event_time`, `amount_usd` FROM `map`;',
+    );
   });
   it('two sinks run as one statement set', () => {
     const two: Graph = {
@@ -138,5 +140,154 @@ describe('EXP-01 Flink SQL export (sources, filter, map, route, union, validate,
     expect(sql).toContain('WHERE NOT (`amount` > 500)'); // default branch
     expect(sql).toContain('UNION ALL');
     expect(sql).toContain("'positive' AS `reason`");
+  });
+});
+
+describe('EXP-01 Flink SQL export part 2 (windows, joins, lookups, dedup, top-N)', () => {
+  const MERCHANTS = [
+    { name: 'merchant_id', type: 'string' as const, required: true },
+    { name: 'risk_tier', type: 'string' as const, required: true },
+    { name: 'valid_from', type: 'timestamp' as const, required: true },
+  ];
+  const sink = node('out', 'Sink', { name: 'o', format: 'json', key: '' });
+  const one = (mid: PipelineNode) =>
+    toFlinkSql(
+      { nodes: [node('src', 'Source', SRC), mid, sink], edges: [edge('src', mid.id), edge(mid.id, 'out')] },
+      { refTables: { merchants: MERCHANTS, flags: MERCHANTS.slice(0, 2) } },
+    );
+  it('tumble / hop / session windows as TVFs on the rowtime, aggregates cast to the schema', () => {
+    const t = one(
+      node('w', 'Window', {
+        kind: 'tumble',
+        sizeMs: 300000,
+        keyBy: ['card_id'],
+        aggregates: [
+          { fn: 'count', field: '', as: 'payments' },
+          { fn: 'sum', field: 'amount', as: 'total' },
+        ],
+        allowedLatenessMs: 0,
+      }),
+    );
+    expect(t.unsupported).toEqual([]);
+    expect(t.sql).toContain(
+      "FROM TABLE(TUMBLE(TABLE `payments`, DESCRIPTOR(`event_time`), INTERVAL '5' MINUTE))",
+    );
+    expect(t.sql).toContain(
+      'CAST(COUNT(*) AS DOUBLE) AS `payments`, CAST(SUM(`amount`) AS DOUBLE) AS `total`',
+    );
+    expect(t.sql).toContain('GROUP BY `card_id`, `window_start`, `window_end`, `window_time`');
+    expect(t.sql).toContain(
+      'INSERT INTO `o`\nSELECT `card_id`, `window_start`, `window_end`, `payments`, `total` FROM `w`;',
+    );
+    expect(
+      one(
+        node('w', 'Window', {
+          kind: 'hop',
+          sizeMs: 60000,
+          slideMs: 10000,
+          keyBy: [],
+          aggregates: [],
+          allowedLatenessMs: 0,
+        }),
+      ).sql,
+    ).toContain("HOP(TABLE `payments`, DESCRIPTOR(`event_time`), INTERVAL '10' SECOND, INTERVAL '1' MINUTE)");
+    expect(
+      one(
+        node('w', 'Window', {
+          kind: 'session',
+          gapMs: 30000,
+          keyBy: ['card_id'],
+          aggregates: [],
+          allowedLatenessMs: 0,
+        }),
+      ).sql,
+    ).toContain(
+      "SESSION(TABLE `payments` PARTITION BY `card_id`, DESCRIPTOR(`event_time`), INTERVAL '30' SECOND)",
+    );
+  });
+  it('allowed lateness has no SQL: the window is exported and flagged (EXPORT-UNSUPPORTED)', () => {
+    const r = one(
+      node('w', 'Window', {
+        kind: 'tumble',
+        sizeMs: 60000,
+        keyBy: [],
+        aggregates: [],
+        allowedLatenessMs: 5000,
+      }),
+    );
+    expect(r.unsupported.map((u) => u.id)).toEqual(['w']);
+    expect(r.sql).toContain('TUMBLE(');
+  });
+  it("interval join with the simulator's bound; a regular join says its state grows", () => {
+    const j = (lo: number | null, hi: number | null) =>
+      toFlinkSql({
+        nodes: [
+          node('a', 'Source', SRC),
+          node('b', 'Source', { ...SRC, name: 'refunds' }),
+          node('j', 'Join', {
+            kind: 'inner',
+            leftKey: 'card_id',
+            rightKey: 'card_id',
+            lowerMs: lo,
+            upperMs: hi,
+          }),
+          sink,
+        ],
+        edges: [edge('a', 'j', 'main', 'left'), edge('b', 'j', 'main', 'right'), edge('j', 'out')],
+      }).sql;
+    expect(j(-600000, 0)).toContain(
+      "AND R.`event_time` BETWEEN L.`event_time` - INTERVAL '10' MINUTE AND L.`event_time`",
+    );
+    expect(j(-600000, 0)).toContain('R.`card_id` AS `right_card_id`');
+    expect(j(null, null)).toContain('-- Regular join: no time bound');
+  });
+  it('lookups: as-of on a versioned table (event time), processing time otherwise; reject sends misses aside', () => {
+    const asOf = one(
+      node('l', 'Lookup', {
+        table: 'merchants',
+        key: 'merchant_id',
+        tableKey: 'merchant_id',
+        asOf: true,
+        onMiss: 'pass',
+      }),
+    );
+    expect(asOf.sql).toContain('LEFT JOIN `merchants` FOR SYSTEM_TIME AS OF E.`event_time` AS T');
+    expect(asOf.sql).toContain('PRIMARY KEY (`merchant_id`) NOT ENFORCED,\n  WATERMARK FOR `valid_from`');
+    const proc = one(
+      node('l', 'Lookup', {
+        table: 'flags',
+        key: 'merchant_id',
+        tableKey: 'merchant_id',
+        asOf: false,
+        onMiss: 'drop',
+      }),
+    );
+    expect(proc.sql).toContain('PROCTIME() AS `proc_time`');
+    expect(proc.sql).toContain('\nJOIN `flags` FOR SYSTEM_TIME AS OF E.`proc_time` AS T');
+  });
+  it('dedup by ROW_NUMBER over the rowtime; top-N within a window partitions by it', () => {
+    const d = one(node('d', 'Deduplicate', { key: ['payment_id'], keep: 'first', ttlMs: 3600000 })).sql;
+    expect(d).toContain('ROW_NUMBER() OVER (PARTITION BY `payment_id` ORDER BY `event_time` ASC) AS `rn`');
+    expect(d).toContain('WHERE `rn` = 1');
+    const top = toFlinkSql({
+      nodes: [
+        node('src', 'Source', SRC),
+        node('w', 'Window', {
+          kind: 'tumble',
+          sizeMs: 60000,
+          keyBy: ['merchant_id'],
+          aggregates: [{ fn: 'sum', field: 'amount', as: 'revenue' }],
+          allowedLatenessMs: 0,
+        }),
+        node('t', 'Top-N', { partitionBy: [], orderBy: 'revenue', desc: true, n: 3, withinWindow: true }),
+        sink,
+      ],
+      edges: [edge('src', 'w'), edge('w', 't'), edge('t', 'out')],
+    });
+    expect(top.unsupported).toEqual([]);
+    expect(top.sql).toContain(
+      'ROW_NUMBER() OVER (PARTITION BY `window_start`, `window_end` ORDER BY `revenue` DESC) AS `rn`',
+    );
+    expect(top.sql).toContain('WHERE `rn` <= 3');
   });
 });

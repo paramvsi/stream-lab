@@ -324,3 +324,26 @@ describe('SIM-21 · timeline samples', () => {
     expect(wms).toEqual([...wms].sort((a, b) => a - b)); // watermarks never go back
   });
 });
+
+describe('SIM-16 · Chaos', () => {
+  it('injects late, duplicate and malformed events now, and stalls one source', () => {
+    const plain = createRun(fraud(42, 2000));
+    plain.advance(Infinity);
+    const r = createRun(fraud(42, 2000));
+    r.advance(1000);
+    const before = r.stats().total;
+    const rep = r.inject({ late: 5, duplicates: 5, malformed: 5, stallMs: 3000 });
+    expect(rep).toEqual({ late: 5, duplicates: 5, malformed: 5, stalled: 'gen', stallMs: 3000 });
+    expect(r.stats().total).toBe(before + 15);
+    const at = r.stats().now;
+    expect(r.next()).toBe(at); // injected events arrive now
+    r.advance(15);
+    expect(r.next()!).toBeGreaterThanOrEqual(at + 3000); // then the source is silent for 3 s
+    r.advance(Infinity);
+    const s = r.stats();
+    const p = plain.stats();
+    expect(s.nodes['val']!.failed).toBe(p.nodes['val']!.failed + 5); // malformed rows fail the rule
+    expect(s.nodes['win']!.late).toBeGreaterThanOrEqual(p.nodes['win']!.late + 5); // a minute behind: late
+    expect(s.processed).toBe(p.processed + 15);
+  });
+});

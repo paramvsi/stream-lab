@@ -1,8 +1,8 @@
 import { AppError, ErrorDialog, present } from '@sl/errors';
 import { pipelineWatermark } from '@sl/engine';
-import { runBlocker, validate } from '@sl/graph';
+import { labelOf, runBlocker, validate } from '@sl/graph';
 import { Button, useToast } from '@sl/ui';
-import { Pause, Play, RotateCcw, SkipForward } from 'lucide-react';
+import { Pause, Play, RotateCcw, SkipForward, Zap } from 'lucide-react';
 import { useEffect, useId } from 'react';
 import { useIssues } from './issues';
 import { dispose, runner, SPEEDS, useRun } from './run';
@@ -22,6 +22,20 @@ export function RunPill() {
   const blocker = runBlocker(all);
   const { state, speed, stats, crash, slow, stale, staleNotice, unused } = useRun();
   const toast = useToast();
+  // SIM-16: say what Chaos injected (the timeline and counts show the effect).
+  const chaosReport = useRun((st) => st.chaos);
+  const chaosSource = useGraph((g) => g.nodes.find((x) => x.id === chaosReport?.stalled));
+  useEffect(() => {
+    if (!chaosReport) return;
+    const r = chaosReport;
+    toast({
+      severity: 'info',
+      message: `Chaos: ${r.late} late, ${r.duplicates} duplicate and ${r.malformed} malformed events${
+        chaosSource ? `; ${labelOf(chaosSource)} stalls for ${r.stallMs / 1000} s` : ''
+      }.`,
+    });
+    useRun.setState({ chaos: null });
+  }, [chaosReport, chaosSource, toast]);
   // DATA-UPLOAD-UNUSED: one toast per Source whose upload this run could not use.
   useEffect(() => {
     if (!unused.length) return;
@@ -165,6 +179,18 @@ export function RunPill() {
           </label>
         ))}
       </div>
+      {/* SIM-16 Chaos: inject late, duplicate and malformed events and stall a source, now. */}
+      <Button
+        size="sm"
+        variant="ghost"
+        icon={<Zap size={14} aria-hidden="true" />}
+        onClick={runner.chaos}
+        {...(state !== 'running' && state !== 'paused'
+          ? { disabledReason: 'Chaos is injected into a run: start one first.' }
+          : {})}
+      >
+        Chaos
+      </Button>
       {state !== 'ready' && Number.isFinite(wm) && (
         <span
           className="pr-2 font-mono text-[12px] text-muted"

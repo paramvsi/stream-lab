@@ -121,3 +121,22 @@ test('SIM-21 run panel: Timeline while running, Output opens when finished, Prob
     [],
   );
 });
+
+test('SIM-16 Chaos injects late, duplicate and malformed events and stalls a source, during a run', async ({
+  page,
+}) => {
+  await scenario(page, 'Card fraud bursts');
+  const pill = page.locator('.react-flow__panel.top');
+  await expect(pill.getByRole('button', { name: 'Chaos' })).toHaveAttribute('aria-disabled', 'true');
+  await page.getByText('0.25×', { exact: true }).click();
+  await pill.getByRole('button', { name: 'Run', exact: true }).click();
+  await expect(status(page)).toHaveText(/^Running/);
+  const totalBefore = Number((await status(page).textContent())!.match(/of ([\d,]+)/)![1]!.replace(/,/g, ''));
+  await pill.getByRole('button', { name: 'Chaos' }).click();
+  await expect(
+    page.getByText('Chaos: 5 late, 5 duplicate and 5 malformed events; Payments stalls for 3 s.', {
+      exact: true,
+    }),
+  ).toBeVisible();
+  await expect(status(page)).toHaveText(new RegExp(`of ${(totalBefore + 15).toLocaleString('en-US')}$`));
+});

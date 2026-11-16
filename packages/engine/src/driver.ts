@@ -1,4 +1,4 @@
-import { createRun, type Run, type RunOptions, type RunStats } from './engine';
+import { createRun, type ChaosReport, type Run, type RunOptions, type RunStats } from './engine';
 import type { Graph } from '@sl/graph';
 
 export type RunState = 'ready' | 'running' | 'paused' | 'finished' | 'crashed';
@@ -7,6 +7,8 @@ export type DriverMessage =
   | { type: 'stats'; state: RunState; speed: number; stats: RunStats }
   | { type: 'crash'; n: number; reason: string }
   | { type: 'slow'; speed: number }
+  /** SIM-16 Chaos: what was injected. */
+  | { type: 'chaos'; report: ChaosReport }
   /** Sent every second by the worker (SIM-ENGINE-CRASH heartbeat). */
   | { type: 'beat' };
 
@@ -92,6 +94,16 @@ export class Driver {
         this.state = 'finished';
       }
       this.clock = run.stats().now;
+    });
+    this.send();
+  }
+
+  /** SIM-16: inject chaos into a running or paused run. */
+  chaos() {
+    if (!this.run || (this.state !== 'running' && this.state !== 'paused')) return;
+    this.guard(() => {
+      const report = this.run!.inject();
+      this.post({ type: 'chaos', report });
     });
     this.send();
   }

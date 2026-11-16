@@ -6,7 +6,7 @@ import type { RunOptions } from './engine';
 /** ENG-01: the engine runs here, off the page's thread. Messages: see WorkerCommand. */
 export type WorkerCommand =
   | { type: 'load'; graph: Graph; opts: RunOptions }
-  | { type: 'play' | 'pause' | 'step' | 'reset' }
+  | { type: 'play' | 'pause' | 'step' | 'reset' | 'chaos' }
   | { type: 'speed'; speed: number };
 
 let driver: Driver | null = null;
@@ -38,5 +38,6 @@ self.onmessage = (e: MessageEvent<WorkerCommand>) => {
   } else if (c.type === 'pause') driver.pause();
   else if (c.type === 'step') driver.step();
   else if (c.type === 'reset') driver.reset();
+  else if (c.type === 'chaos') driver.chaos();
   else if (c.type === 'speed') driver.setSpeed(c.speed);
 };

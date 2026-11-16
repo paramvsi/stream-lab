@@ -1,4 +1,4 @@
-import type { DriverMessage, Event, RunState, RunStats } from '@sl/engine';
+import type { ChaosReport, DriverMessage, Event, RunState, RunStats } from '@sl/engine';
 import RunWorker from '@sl/engine/worker?worker';
 import { create } from 'zustand';
 import {
@@ -33,6 +33,8 @@ export interface RunStore {
   staleNotice: boolean;
   /** DATA-UPLOAD-UNUSED: Sources whose upload this run could not use, and why (shown once per run). */
   unused: { source: string; reason: string }[];
+  /** SIM-16: the last chaos injection, until the pill says it. */
+  chaos: ChaosReport | null;
   /** SIM-17: the node with most events in (computed once per stats message). */
   busiest: string | null;
 }
@@ -45,6 +47,7 @@ const initial: RunStore = {
   stale: false,
   staleNotice: false,
   unused: [],
+  chaos: null,
   busiest: null,
 };
 export const useRun = create<RunStore>(() => initial);
@@ -84,6 +87,7 @@ function connect(): Worker {
     lastSeen = Date.now();
     const m = e.data;
     if (m.type === 'beat') return;
+    if (m.type === 'chaos') return void useRun.setState({ chaos: m.report });
     if (m.type === 'stats')
       useRun.setState({ state: m.state, speed: m.speed, stats: m.stats, busiest: busiestOf(m.stats) });
     else if (m.type === 'slow') useRun.setState({ slow: m.speed });
@@ -195,6 +199,7 @@ export const runner = {
     return true;
   },
   pause: () => worker?.postMessage({ type: 'pause' }),
+  chaos: () => worker?.postMessage({ type: 'chaos' }),
   async step() {
     if (blocked()) return;
     if (!loaded || useRun.getState().stale) await load();

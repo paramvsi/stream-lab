@@ -18,6 +18,11 @@ export function VersionCapabilities({ version }: { version: string }) {
   return (
     <div className="flex flex-col gap-4">
       {band === 'old' && <ErrorBanner error={new AppError('CONN-VERSION-OLD', { version })} />}
+      {band === 'unknown' && (
+        <p className="m-0 text-[14px]">
+          The cluster's version could not be read (it says “{version}”), so no column is marked.
+        </p>
+      )}
       <div className="overflow-x-auto">
         <table className="w-full border-collapse text-[14px]">
           <caption className="sr-only">What works on Flink {version}, by version</caption>

@@ -387,3 +387,17 @@ describe('CONN-07 what works on this cluster (board C05)', () => {
     );
   });
 });
+
+describe('audit of eb939e0', () => {
+  it('a version the cluster can not report says so, without calling it old or marking a column', async () => {
+    show(
+      [conn('custom-build')],
+      () => async (req) => (req.path === '/config' ? ok({ 'flink-version': '<unknown>' }) : healthy(1)(req)),
+    );
+    await userEvent.click(await within(card('custom-build')).findByRole('button', { name: 'What works' }));
+    const dialog = screen.getByRole('dialog', { name: 'custom-build · Flink <unknown>' });
+    expect(within(dialog).getByText(/version could not be read/)).toBeTruthy();
+    expect(within(dialog).queryByText(/is older than 1\.20/)).toBeNull();
+    expect(within(dialog).queryByText('This cluster')).toBeNull();
+  });
+});

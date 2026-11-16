@@ -1,8 +1,9 @@
 import { versionSupported } from './endpoints/config';
 
 /**
- * CONN-07 / board C05: what works on a cluster, by its Flink version. The bands and the table are the board's;
- * the UI hides a feature that is "no" for the connected cluster and says why (CONN-FEATURE-VERSION).
+ * CONN-07 / board C05: what works on a cluster, by its Flink version. The bands and the table are the board's.
+ * ponytail: shown as a table only for now; hiding a "no" feature on the cluster pages (CONN-FEATURE-VERSION) comes
+ * with those pages (M7).
  * FLINK: https://nightlies.apache.org/flink/flink-docs-stable/docs/ops/rest_api/ (per-version endpoints)
  */
 export type Band = 'old' | '1.20' | '2.0' | '2.3';
@@ -50,9 +51,13 @@ export const CAPABILITIES: { id: string; label: string; support: Record<Band, Ca
   },
 ];
 
-/** The band a version belongs to ("v2.3.0", "2.10.1", "1.18.1-SNAPSHOT" all read). */
-export function bandOf(version: string): Band {
-  if (!versionSupported(version)) return 'old';
+/**
+ * The band a version belongs to ("v2.3.0", "2.10.1", "1.18.1-SNAPSHOT" all read); "unknown" when there is no
+ * major.minor to read (a build without its version, e.g. "<unknown>"): not called old.
+ */
+export function bandOf(version: string): Band | 'unknown' {
+  if (!/^\s*v?\d+(\.\d+)?/i.test(version)) return 'unknown';
+  if (!versionSupported(version.trim())) return 'old';
   const [maj = 0, min = 0] = version
     .replace(/^v/i, '')
     .split('.')

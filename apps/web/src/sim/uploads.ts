@@ -119,8 +119,8 @@ export async function deleteUploads(pipelineId: string): Promise<void> {
     await w.write(String(Date.now()));
     await w.close();
   } catch {
-    // Can't write the marker (no uploads for it, or storage full): free them now instead.
-    await removeUploads(pipelineId).catch(() => undefined);
+    // No uploads for it, or the marker can't be written (storage full). Either way the rows stay for now, so Undo
+    // and another tab's "Keep a copy" still work; purgeDeletedUploads marks them later as orphans.
   }
 }
 
@@ -134,7 +134,11 @@ export async function restoreUploads(pipelineId: string): Promise<void> {
 }
 
 /** Frees uploads deleted longer ago than the grace period (called when My pipelines opens). */
-export async function purgeDeletedUploads(now = Date.now()): Promise<void> {
+export async function purgeDeletedUploads(
+  /** Pipelines that exist: rows of any other pipeline are orphans (their delete could not mark them). */
+  existing: Set<string>,
+  now = Date.now(),
+): Promise<void> {
   let root: FileSystemDirectoryHandle;
   try {
     root = await uploadsRoot();
@@ -144,14 +148,17 @@ export async function purgeDeletedUploads(now = Date.now()): Promise<void> {
   const entries = (root as unknown as { entries(): AsyncIterable<[string, FileSystemHandle]> }).entries();
   for await (const [name, h] of entries) {
     if (h.kind !== 'directory') continue;
+    let at: number;
     try {
-      const at = Number(
+      at = Number(
         await (await (await (h as FileSystemDirectoryHandle).getFileHandle(DELETED)).getFile()).text(),
       );
-      if (now - at >= UPLOAD_GRACE_MS) await root.removeEntry(name, { recursive: true });
     } catch {
-      // not deleted: keep it
+      // Not marked. A pipeline that no longer exists gets its grace period now; a live one is kept.
+      if (!existing.has(name)) await deleteUploads(name);
+      continue;
     }
+    if (now - at >= UPLOAD_GRACE_MS) await root.removeEntry(name, { recursive: true });
   }
 }
 
@@ -161,8 +168,9 @@ export async function uploadBytes(): Promise<Record<string, number>> {
   let root: FileSystemDirectoryHandle;
   try {
     root = await uploadsRoot();
-  } catch {
-    return out; // no uploads at all
+  } catch (e) {
+    if ((e as { name?: string } | null)?.name === 'NotFoundError') return out; // no uploads at all
+    throw new AppError('STORE-BLOCKED', {}, e);
   }
   const dirs = (root as unknown as { entries(): AsyncIterable<[string, FileSystemHandle]> }).entries();
   for await (const [id, h] of dirs) {
@@ -185,6 +193,6 @@ export async function removeUploads(pipelineId: string): Promise<void> {
     await (await uploadsRoot()).removeEntry(pipelineId, { recursive: true });
   } catch (e) {
     if ((e as { name?: string } | null)?.name === 'NotFoundError') return; // nothing stored
-    throw new AppError('STORE-BLOCKED', {}, e);
+    throw e; // the caller says which pipeline (DATA-DELETE-FAILED)
   }
 }

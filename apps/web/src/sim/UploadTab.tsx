@@ -104,7 +104,8 @@ export function UploadTab({ onDone }: { onDone: () => void }) {
       return setStep({ kind: 'failed', name, reason });
     }
     // "Read first 200 MB" cuts mid-row: drop the partial last line rather than keep a cut value.
-    if (cut) text = lastCompleteLine(text);
+    // (.json is cut item by item in parseJson: a one-line minified file has no line breaks to cut at.)
+    if (cut && !/\.json$/i.test(name)) text = lastCompleteLine(text);
     const parsed = /\.csv$/i.test(name)
       ? parseCsv(text)
       : /\.json$/i.test(name)

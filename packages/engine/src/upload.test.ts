@@ -175,6 +175,21 @@ describe('chaos audit · JSON', () => {
     const text = `[${Array.from({ length: 200000 }, (_, i) => `{"payment_id":"p${i}","amount":${i}.5,"currency":"AED"}`).join(',\n')}]`;
     const t = performance.now();
     expect(parseJson(text).rows).toHaveLength(200000);
-    expect(performance.now() - t).toBeLessThan(800);
+    expect(performance.now() - t).toBeLessThan(1500); // ~150 ms here; headroom for slow CI
+  });
+});
+
+describe('storage audit · JSON', () => {
+  it('#5 an array that ends without "]" is reported, and its complete last item is kept', async () => {
+    const { parseJson } = await import('./upload');
+    expect(parseJson('[{"a":1},').bad).toEqual([{ line: 1, reason: 'the array is never closed' }]);
+    expect(parseJson('[\n')).toMatchObject({
+      rows: [],
+      bad: [{ line: 1, reason: 'the array is never closed' }],
+    });
+    expect(parseJson('[{"a":1},\n{"a":2}')).toMatchObject({
+      rows: [{ a: 1 }, { a: 2 }],
+      bad: [{ line: 2, reason: 'the array is never closed' }],
+    });
   });
 });

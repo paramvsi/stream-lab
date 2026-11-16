@@ -152,6 +152,7 @@ export function parseJson(text: string, cut = false): Parsed {
   let line = 1;
   const nl = (k: number) => text[k] === '\n' || (text[k] === '\r' && text[k + 1] !== '\n');
   for (let k = 0; k < start; k++) if (nl(k)) line++;
+  const arrayLine = line;
   // Items are split at commas outside strings and brackets; a stray bracket only breaks its own item.
   // Items are sliced by index (not built a character at a time): large files stay fast.
   let depth = 0;
@@ -215,9 +216,12 @@ export function parseJson(text: string, cut = false): Parsed {
       for (let k = closed + 1; k < closed + 1 + after; k++) if (nl(k)) l++;
       bad.push({ line: l, reason: 'text after the array' });
     }
-  } else if (from >= 0 && !cut) {
-    // Not a cut file: the array (or a string in it) is broken — say so instead of dropping what follows.
-    bad.push({ line: itemLine, reason: inStr ? 'a string is never closed' : 'the array is never closed' });
+  } else if (!cut) {
+    // Not a cut file: the array (or a string in it) is broken — say so instead of dropping what follows. A
+    // complete last item is still read.
+    const lastLine = from >= 0 ? itemLine : arrayLine; // the open item, else where the array starts
+    if (from >= 0 && !inStr) take(text.length);
+    bad.push({ line: lastLine, reason: inStr ? 'a string is never closed' : 'the array is never closed' });
   }
   // A file cut at the size limit drops its open last item, like a partial CSV line.
   return { columns: [...columns], rows, lines, bad: bad.sort((a, b) => a.line - b.line) };

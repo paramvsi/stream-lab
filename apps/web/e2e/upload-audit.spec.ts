@@ -101,7 +101,7 @@ test('upload audit 7: deleting a pipeline frees its uploaded rows', async ({ pag
   // Deleting marks the rows (Undo and "Keep a copy" may still need them); they are freed after the grace period.
   await expect.poll(async () => (await opfs(page)).some((f) => f.endsWith('/.deleted'))).toBe(true);
   await page.evaluate(async () =>
-    (await import('/src/sim/uploads.ts')).purgeDeletedUploads(Date.now() + 11 * 60_000),
+    (await import('/src/sim/uploads.ts')).purgeDeletedUploads(new Set(), Date.now() + 11 * 60_000),
   );
   await expect.poll(() => opfs(page)).toEqual([]);
 });
@@ -198,7 +198,7 @@ test('DATA-04 My pipelines shows storage used and each pipeline’s uploaded dat
   const dlg = page.getByRole('dialog', { name: 'Delete uploaded data of "Refunds matching"?' });
   await expect(dlg).toContainText('The pipeline stays');
   await dlg.getByRole('button', { name: 'Delete uploaded data' }).click();
-  await expect(page.getByText('Uploaded data of "Refunds matching" deleted.')).toBeVisible();
+  await expect(page.getByText('Uploaded data of "Refunds matching" deleted.', { exact: true })).toBeVisible();
   await expect(row.locator('td').nth(4)).toHaveText('—');
   expect(await opfs(page)).toEqual([]);
   // The pipeline no longer claims the upload.
@@ -240,4 +240,70 @@ test('chaos audit 7: Chaos is off on a run the pipeline has moved past', async (
   );
   await expect(pill.locator('[data-run-label]')).toHaveText(/^Paused/);
   await expect(pill.getByRole('button', { name: 'Chaos' })).toHaveAttribute('aria-disabled', 'true');
+});
+
+// ---- Storage audit (34c7fad + 09be746) ----
+const toMyPipelines = async (page: Page) => {
+  await page.goto('/#/pipelines');
+  await expect(page.getByRole('table', { name: 'My pipelines' })).toBeVisible();
+};
+
+test('storage audit 1: a failed "Delete uploaded data" says so (DATA-DELETE-FAILED), with no success toast', async ({
+  page,
+}) => {
+  await upload(page);
+  await toMyPipelines(page);
+  await page.evaluate(() => {
+    const orig = FileSystemDirectoryHandle.prototype.removeEntry;
+    FileSystemDirectoryHandle.prototype.removeEntry = function (name: string, o?: FileSystemRemoveOptions) {
+      if (this.name === 'uploads')
+        return Promise.reject(new DOMException('busy', 'NoModificationAllowedError'));
+      return orig.call(this, name, o);
+    };
+  });
+  await page.getByRole('button', { name: 'Delete uploaded data of Refunds matching' }).click();
+  await page.getByRole('dialog').getByRole('button', { name: 'Delete uploaded data' }).click();
+  await expect(page.getByText('could not be deleted: another tab is using it.')).toBeVisible();
+  expect(await page.getByText(/Uploaded data of .* deleted\./).count()).toBe(0);
+});
+
+test('storage audit 2: when the delete marker can not be written, Undo still brings the rows back', async ({
+  page,
+}) => {
+  await upload(page);
+  await toMyPipelines(page);
+  await page.evaluate(() => {
+    const orig = FileSystemFileHandle.prototype.createWritable;
+    FileSystemFileHandle.prototype.createWritable = function (o?: FileSystemCreateWritableOptions) {
+      if (this.name === '.deleted') return Promise.reject(new DOMException('full', 'QuotaExceededError'));
+      return orig.call(this, o);
+    };
+  });
+  await page.getByRole('button', { name: 'Delete Refunds matching' }).click();
+  await page.getByRole('button', { name: 'Delete pipeline' }).click();
+  await page.getByRole('button', { name: 'Undo' }).click();
+  await expect(page.getByRole('link', { name: 'Refunds matching' })).toBeVisible();
+  await expect
+    .poll(() => opfs(page))
+    .toEqual(expect.arrayContaining([expect.stringMatching(/\/pay\.jsonl$/)]));
+});
+
+test('storage audit 6+7+8: focus lands on the list after freeing, usage follows Duplicate, a double click frees once', async ({
+  page,
+}) => {
+  await upload(page);
+  await toMyPipelines(page);
+  await page.getByRole('button', { name: 'Duplicate Refunds matching' }).click();
+  const copyRow = page
+    .getByRole('table', { name: 'My pipelines' })
+    .locator('tbody tr')
+    .filter({ hasText: 'Refunds matching copy' });
+  await expect(copyRow).toContainText('1 KB');
+  await page.getByRole('button', { name: 'Delete uploaded data of Refunds matching copy' }).click();
+  await page.getByRole('dialog').getByRole('button', { name: 'Delete uploaded data' }).dblclick();
+  await expect(page.getByText('Uploaded data of "Refunds matching copy" deleted.').first()).toBeVisible();
+  expect(
+    await page.locator('li').filter({ hasText: 'Uploaded data of "Refunds matching copy" deleted.' }).count(),
+  ).toBe(1);
+  await expect.poll(() => page.evaluate(() => document.activeElement?.tagName)).toBe('A');
 });

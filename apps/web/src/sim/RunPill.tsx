@@ -30,14 +30,14 @@ export function RunPill() {
     const r = chaosReport;
     // Only what was really injected (early in a run there may be nothing to copy yet).
     const parts = [
-      r.late ? `${r.late} events a minute behind the watermark` : '',
-      r.duplicates ? `${r.duplicates} duplicates` : '',
-      r.malformed ? `${r.malformed} malformed rows` : '',
+      r.late ? `${r.late} ${r.late === 1 ? 'event' : 'events'} a minute behind the watermark` : '',
+      r.duplicates ? `${r.duplicates} ${r.duplicates === 1 ? 'duplicate' : 'duplicates'}` : '',
+      r.malformed ? `${r.malformed} malformed ${r.malformed === 1 ? 'row' : 'rows'}` : '',
     ].filter(Boolean);
     const stall = chaosSource ? `${labelOf(chaosSource)} stalls for ${r.stallMs / 1000} s` : '';
     toast({
       severity: 'info',
-      message: `Chaos: ${[parts.join(', '), stall].filter(Boolean).join('; ') || 'nothing to inject yet'}.`,
+      message: `Chaos: ${[parts.join(', '), stall].filter(Boolean).join('; ') || 'no events left to copy'}.`,
     });
     useRun.setState({ chaos: null });
   }, [chaosReport, chaosSource, toast]);

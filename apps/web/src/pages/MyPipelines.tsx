@@ -39,6 +39,24 @@ export function MyPipelines() {
   const deletedRow = useRef(false);
   const [busy, setBusy] = useState(false);
 
+  // DATA-04: how much this browser holds for Stream Lab, and each pipeline's uploaded data.
+  const [usage, setUsage] = useState<{ used: number; quota: number } | null>(null);
+  const [uploads, setUploads] = useState<Record<string, number>>({});
+  const [freeing, setFreeing] = useState<PipelineMeta | null>(null);
+  const [freeingBusy, setFreeingBusy] = useState(false);
+  const freedRow = useRef(false);
+  const measure = useCallback(async () => {
+    try {
+      setUploads(await uploadBytes());
+    } catch (e) {
+      if (!(e instanceof AppError)) throw e;
+      setStoreError(e); // OPFS unreadable: say so (never a quiet "—" on every row)
+    }
+    // The estimate is optional (not every browser has it): no line rather than a wrong one.
+    const est = await navigator.storage?.estimate?.().catch(() => undefined);
+    if (est?.quota) setUsage({ used: est.usage ?? 0, quota: est.quota });
+  }, []);
+  // Every change to the list re-measures (duplicate, delete, undo, import, free).
   const refresh = useCallback(async () => {
     try {
       setRows(await listPipelines());
@@ -47,22 +65,16 @@ export function MyPipelines() {
       setStoreError(e);
       setRows([]);
     }
-  }, []);
-  // DATA-04: how much this browser holds for Stream Lab, and each pipeline's uploaded data.
-  const [usage, setUsage] = useState<{ used: number; quota: number } | null>(null);
-  const [uploads, setUploads] = useState<Record<string, number>>({});
-  const [freeing, setFreeing] = useState<PipelineMeta | null>(null);
-  const measure = useCallback(async () => {
-    const [est, bytes] = await Promise.all([
-      navigator.storage?.estimate?.().catch(() => undefined),
-      uploadBytes().catch(() => ({})),
-    ]);
-    if (est?.quota) setUsage({ used: est.usage ?? 0, quota: est.quota });
-    setUploads(bytes);
-  }, []);
-  // Free uploads of pipelines deleted longer ago than the grace period, then measure.
+    await measure();
+  }, [measure]);
+  // Free uploads of pipelines deleted longer ago than the grace period (and mark orphans), then measure.
   useEffect(() => {
-    void purgeDeletedUploads().then(measure);
+    void listPipelines()
+      .then((ps) => purgeDeletedUploads(new Set(ps.map((p) => p.id))))
+      .then(measure, (e: unknown) => {
+        if (!(e instanceof AppError)) throw e;
+        setStoreError(e);
+      });
   }, [measure]);
   useEffect(() => {
     let live = true;
@@ -80,14 +92,18 @@ export function MyPipelines() {
     };
   }, []);
 
-  const save = async (p: Pipeline & { scenario?: string }) => {
+  /** True when saved. */
+  const save = async (p: Pipeline & { scenario?: string }): Promise<boolean> => {
+    let ok = true;
     try {
       await savePipeline(p);
     } catch (e) {
       if (!(e instanceof AppError)) throw e;
       setStoreError(e);
+      ok = false;
     }
     await refresh();
+    return ok;
   };
 
   const duplicate = async (m: PipelineMeta) => {
@@ -339,6 +355,16 @@ export function MyPipelines() {
           onOpenChange={(o) => !o && setFreeing(null)}
           severity="warning"
           title={`Delete uploaded data of "${freeing.name}"?`}
+          onCloseAutoFocus={(e) => {
+            // After a delete the row's button is gone: focus the pipeline's link instead (Cancel: default).
+            if (!freedRow.current) return;
+            freedRow.current = false;
+            e.preventDefault();
+            (
+              document.querySelector<HTMLElement>('table[aria-label="My pipelines"] tbody a') ??
+              document.querySelector<HTMLElement>('main h1')
+            )?.focus();
+          }}
           footer={
             <>
               <Button variant="ghost" onClick={() => setFreeing(null)}>
@@ -346,19 +372,32 @@ export function MyPipelines() {
               </Button>
               <Button
                 variant="danger"
+                loading={freeingBusy}
                 onClick={async () => {
+                  if (freeingBusy) return; // a double click deletes (and toasts) once
+                  setFreeingBusy(true);
                   const m = freeing;
                   try {
-                    await removeUploads(m.id);
+                    // The pipeline stops claiming the rows first; then they are freed.
                     const p = await getPipeline(m.id);
-                    if (p) await save({ ...p, data: { ...p.data, uploads: {} } });
-                  } catch (e) {
-                    if (!(e instanceof AppError)) throw e;
-                    setStoreError(e);
+                    if (p && !(await save({ ...p, data: { ...p.data, uploads: {} } }))) return;
+                    try {
+                      await removeUploads(m.id);
+                    } catch (e) {
+                      const reason =
+                        (e as { name?: string })?.name === 'NoModificationAllowedError'
+                          ? 'another tab is using it'
+                          : 'the browser refused';
+                      setStoreError(new AppError('DATA-DELETE-FAILED', { name: m.name, reason }, e));
+                      return;
+                    }
+                    freedRow.current = true;
+                    toast({ severity: 'success', message: `Uploaded data of "${m.name}" deleted.` });
+                  } finally {
+                    setFreeingBusy(false);
+                    setFreeing(null);
+                    await measure();
                   }
-                  setFreeing(null);
-                  await measure();
-                  toast({ severity: 'success', message: `Uploaded data of "${m.name}" deleted.` });
                 }}
               >
                 Delete uploaded data

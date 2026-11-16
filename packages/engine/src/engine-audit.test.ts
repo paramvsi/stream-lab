@@ -471,3 +471,44 @@ describe('chaos audit', () => {
     expect(Date.parse(String(late['event_time']))).toBeLessThan(BASE_TIME + 79_000 - 30_000);
   });
 });
+
+describe('storage audit · chaos', () => {
+  const g = (): Graph => ({
+    nodes: [
+      node('a', 'Source', { schema: SCHEMA, outOfOrdernessMs: 0 }),
+      node('b', 'Source', { schema: SCHEMA, outOfOrdernessMs: 0 }),
+      node('w', 'Window', { sizeMs: 60000, keyBy: [] }),
+      node('out', 'Sink'),
+      node('dlq', 'Dead-letter'),
+      node('out2', 'Sink'),
+    ],
+    edges: [edge('a', 'w'), edge('w', 'out'), edge('w', 'dlq', 'late'), edge('b', 'out2')],
+  });
+  it('#3 a second Chaos copies real events, not the first Chaos copies', () => {
+    const rows = Array.from({ length: 400 }, (_, i) => row(i / 4));
+    const r = createRun(g(), { sourceData: { a: rows, b: rows.map((x) => ({ ...x, card_id: 'c_2' })) } });
+    r.advance(300);
+    r.inject({ late: 0, duplicates: 0, malformed: 5, stallMs: 0 });
+    r.advance(5); // exactly the 5 malformed copies: they are now the most recent events
+    r.inject({ late: 0, duplicates: 5, malformed: 0, stallMs: 0 });
+    r.advance(Infinity);
+    const nulls = r
+      .stats()
+      .outputs['out2']!.concat(r.stats().outputs['dlq']!)
+      .filter((e) => e['amount'] === null);
+    expect(nulls.length).toBeLessThanOrEqual(5); // only the 5 malformed rows, never copies of them
+  });
+  it('#4 copies only from sources that still have events (a finished source has passed its final watermark)', () => {
+    const r = createRun(g(), {
+      sourceData: {
+        a: Array.from({ length: 50 }, (_, i) => row(i)),
+        b: Array.from({ length: 50 }, (_, i) => row(i)),
+      },
+      sourceGapMs: { b: 1000 },
+    });
+    r.advance(51); // a has finished (its 50 events are the most recent), b has sent one of its 50
+    r.inject({ late: 0, duplicates: 5, malformed: 0, stallMs: 0 });
+    r.advance(Infinity);
+    expect(r.stats().nodes['w']!.late).toBe(0);
+  });
+});

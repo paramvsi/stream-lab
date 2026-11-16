@@ -1092,7 +1092,13 @@ export function createRun(g: Graph, opts: RunOptions = {}): Run {
       const at = stats.now;
       // Copies of events already emitted (never of future ones): a copy of a future event would push its
       // source's watermark ahead and make the real events in between late.
-      const past = arrivals.slice(Math.max(0, i - 200), i).reverse();
+      // Never copies of earlier chaos (seq −1), and only sources still running: a finished source has passed
+      // its final watermark, so any copy of it would be late everywhere.
+      const past = arrivals
+        .slice(Math.max(0, i - 400), i)
+        .reverse()
+        .filter((a) => a.seq >= 0 && srcWm.get(sources[a.src]!.id)!.left > 0)
+        .slice(0, 200);
       const extra: Arrival[] = [];
       const add = (a: Arrival, ev: SimEvent) => {
         extra.push({ ...a, at, seq: -1, ev });

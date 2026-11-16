@@ -1,5 +1,6 @@
 import { AppError, ErrorBanner, present } from '@sl/errors';
 import {
+  isSecretHeader,
   secretKey,
   STEPS,
   testConnection,
@@ -71,6 +72,7 @@ const TEST_ACTIONS: ReadonlySet<string> = new Set([
   'Edit',
   'Edit address',
   'Raise timeout',
+  'Edit base path',
 ]);
 
 const toConnection = (d: Draft, id: string, kind: Connection['kind']): Connection => ({
@@ -81,7 +83,7 @@ const toConnection = (d: Draft, id: string, kind: Connection['kind']): Connectio
   env: d.env || 'none',
   ...(d.color ? { color: d.color } : {}),
   readOnly: d.readOnly,
-  basePath: d.basePath.trim(),
+  basePath: d.basePath.trim().replace(/(.)\/+$/, '$1'), // "/a/" → "/a": no "//config"
   auth:
     d.auth === 'basic'
       ? { type: 'basic', user: d.user.trim() }
@@ -120,6 +122,10 @@ function problems(d: Draft, c: Connection, taken: string[]): Partial<Record<Fiel
     out.gwSecret = new AppError('CONN-REQUIRED', {
       field: d.gwAuth === 'basic' ? 'SQL Gateway password' : 'SQL Gateway token',
     });
+  // A keychain header with no value would claim a secret that does not exist.
+  const empty = d.headers.find((h) => h.name.trim() && isSecretHeader(h) && !h.value);
+  if (!out.headers && empty)
+    out.headers = new AppError('CONN-REQUIRED', { field: `The value of header "${empty.name.trim()}"` });
   return out;
 }
 
@@ -148,6 +154,7 @@ export function ConnectionForm({
   }, []);
   const h1 = useScreenHeading();
   const colorName = useId();
+  const headersErr = useId();
   const [id] = useState(() => `c_${crypto.randomUUID()}`);
   const [d, setD] = useState<Draft>({
     name: '',
@@ -229,12 +236,18 @@ export function ConnectionForm({
     setResults({});
     setOutcome(null);
     try {
-      const steps = testConnection(test(c, d.secret, { gateway: d.gwSecret, proxy: d.proxySecret }), {
-        name: c.name || 'this cluster',
-        url: c.url,
-        readOnly: c.readOnly,
-        hasGateway: !!c.gateway,
-      });
+      const steps = testConnection(
+        test(c, d.secret, {
+          gateway: c.gateway && !c.gateway.sameLogin ? d.gwSecret : '',
+          proxy: c.transport.type === 'proxy' ? d.proxySecret : '',
+        }),
+        {
+          name: c.name || 'this cluster',
+          url: c.url,
+          readOnly: c.readOnly,
+          hasGateway: !!c.gateway,
+        },
+      );
       for (;;) {
         const n = await steps.next();
         if (run.current !== mine) return; // edited or left while it ran: never pulled again
@@ -269,7 +282,13 @@ export function ConnectionForm({
     }
   };
   const form = useRef<HTMLFormElement>(null);
-  const focusField = (f: string) => form.current?.querySelector<HTMLElement>(`[data-field="${f}"]`)?.focus();
+  /** Focus an element of the form; one inside the closed Advanced settings opens them first (closed: not shown). */
+  const reveal = (el: HTMLElement | null | undefined) => {
+    const box = el?.closest('details');
+    if (box && !box.open) box.open = true;
+    el?.focus();
+  };
+  const focusField = (f: string) => reveal(form.current?.querySelector<HTMLElement>(`[data-field="${f}"]`));
   const onTestAction = (label: string) => {
     if (label === 'Save as read-only') {
       // The switch shows it too, so the choice stays if Save has to wait for a field to be fixed.
@@ -286,6 +305,7 @@ export function ConnectionForm({
     } else if (label === 'Edit') focusField(outcome?.result === 'partial' ? 'gateway' : 'url');
     else if (label === 'Edit address') focusField('url');
     else if (label === 'Raise timeout') focusField('timeout');
+    else if (label === 'Edit base path') focusField('basePath');
   };
   const blur = (f: FieldKey) => () => setTouched((t) => new Set(t).add(f));
   const count = Object.keys(all).length;
@@ -294,7 +314,7 @@ export function ConnectionForm({
     setSubmitted(true);
     if (count) {
       // Straight to the first field to fix (the summary is said once; pressing Save again says it again here).
-      requestAnimationFrame(() => document.querySelector<HTMLElement>('form [aria-invalid="true"]')?.focus());
+      requestAnimationFrame(() => reveal(form.current?.querySelector<HTMLElement>('[aria-invalid="true"]')));
       return;
     }
     const { connection, secrets } = splitSecrets(conn);
@@ -499,12 +519,15 @@ export function ConnectionForm({
             <Field
               label="Base path"
               help="For gateways and YARN proxies. Every call goes to the address, then the base path."
+              error={msg('basePath')}
             >
               <Input
                 mono
+                data-field="basePath"
                 value={d.basePath}
                 placeholder="/flink/payments"
                 onChange={(e) => set('basePath', e.target.value)}
+                onBlur={blur('basePath')}
               />
             </Field>
             <fieldset className="m-0 flex flex-col gap-2 border-0 p-0">
@@ -513,6 +536,8 @@ export function ConnectionForm({
                 <div key={i} className="grid grid-cols-[1fr_1fr_auto_auto] items-center gap-2">
                   <Input
                     aria-label={`Header ${i + 1} name`}
+                    aria-invalid={msg('headers') ? true : undefined}
+                    aria-describedby={msg('headers') ? headersErr : undefined}
                     mono
                     value={h.name}
                     placeholder="X-Tenant"
@@ -526,8 +551,10 @@ export function ConnectionForm({
                   />
                   <Input
                     aria-label={`Header ${i + 1} value`}
+                    aria-invalid={msg('headers') ? true : undefined}
+                    aria-describedby={msg('headers') ? headersErr : undefined}
                     mono
-                    type={h.secret ? 'password' : 'text'}
+                    type={isSecretHeader(h) ? 'password' : 'text'}
                     autoComplete="off"
                     value={h.value}
                     onChange={(e) =>
@@ -541,7 +568,10 @@ export function ConnectionForm({
                     <input
                       type="checkbox"
                       className="sl-focus accent-rose-600"
-                      checked={h.secret}
+                      aria-label={`Header ${i + 1} in keychain`}
+                      // Names that always carry a credential (Authorization-like) go to the keychain whatever is ticked.
+                      checked={isSecretHeader(h)}
+                      disabled={!h.secret && isSecretHeader(h)}
                       onChange={(e) =>
                         set(
                           'headers',
@@ -554,21 +584,32 @@ export function ConnectionForm({
                   <Button
                     size="sm"
                     variant="ghost"
+                    data-remove-header
                     aria-label={`Remove header ${i + 1}`}
-                    onClick={() =>
+                    onClick={(e) => {
+                      // Focus stays in the list: the row that takes this place, or Add header.
+                      const list = e.currentTarget.closest('fieldset');
                       set(
                         'headers',
                         d.headers.filter((_, j) => j !== i),
-                      )
-                    }
+                      );
+                      requestAnimationFrame(() =>
+                        (
+                          list?.querySelectorAll<HTMLElement>('[data-remove-header]')[i] ??
+                          list?.querySelectorAll<HTMLElement>('[data-remove-header]')[i - 1] ??
+                          list?.querySelector<HTMLElement>('[data-add-header]')
+                        )?.focus(),
+                      );
+                    }}
                   >
                     Remove
                   </Button>
                 </div>
               ))}
-              {msg('headers') && <FieldMessage>{msg('headers')}</FieldMessage>}
+              {msg('headers') && <FieldMessage id={headersErr}>{msg('headers')}</FieldMessage>}
               <div>
                 <Button
+                  data-add-header
                   size="sm"
                   type="button"
                   onClick={() => set('headers', [...d.headers, { name: '', value: '', secret: false }])}
@@ -609,7 +650,7 @@ export function ConnectionForm({
             </div>
             {d.gateway.trim() && (
               <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-                <Field label="SQL Gateway login" error={msg('gatewayLogin')}>
+                <Field label="SQL Gateway login">
                   <Select
                     value={d.gwSame ? 'same' : d.gwAuth}
                     onChange={(e) => {

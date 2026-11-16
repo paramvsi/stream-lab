@@ -65,13 +65,20 @@ export function FieldMessage({ id, children }: { id?: string | undefined; childr
 /** For custom controls (e.g. a code editor) inside a Field: its id, error/help ids and invalid state. */
 export const useFieldContext = () => useContext(Ctx);
 
-function useField(props: { id?: string | undefined; 'aria-describedby'?: string | undefined }) {
+function useField(props: {
+  id?: string | undefined;
+  'aria-describedby'?: string | undefined;
+  'aria-invalid'?: boolean | 'true' | 'false' | 'grammar' | 'spelling' | undefined;
+}) {
   const f = useContext(Ctx);
+  // A control outside a Field (a row of a list) may say it is invalid itself; a Field's own state wins.
+  const own = props['aria-invalid'] === true || props['aria-invalid'] === 'true';
+  const invalid = f?.invalid || own;
   return {
     id: props.id ?? f?.id,
     'aria-describedby': props['aria-describedby'] ?? f?.describedBy,
-    'aria-invalid': f?.invalid || undefined,
-    invalid: f?.invalid ?? false,
+    'aria-invalid': invalid || undefined,
+    invalid,
   };
 }
 

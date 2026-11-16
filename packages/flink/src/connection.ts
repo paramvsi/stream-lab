@@ -45,7 +45,17 @@ export const ConnectionSchema = z.object({
 });
 export type Connection = z.infer<typeof ConnectionSchema>;
 export type ConnectionField =
-  'name' | 'url' | 'user' | 'command' | 'cert' | 'key' | 'proxy' | 'headers' | 'gateway' | 'gatewayLogin';
+  | 'name'
+  | 'url'
+  | 'user'
+  | 'command'
+  | 'cert'
+  | 'key'
+  | 'proxy'
+  | 'headers'
+  | 'gateway'
+  | 'gatewayLogin'
+  | 'basePath';
 
 const FIELD_LABEL: Record<ConnectionField, string> = {
   name: 'Name',
@@ -58,6 +68,7 @@ const FIELD_LABEL: Record<ConnectionField, string> = {
   headers: 'Headers',
   gateway: 'SQL Gateway address',
   gatewayLogin: 'SQL Gateway login',
+  basePath: 'Base path',
 };
 const required = (f: ConnectionField) => new AppError('CONN-REQUIRED', { field: FIELD_LABEL[f] });
 /** An address's problem: not http(s) with a host (CONN-URL-INVALID), or a user and password in it (CONN-URL-SECRET). */
@@ -86,7 +97,8 @@ const SECRET_HEADERS = new Set([
   'api-key',
   'x-auth-token',
 ]);
-const isSecretHeader = (h: { name: string; secret: boolean }) =>
+/** A header kept in the keychain: marked so, or a name that always carries a credential. */
+export const isSecretHeader = (h: { name: string; secret: boolean }) =>
   h.secret || SECRET_HEADERS.has(h.name.trim().toLowerCase());
 
 /** The keychain entry for one secret of a connection: the cluster login, the gateway's, the proxy's, a header's. */
@@ -179,6 +191,10 @@ export function validateConnection(
     if (e) out.url = e;
   }
   Object.assign(out, loginErrors(c.auth));
+  // A path, not an address: a pasted URL (with a login in it) would be stored as typed.
+  const bp = c.basePath.trim();
+  if (bp && (!bp.startsWith('/') || /\s|:\/\/|@|\/\//.test(bp)))
+    out.basePath = new AppError('CONN-BASEPATH-FORMAT');
   if (c.transport.type === 'proxy') {
     if (!c.transport.url.trim()) out.proxy = required('proxy');
     else {

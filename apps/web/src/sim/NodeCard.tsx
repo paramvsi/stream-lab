@@ -6,6 +6,7 @@ import { Cable, Copy, Play, Power, Settings2, Trash2 } from 'lucide-react';
 import { memo } from 'react';
 import { useNodeActions } from './CanvasExtras';
 import { useIssues } from './issues';
+import { countsLabel, fmt, useBusiest, useNodeRun } from './run';
 import { useGraph } from './store';
 import { accent, ELLIPSIS, NodeIcon, tint } from './look';
 
@@ -22,6 +23,8 @@ export const NodeCard = memo(function NodeCard({ data, selected, dragging }: Nod
   const s = spec(n.type);
   const cfg = configOf(n);
   const issues = useIssues((st) => st.byNode[n.id] ?? EMPTY);
+  const run = useNodeRun(n.id);
+  const busiest = useBusiest() === n.id;
   const single = useGraph((st) => st.selected.length === 1);
   const shown = issues.map((i) => present(new AppError(i.code, i.params)));
   const errors = shown.filter((p) => p.severity === 'error');
@@ -46,7 +49,7 @@ export const NodeCard = memo(function NodeCard({ data, selected, dragging }: Nod
         <Toolbar node={n} />
       </NodeToolbar>
       <div
-        className={`relative flex items-center gap-2.5 rounded-lg bg-surface px-3 ${look}`}
+        className={`relative flex items-center gap-2.5 rounded-lg bg-surface px-3 ${look} ${busiest ? 'sl-glow' : ''}`}
         style={{ width: NODE_W, height: NODE_H }}
         title={shown.map((p) => p.message).join('\n') || undefined}
       >
@@ -65,7 +68,10 @@ export const NodeCard = memo(function NodeCard({ data, selected, dragging }: Nod
             {n.disabled && <span className="text-muted normal-case"> · disabled</span>}
           </span>
           <span className={`text-[13.5px] font-semibold text-ink ${ELLIPSIS}`}>{labelOf(n)}</span>
-          <span className={`font-mono text-[10.5px] text-muted ${ELLIPSIS}`}>{s.summary(cfg)}</span>
+          {/* SIM-17: live counts replace the summary while a run exists (board W09i). */}
+          <span className={`font-mono text-[10.5px] text-muted tabular-nums ${ELLIPSIS}`}>
+            {run ? countsLabel(run, ins.length === 0) : s.summary(cfg)}
+          </span>
         </span>
         {/* Screen readers: the problems in words (never colour alone). */}
         {shown.length > 0 && (
@@ -108,6 +114,16 @@ export const NodeCard = memo(function NodeCard({ data, selected, dragging }: Nod
           />
         ))}
 
+        {/* SIM-18: events whose expression failed in this run (SIM-RUNTIME-EXPR), as a count with words. */}
+        {run && run.failed > 0 && (
+          <span
+            className="absolute -top-2 -left-2 flex h-5 min-w-5 items-center justify-center rounded-pill border-2 border-surface bg-orange-700 px-1 text-[11px] font-bold text-white"
+            title={`${run.failed} events failed in this node`}
+          >
+            <span aria-hidden="true">{fmt(run.failed)}</span>
+            <span className="sr-only">{fmt(run.failed)} events failed in this node</span>
+          </span>
+        )}
         {errors.length > 0 && (
           <span
             aria-hidden="true"

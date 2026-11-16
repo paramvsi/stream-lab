@@ -84,3 +84,33 @@ export function dispose() {
   loaded = false;
   useRun.setState({ ...initial, crash: useRun.getState().crash });
 }
+
+const fmt = (x: number) => x.toLocaleString('en-US');
+
+/** SIM-17: live counts for one node while a run exists (null when idle). */
+export const useNodeRun = (id: string) =>
+  useRun((s) => (s.state !== 'ready' ? (s.stats?.nodes[id] ?? null) : null));
+
+/** SIM-17: the busiest non-source node (most events in), which glows while running. */
+export const useBusiest = () =>
+  useRun((s) => {
+    if (s.state !== 'running' || !s.stats) return null;
+    let best: string | null = null;
+    let most = 0;
+    for (const [id, n] of Object.entries(s.stats.nodes))
+      if (n.in > most) {
+        most = n.in;
+        best = id;
+      }
+    return best;
+  });
+
+/** SIM-17: events that crossed one edge, or null when idle. */
+export const useEdgeCount = (id: string) =>
+  useRun((s) => (s.state !== 'ready' ? (s.stats?.edges[id] ?? 0) : null));
+
+export const countsLabel = (n: { in: number; out: Record<string, number> }, source: boolean) => {
+  const out = Object.values(n.out).reduce((a, b) => a + b, 0);
+  return source ? `out ${fmt(out)}` : `in ${fmt(n.in)} · out ${fmt(out)}`;
+};
+export { fmt };

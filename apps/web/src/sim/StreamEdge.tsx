@@ -11,6 +11,7 @@ import {
 import { Plus } from 'lucide-react';
 import { createContext, memo, useContext, useEffect, useState } from 'react';
 import { create } from 'zustand';
+import { fmt, useEdgeCount, useRun } from './run';
 import { useGraph } from './store';
 
 /** Which edge the pointer is over (React Flow's edge and its label live in different DOM subtrees). */
@@ -29,6 +30,13 @@ export const StreamEdge = memo(function StreamEdge(p: EdgeProps<SlEdge>) {
   const [path, lx, ly] = getBezierPath(p);
   const { insertAt } = useContext(EdgeActions);
   const hovered = useHover((h) => h.id === p.id);
+  const count = useEdgeCount(p.id);
+  const running = useRun((s) => s.state === 'running');
+  const side =
+    p.sourceHandleId &&
+    p.sourceHandleId !== 'main' &&
+    !p.sourceHandleId.startsWith('route-') &&
+    p.sourceHandleId !== 'default';
   const fields = p.data?.schema.map((f) => `${f.name}: ${f.type}${f.required ? '' : '?'}`) ?? [];
   return (
     <>
@@ -39,9 +47,21 @@ export const StreamEdge = memo(function StreamEdge(p: EdgeProps<SlEdge>) {
           stroke: p.selected ? 'var(--sl-color-rose-600)' : 'var(--sl-color-line-strong)',
           strokeWidth: 1.5,
         }}
+        // SIM-17: edges animate while running (tokens.css sl-flow; off under reduced motion).
+        className={running ? 'sl-flow' : undefined}
         interactionWidth={24}
       />
       <EdgeLabelRenderer>
+        {/* SIM-17: events that crossed this edge (outside the hover tools, so it always shows). */}
+        {count !== null && (
+          <div
+            className="pointer-events-none absolute rounded-pill bg-surface px-1.5 font-mono text-[11px] text-muted tabular-nums"
+            style={{ transform: `translate(-50%, 0) translate(${lx}px, ${ly + 14}px)` }}
+          >
+            {fmt(count)}
+            {side ? ` ${p.sourceHandleId}` : ''}
+          </div>
+        )}
         <div
           className={`nodrag nopan sl-edge-tools pointer-events-auto absolute flex items-center ${hovered || p.selected ? 'sl-edge-tools-on' : ''}`}
           style={{ transform: `translate(-50%, -50%) translate(${lx}px, ${ly}px)` }}

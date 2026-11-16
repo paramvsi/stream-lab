@@ -50,3 +50,44 @@ test('SIM-ENGINE-CRASH shows its dialog; the pipeline is untouched (WX03)', asyn
   await expect(status(page)).toHaveText('Ready');
   await expect(page.locator('.react-flow__node')).toHaveCount(before);
 });
+
+test('SIM-17 while running: edges animate, node counts tick at least 5×/s, the busiest node glows', async ({
+  page,
+}) => {
+  await scenario(page, 'Card fraud bursts');
+  const val = page.locator('.react-flow__node').filter({ hasText: 'Rules' });
+  await page.getByRole('button', { name: 'Run', exact: true }).click();
+  await expect(page.locator('.react-flow__edge-path.sl-flow').first()).toBeAttached();
+  await expect(val).toContainText(/in [\d,]+ · out [\d,]+/);
+  // Sample the label for 1 s: at least 5 distinct values.
+  const seen = new Set<string>();
+  for (let i = 0; i < 20; i++) {
+    seen.add((await val.textContent()) ?? '');
+    await page.waitForTimeout(50);
+  }
+  expect(seen.size).toBeGreaterThanOrEqual(5);
+  await expect(page.locator('.react-flow__node .sl-glow')).toHaveCount(1);
+  // Edge counts show without hovering: not inside the hover-only tools (opacity 0 until hover).
+  const label = page
+    .locator('.react-flow__edgelabel-renderer')
+    .getByText(/^[\d,]+$/)
+    .first();
+  await expect(label).toBeVisible();
+  expect(await label.evaluate((e) => getComputedStyle(e.closest('.sl-edge-tools') ?? e).opacity)).toBe('1');
+  await page.getByRole('button', { name: 'Pause' }).click();
+  await expect(page.locator('.react-flow__edge-path.sl-flow')).toHaveCount(0);
+});
+
+test('SIM-18 runtime expression failures are counted on the node, in words', async ({ page }) => {
+  await scenario(page, 'Card fraud bursts');
+  await page.getByText('10×', { exact: true }).click();
+  await page.getByRole('button', { name: 'Run', exact: true }).click();
+  await expect(status(page)).toHaveText(/^Finished/, { timeout: 15000 });
+  // The generator's bad rows have no amount: the Validate rule cannot evaluate them.
+  await expect(
+    page
+      .locator('.react-flow__node')
+      .filter({ hasText: 'Rules' })
+      .getByText(/events failed in this node/),
+  ).toHaveCount(1);
+});

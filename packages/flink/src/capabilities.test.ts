@@ -36,7 +36,7 @@ describe('audit of eb939e0', () => {
       '1.20',
       'unknown',
     ]);
-    // As Test connection reads them (one cluster, one answer): no major.minor at the start is unknown.
+    // As Test connection reads them (testConnection.test.ts checks the same inputs there): unknown.
     expect(['1', ' 1.18', ' v1.20', ' 2.3.0'].map(bandOf)).toEqual([
       'unknown',
       'unknown',

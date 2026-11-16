@@ -126,10 +126,11 @@ export async function* testConnection(
     yield { id: 'login', status: 'pass' };
     config = json('flink', r, ConfigSchema, () => new AppError('CONN-NOT-FLINK', { url: t.url }));
     const version = config['flink-version'];
-    if (versionSupported(version)) yield { id: 'flink', status: 'pass', detail: `Flink ${version}` };
-    // A build without a version ("<unknown>"): Flink, but nothing to adapt the UI to.
-    else if (!READABLE.test(version))
+    // Not readable first (a build without a version, "<unknown>", " 2.3.0", "2.x"): Flink, but nothing to adapt
+    // the UI to. The same order as bandOf, so the dialog and this step give one answer.
+    if (!READABLE.test(version))
       yield { id: 'flink', status: 'warn', detail: 'Flink (it does not report its version)' };
+    else if (versionSupported(version)) yield { id: 'flink', status: 'pass', detail: `Flink ${version}` };
     else
       yield {
         id: 'flink',

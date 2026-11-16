@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { fromTransport, TransportError, type FlinkHttp, type FlinkRequest, type TransportKind } from './http';
+import { bandOf } from './capabilities';
 import { testConnection, type StepResult } from './testConnection';
 
 const URL_ = 'https://flink.example.com:8081';
@@ -107,6 +108,14 @@ describe('CONN-05 test connection (FLINK_API.md, C04)', () => {
     expect(statuses(steps)[3]).toBe('flink:warn:CONN-VERSION-OLD');
     expect(outcome.result).toBe('pass');
   });
+  it.each([' 2.3.0', '2.x', '<unknown>'])(
+    'a version it can not read (%j) is a warning, as the What works dialog says (bandOf: unknown)',
+    async (v) => {
+      const { steps } = await run(cluster({ 'GET /config': ok({ 'flink-version': v }) }));
+      expect(statuses(steps)[3]).toBe('flink:warn');
+      expect(bandOf(v)).toBe('unknown');
+    },
+  );
   it('reads pass but the gateway fails: partial, "Save as read-only" (CONN-TEST-PARTIAL)', async () => {
     const { steps, outcome } = await run(cluster({ 'GET /v1/info': transport('refused') }));
     expect(statuses(steps)[6]).toBe('gateway:fail:CONN-REFUSED');

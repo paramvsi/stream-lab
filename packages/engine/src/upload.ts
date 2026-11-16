@@ -73,19 +73,28 @@ export function parseCsv(text: string): Parsed {
       break;
     }
     bad.push({ line: start, reason: 'a quote is never closed' });
-    const next = text.indexOf('\n', recordPos);
-    if (next < 0) break;
-    pos = next + 1;
+    // Next line break of any kind (LF, CRLF or a lone CR).
+    const m = /\r\n|\r|\n/g;
+    m.lastIndex = recordPos;
+    const next = m.exec(text);
+    if (!next) break;
+    pos = next.index + next[0].length;
     line = start + 1;
   }
   const [header, ...body] = records;
   // Duplicate headers keep every column: the second "amount" becomes "amount_2" (nothing is overwritten).
-  const seen = new Map<string, number>();
-  const columns = (header?.cells ?? []).map((c) => {
-    const name = c.trim();
-    const k = (seen.get(name) ?? 0) + 1;
-    seen.set(name, k);
-    return k > 1 ? `${name}_${k}` : name;
+  const raw = (header?.cells ?? []).map((c) => c.trim());
+  const taken = new Set<string>();
+  const columns = raw.map((name, i) => {
+    // The first of a name keeps it unless a later header owns it outright; repeats get the next free _N.
+    if (!taken.has(name) && raw.indexOf(name) === i) {
+      taken.add(name);
+      return name;
+    }
+    let k = 2;
+    while (taken.has(`${name}_${k}`) || raw.includes(`${name}_${k}`)) k++;
+    taken.add(`${name}_${k}`);
+    return `${name}_${k}`;
   });
   const rows: Parsed['rows'] = [];
   const lines: number[] = [];
@@ -129,16 +138,65 @@ export function parseJsonl(text: string): Parsed {
 /** The text up to its last line break: a file cut at the size limit loses its partial last row, not a value. */
 export const lastCompleteLine = (text: string) => text.slice(0, text.lastIndexOf('\n') + 1);
 
-/** A .json file: an array of objects, else JSON Lines. */
+/**
+ * A .json file: an array of objects (else JSON Lines). Items are scanned one by one, so each keeps its file line,
+ * and an array cut at the size limit keeps its complete items.
+ */
 export function parseJson(text: string): Parsed {
-  if (!text.trimStart().startsWith('[')) return parseJsonl(text);
-  try {
-    const arr: unknown = JSON.parse(text);
-    if (!Array.isArray(arr)) return parseJsonl(text);
-    return parseJsonl(arr.map((x) => JSON.stringify(x)).join('\n'));
-  } catch {
-    return { columns: [], rows: [], lines: [], bad: [{ line: 1, reason: 'not valid JSON' }] };
+  const start = text.search(/\S/);
+  if (start < 0 || text[start] !== '[') return parseJsonl(text);
+  const rows: Parsed['rows'] = [];
+  const lines: number[] = [];
+  const bad: BadRow[] = [];
+  const columns = new Set<string>();
+  let line = 1;
+  for (let i = 0; i < start; i++) if (text[i] === '\n') line++;
+  let depth = 0;
+  let inStr = false;
+  let itemStart = -1;
+  let itemLine = 0;
+  for (let i = start + 1; i < text.length; i++) {
+    const ch = text[i]!;
+    if (ch === '\n') line++;
+    if (inStr) {
+      if (ch === '\\') i++;
+      else if (ch === '"') inStr = false;
+      continue;
+    }
+    if (ch === '"') inStr = true;
+    if (depth === 0 && !/[\s,\]]/.test(ch) && itemStart < 0) {
+      itemStart = i;
+      itemLine = line;
+    }
+    if (ch === '{' || ch === '[') depth++;
+    else if (ch === '}' || ch === ']') {
+      if (depth === 0) break; // the array's own closing bracket
+      depth--;
+    }
+    if (
+      itemStart >= 0 &&
+      depth === 0 &&
+      (ch === '}' || ch === ']' || text[i + 1] === ',' || /\s/.test(text[i + 1] ?? ' '))
+    ) {
+      const item = text.slice(itemStart, i + 1);
+      itemStart = -1;
+      try {
+        const v: unknown = JSON.parse(item);
+        if (!v || typeof v !== 'object' || Array.isArray(v)) throw new Error('not an object');
+        const row = v as Record<string, string | number | boolean | null>;
+        Object.keys(row).forEach((k) => columns.add(k));
+        rows.push(row);
+        lines.push(itemLine);
+      } catch (e) {
+        bad.push({
+          line: itemLine,
+          reason: (e as Error).message === 'not an object' ? 'not a JSON object' : 'not valid JSON',
+        });
+      }
+    }
   }
+  // An item still open at the end (a file cut at the limit) is dropped, like the partial last CSV line.
+  return { columns: [...columns], rows, lines, bad };
 }
 
 /** Default mapping: each schema field to the column with the same name (case-insensitive), else unmapped. */

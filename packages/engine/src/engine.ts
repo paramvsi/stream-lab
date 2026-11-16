@@ -735,24 +735,49 @@ function operator(
       const t = o.refTables[String(c.table)];
       const key = String(c.key);
       const tkey = String(c.tableKey);
+      // Index once: per key, the versions sorted by valid_from (binary search per event, not a scan).
+      const byKey = new Map<string, { t: number; row: Event }[]>();
+      for (const r of t?.rows ?? []) {
+        if (r[tkey] == null) continue;
+        const k = String(r[tkey]);
+        const list = byKey.get(k) ?? [];
+        list.push({ t: t?.versioned ? parseTime(r['valid_from']) : 0, row: r });
+        byKey.set(k, list);
+      }
+      for (const list of byKey.values()) list.sort((a, b) => a.t - b.t);
+      const versionAt = (list: { t: number; row: Event }[], at: number) => {
+        let lo = 0;
+        let hi = list.length - 1;
+        let found = -1;
+        while (lo <= hi) {
+          const mid = (lo + hi) >> 1;
+          if (list[mid]!.t <= at) {
+            found = mid;
+            lo = mid + 1;
+          } else hi = mid - 1;
+        }
+        return found < 0 ? undefined : list[found]!.row;
+      };
+      // Same rename as the schema (graph merge): a column the event already has arrives as right_<name>.
+      const inNames = new Set(inSchema.map((f) => f.name));
       return {
         process: (_p, ev) => {
           // NULL never equals anything (SQL equi-join).
           const v = ev.data[key] ?? null;
-          const rows =
-            v === null ? [] : (t?.rows ?? []).filter((r) => r[tkey] != null && String(r[tkey]) === String(v));
-          // As of event time: the latest version whose valid_from is not after the event (temporal join).
+          const list = v === null ? undefined : byKey.get(String(v));
+          // FLINK: FOR SYSTEM_TIME AS OF the event's rowtime picks the version valid at the event time (temporal
+          // join); without it, a lookup join reads the table as it is now — the simulation clock here.
+          // https://nightlies.apache.org/flink/flink-docs-release-2.2/docs/dev/table/sql/queries/joins/#temporal-joins
+          // ponytail: Flink's event-time temporal join waits for the watermark before emitting; this emits at once
+          // (same rows, earlier).
           const row =
-            t?.versioned && c.asOf
-              ? rows
-                  .filter((r) => parseTime(r['valid_from']) <= ev.ts)
-                  .sort((a, b) => parseTime(b['valid_from']) - parseTime(a['valid_from']))[0]
-              : rows[rows.length - 1];
+            list && (t?.versioned ? versionAt(list, c.asOf ? ev.ts : BASE_TIME + x.now()) : list.at(-1)?.row);
           if (row) {
-            const extra = Object.fromEntries(
-              Object.entries(row).filter(([k]) => k !== tkey && k !== 'valid_from'),
-            );
-            return x.emit('main', { ts: ev.ts, data: { ...ev.data, ...extra } });
+            const data: Event = { ...ev.data };
+            for (const [k, val] of Object.entries(row))
+              if (k !== tkey && k !== 'valid_from')
+                data[inNames.has(k) || k in ev.data ? `right_${k}` : k] = val;
+            return x.emit('main', { ts: ev.ts, data });
           }
           if (c.onMiss === 'pass') x.emit('main', ev);
           else if (c.onMiss === 'reject') x.emit('rejected', { ...ev, reason: 'no match' });

@@ -69,6 +69,10 @@ test('upload audit 1: rows missing from this browser are said, at run and in the
   await expect(
     page.getByText('Payments uses the generator in this run: cards.csv is not in this browser.').first(),
   ).toBeVisible();
+  // The catalog action opens the Data drawer.
+  await page.getByRole('button', { name: 'Open data' }).first().click();
+  await expect(page.getByRole('dialog', { name: 'Data' })).toBeVisible();
+  await page.keyboard.press('Escape');
   await page.getByRole('button', { name: 'Data', exact: true }).click();
   await page.getByRole('dialog', { name: 'Data' }).getByRole('tab', { name: 'Upload file' }).click();
   await expect(
@@ -94,6 +98,11 @@ test('upload audit 7: deleting a pipeline frees its uploaded rows', async ({ pag
   await page.goto('/#/pipelines');
   await page.getByRole('button', { name: 'Delete Refunds matching' }).click();
   await page.getByRole('button', { name: 'Delete pipeline' }).click();
+  // Deleting marks the rows (Undo and "Keep a copy" may still need them); they are freed after the grace period.
+  await expect.poll(async () => (await opfs(page)).some((f) => f.endsWith('/.deleted'))).toBe(true);
+  await page.evaluate(async () =>
+    (await import('/src/sim/uploads.ts')).purgeDeletedUploads(Date.now() + 11 * 60_000),
+  );
   await expect.poll(() => opfs(page)).toEqual([]);
 });
 
@@ -142,4 +151,32 @@ test('upload audit 12: a file that can not be read says so (DATA-READ-FAILED), n
   await expect(
     d.getByText('gone.csv could not be read: it was moved or can no longer be opened.'),
   ).toBeVisible();
+});
+
+// ---- Fintech/upload audit (0a15d0c + 423fd75) ----
+test('upload audit 2: "Keep a copy" after another tab deleted the pipeline keeps its upload', async ({
+  page,
+  context,
+}) => {
+  await upload(page);
+  const other = await context.newPage();
+  await other.goto('/#/pipelines');
+  await other.getByRole('button', { name: 'Delete Refunds matching' }).click();
+  await other.getByRole('button', { name: 'Delete pipeline' }).click();
+  await expect(page.getByText('This pipeline was deleted in another tab.')).toBeVisible();
+  await page.getByRole('button', { name: 'Keep a copy' }).click();
+  await expect(page.getByRole('textbox', { name: 'Pipeline name' })).toHaveValue(/\(copy\)$/);
+  await run(page);
+  await expect(payments(page)).toContainText('in 3 · out 3');
+});
+
+test('upload audit 3: undoing a delete keeps the upload', async ({ page }) => {
+  await upload(page);
+  await page.goto('/#/pipelines');
+  await page.getByRole('button', { name: 'Delete Refunds matching' }).click();
+  await page.getByRole('button', { name: 'Delete pipeline' }).click();
+  await page.getByRole('button', { name: 'Undo' }).click();
+  await page.getByRole('link', { name: 'Refunds matching' }).click();
+  await run(page);
+  await expect(payments(page)).toContainText('in 3 · out 3');
 });

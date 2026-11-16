@@ -10,7 +10,7 @@ Rules for implementers:
 4. Every code needs a test that triggers it and asserts the message, placement and actions (`TESTING.md`).
 5. "Board" is the design artboard that shows it. `W…/WX…` are in the Website canvas, `D…/X…/G…` in the Desktop canvas.
 
-Total: **141 codes** (128 from the handover + `CONN-SSH-HOSTKEY`, `API-4XX`, `COPY-FAILED` added in M0, `SIM-DUP-EDGE`, `SIM-PORT-TAKEN`, `SIM-REDO-EMPTY`, `PIPELINE-NOT-FOUND`, `PIPELINE-DELETED-ELSEWHERE` added in M1; `NODE-DUP-FIELD`, `NODE-RANGE` added in M2; `SIM-RUN-CHANGED`, `DATA-UPLOAD-UNUSED`, `DATA-READ-FAILED` added in M3).
+Total: **142 codes** (128 from the handover + `CONN-SSH-HOSTKEY`, `API-4XX`, `COPY-FAILED` added in M0, `SIM-DUP-EDGE`, `SIM-PORT-TAKEN`, `SIM-REDO-EMPTY`, `PIPELINE-NOT-FOUND`, `PIPELINE-DELETED-ELSEWHERE` added in M1; `NODE-DUP-FIELD`, `NODE-RANGE` added in M2; `SIM-RUN-CHANGED`, `DATA-UPLOAD-UNUSED`, `DATA-READ-FAILED`, `LOOKUP-TABLE-KEY` added in M3).
 
 
 ## Desktop · Connections
@@ -183,6 +183,7 @@ Total: **141 codes** (128 from the handover + `CONN-SSH-HOSTKEY`, `API-4XX`, `CO
 | `WM-LATENESS-BIG` | Allowed lateness > window size × 10 | Schema rule | warning | field | Lateness of {x} keeps windows open a long time and holds state. | — | W10-Source |
 | `LOOKUP-NO-TABLE` | Lookup references a missing or empty reference table | Data store | error | field | Reference table "{t}" is empty or missing. | Open reference tables | W10-Lookup |
 | `LOOKUP-KEY-TYPE` | Lookup key type differs from table key | Schema compare | error | field | Key types differ: {a} vs {b}. | — | W10-Lookup |
+| `LOOKUP-TABLE-KEY` | Lookup's table key is not a column of the chosen table | Schema compare | error | field | Table "{t}" has no column "{k}"; pick its key column. | — | W10-Lookup |
 | `JOIN-NO-BOUND` | Join without interval/window bound | Node config | warning | field + node badge | Unbounded join: state grows forever. Set a time bound. | Set 1 h bound | W10-Join |
 | `DEDUP-NO-TTL` | Deduplicate without TTL | Node config | warning | field | Without a TTL, every key is remembered forever. | Set TTL | W10-Dedup |
 | `PATTERN-INVALID` | Pattern step missing a condition or times range invalid | Schema | error | field | Step {n}: {reason}. | — | W10-Pattern |

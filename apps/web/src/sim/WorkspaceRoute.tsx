@@ -273,8 +273,9 @@ export function WorkspaceRoute({ id }: { id: string }) {
                   name: `${useGraph.getState().name} (copy)`,
                   updatedAt: new Date().toISOString(),
                 };
-                void savePipeline(copy)
-                  .then(() => copyUploads(id, copy.id, Object.keys(copy.data.uploads ?? {})))
+                // Rows first (still there: a delete only marks them for a while), then the copy.
+                void copyUploads(id, copy.id, Object.keys(copy.data.uploads ?? {}))
+                  .then(() => savePipeline(copy))
                   .then(
                     () => void navigate({ to: '/sim/$id', params: { id: copy.id } }),
                     (e: unknown) => {

@@ -78,11 +78,11 @@ export function PreviewPanel({
   useEffect(() => {
     let live = true;
     const g = useGraph.getState();
-    void uploadedRows(pipelineId, g.nodes, g.data).then((r) => live && setSourceData(r.sourceData));
+    void uploadedRows(pipelineId, g.nodes, g.data, events).then((r) => live && setSourceData(r.sourceData));
     return () => {
       live = false;
     };
-  }, [pipelineId, uploads]);
+  }, [pipelineId, uploads, events]);
   const p = runToHere({ nodes, edges }, nodeId, events, {
     seed,
     generator: effectiveGenerator(stored, seed),

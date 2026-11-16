@@ -125,20 +125,23 @@ export async function uploadedRows(
   pipelineId: string,
   nodes: PipelineNode[],
   data: PipelineData,
+  /** The preview reads only the rows it shows. */
+  limit = Infinity,
 ): Promise<{ sourceData: Record<string, Event[]>; unused: { source: string; reason: string }[] }> {
   const sourceData: Record<string, Event[]> = {};
   const unused: { source: string; reason: string }[] = [];
   for (const [id, u] of Object.entries(data.uploads ?? {})) {
     const n = nodes.find((x) => x.id === id && x.type === 'Source');
     if (!n) continue;
-    const rows = await loadRows(pipelineId, id);
+    const rows = await loadRows(pipelineId, id, limit);
     if (!rows) {
       unused.push({ source: labelOf(n), reason: `${u.file} is not in this browser` });
       continue;
     }
     const c = configOf(n) as { schema: Schema; eventTime: string };
     const need = c.schema.filter((f) => f.required || f.name === c.eventTime).map((f) => f.name);
-    const missing = need.find((f) => rows[0] && (rows[0][f] === undefined || rows[0][f] === null));
+    // Every row, not only the first: a field made required after the upload may be empty further down.
+    const missing = need.find((f) => rows.some((r) => r[f] === undefined || r[f] === null));
     if (missing) {
       unused.push({
         source: labelOf(n),

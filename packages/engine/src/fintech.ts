@@ -34,8 +34,9 @@ const CATEGORIES = ['jewellery', 'food', 'fuel', 'electronics', 'health', 'groce
 function merchants(): BuiltinTable {
   const r = rng(101);
   const rows: Event[] = [];
-  // Three versions: a day before the run, 2 min and 5 min into it (risk tiers change during the run).
-  [BASE_TIME - 86_400_000, BASE_TIME + 2 * MIN, BASE_TIME + 5 * MIN].forEach((from, v) =>
+  // Three versions: a day before the run, then 5 s and 12 s into it, so a default run (1,000 events at 50/s,
+  // 20 s) sees risk tiers change.
+  [BASE_TIME - 86_400_000, BASE_TIME + 5_000, BASE_TIME + 12_000].forEach((from, v) =>
     NAMES.forEach((name, i) =>
       rows.push({
         merchant_id: `m_${100 + i}`,

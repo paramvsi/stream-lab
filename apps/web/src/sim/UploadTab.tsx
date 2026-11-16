@@ -19,7 +19,7 @@ import { FileUp, Upload } from 'lucide-react';
 import { useEffect, useRef, useState, type RefObject } from 'react';
 import { Events } from './drawer/PreviewPanel';
 import { useGraph } from './store';
-import { loadRows, saveRows } from './uploads';
+import { hasRows, saveRows } from './uploads';
 
 const n = (x: number) => x.toLocaleString('en-US');
 
@@ -75,7 +75,7 @@ export function UploadTab({ onDone }: { onDone: () => void }) {
   useEffect(() => {
     if (!current || !source) return;
     let live = true;
-    void loadRows(pipelineId, source.id).then((r) => live && setStored(r !== null));
+    void hasRows(pipelineId, source.id).then((r) => live && setStored(r));
     return () => {
       live = false;
     };

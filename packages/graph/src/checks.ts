@@ -198,6 +198,11 @@ export function nodeIssues(n: PipelineNode, inputs: Record<string, Schema[]>, ct
       const rows = ctx.refTables[table];
       if (table && (!rows || rows.length === 0))
         out.push(at({ code: 'LOOKUP-NO-TABLE', params: { t: table }, field: 'table' }));
+      // A table key the table does not have: every event would miss (LOOKUP-TABLE-KEY).
+      if (rows?.length && cfg.tableKey && !rows.some((f) => f.name === cfg.tableKey))
+        out.push(
+          at({ code: 'LOOKUP-TABLE-KEY', params: { t: table, k: String(cfg.tableKey) }, field: 'tableKey' }),
+        );
       const a = main.find((f) => f.name === cfg.key);
       const b = rows?.find((f) => f.name === cfg.tableKey);
       if (a && b && a.type !== b.type)

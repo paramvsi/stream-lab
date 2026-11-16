@@ -126,3 +126,24 @@ describe('upload audit · parsing', () => {
     expect(fileSize(MAX_UPLOAD_BYTES + 1)).toBe('201 MB');
   });
 });
+
+describe('fintech audit · upload', () => {
+  it('#4 renamed duplicate headers never collide with an existing name', () => {
+    const p = parseCsv('amount,amount,amount_2\n1,2,3');
+    expect(p.columns).toEqual(['amount', 'amount_3', 'amount_2']);
+    expect(p.rows[0]).toEqual({ amount: '1', amount_3: '2', amount_2: '3' });
+  });
+  it('#8 a .json array cut mid-way keeps its complete items, with their file lines', async () => {
+    const { parseJson } = await import('./upload');
+    const p = parseJson('[\n  {"a": 1},\n  {"a": "x",\n   "b": 2},\n  {"a": 3, "b"');
+    expect(p.rows).toEqual([{ a: 1 }, { a: 'x', b: 2 }]);
+    expect(p.lines).toEqual([2, 3]);
+  });
+  it('#11 a CR-only file recovers after a stray quote', () => {
+    const p = parseCsv('a,b\r1,2\r"3,4\r5,6');
+    expect(p.rows).toEqual([
+      { a: '1', b: '2' },
+      { a: '5', b: '6' },
+    ]);
+  });
+});

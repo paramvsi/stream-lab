@@ -6,6 +6,7 @@ import { Pause, Play, RotateCcw, SkipForward } from 'lucide-react';
 import { useEffect, useId } from 'react';
 import { useIssues } from './issues';
 import { dispose, runner, SPEEDS, useRun } from './run';
+import { useDataDrawer } from './DataDrawer';
 import { useGraph } from './store';
 import { REF_CTX } from './refTables';
 
@@ -26,7 +27,11 @@ export function RunPill() {
     if (!unused.length) return;
     for (const u of unused) {
       const p = present(new AppError('DATA-UPLOAD-UNUSED', u));
-      toast({ severity: p.severity, message: p.message });
+      toast({
+        severity: p.severity,
+        message: p.message,
+        action: { label: 'Open data', onClick: () => useDataDrawer.setState({ open: true }) },
+      });
     }
     useRun.setState({ unused: [] });
   }, [unused, toast]);

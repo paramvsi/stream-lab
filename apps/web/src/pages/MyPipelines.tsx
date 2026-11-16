@@ -7,7 +7,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { newId } from '../sim/store';
 import { deletePipeline, getPipeline, listPipelines, savePipeline, type PipelineMeta } from '../storage';
 import { SiteShell } from './SiteShell';
-import { copyUploads } from '../sim/uploads';
+import { copyUploads, purgeDeletedUploads, restoreUploads } from '../sim/uploads';
 
 const ago = (iso: string) => {
   const s = (Date.now() - Date.parse(iso)) / 1000;
@@ -40,6 +40,8 @@ export function MyPipelines() {
       setRows([]);
     }
   }, []);
+  // Free uploads of pipelines deleted longer ago than the grace period.
+  useEffect(() => void purgeDeletedUploads(), []);
   useEffect(() => {
     let live = true;
     listPipelines().then(
@@ -70,9 +72,15 @@ export function MyPipelines() {
     const p = await getPipeline(m.id);
     if (!p) return;
     const id = newId('p');
+    // The copy keeps its uploads: rows are stored per pipeline id (OPFS). Copy them first, so the copy never
+    // appears before its rows exist and a storage failure is said instead of saving a copy without them.
+    try {
+      await copyUploads(p.id, id, Object.keys(p.data.uploads ?? {}));
+    } catch (e) {
+      if (!(e instanceof AppError)) throw e;
+      return setStoreError(e);
+    }
     await save({ ...p, id, name: `${p.name} copy`, updatedAt: new Date().toISOString() });
-    // The copy keeps its uploads: they are stored per pipeline id (OPFS), so copy the rows too.
-    await copyUploads(p.id, id, Object.keys(p.data.uploads ?? {}));
   };
 
   const remove = async (m: PipelineMeta) => {
@@ -98,7 +106,8 @@ export function MyPipelines() {
         toast({
           severity: 'success',
           message: `Deleted "${m.name}".`,
-          action: { label: 'Undo', onClick: () => void save(p) },
+          // Undo keeps the uploads too (deleting only marks them; see deleteUploads).
+          action: { label: 'Undo', onClick: () => void save(p).then(() => restoreUploads(p.id)) },
         });
     } catch (e) {
       // Reading the pipeline failed (storage blocked): say so; the button must not stay busy.

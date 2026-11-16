@@ -45,8 +45,15 @@ export async function saveRows(pipelineId: string, sourceId: string, rows: Event
   }
 }
 
-/** Null when the rows are gone (copied or imported pipeline, cleared site data): the caller says so. */
-export async function loadRows(pipelineId: string, sourceId: string): Promise<Event[] | null> {
+/**
+ * Null when the rows are gone (imported pipeline, cleared site data) or unreadable: the caller says so.
+ * `limit`: stop after that many rows (the preview needs 5–50, not the whole file).
+ */
+export async function loadRows(
+  pipelineId: string,
+  sourceId: string,
+  limit = Infinity,
+): Promise<Event[] | null> {
   let file: File;
   try {
     file = await (await (await dir(pipelineId, false)).getFileHandle(`${sourceId}.jsonl`)).getFile();
@@ -62,26 +69,87 @@ export async function loadRows(pipelineId: string, sourceId: string): Promise<Ev
     const text = rest + (r.done ? dec.decode() : dec.decode(r.value, { stream: true }));
     const lines = text.split('\n');
     rest = r.done ? '' : lines.pop()!;
-    for (const l of lines) if (l) rows.push(JSON.parse(l) as Event);
+    try {
+      for (const l of lines) if (l) rows.push(JSON.parse(l) as Event);
+    } catch {
+      return null; // a corrupt stored file reads as gone (DATA-UPLOAD-UNUSED), never a crash
+    }
+    if (rows.length >= limit) {
+      void reader.cancel();
+      return rows.slice(0, limit);
+    }
     if (r.done) return rows;
   }
 }
 
-/** A copied pipeline keeps its uploads (MyPipelines "Duplicate", "Keep a copy"). Missing ones are skipped. */
-export async function copyUploads(fromId: string, toId: string, sourceIds: string[]): Promise<void> {
-  for (const s of sourceIds) {
-    const rows = await loadRows(fromId, s);
-    if (rows) await saveRows(toId, s, rows).catch(() => undefined);
+/** Whether a Source's rows are stored (no read). */
+export async function hasRows(pipelineId: string, sourceId: string): Promise<boolean> {
+  try {
+    await (await dir(pipelineId, false)).getFileHandle(`${sourceId}.jsonl`);
+    return true;
+  } catch {
+    return false;
   }
 }
 
-/** Deleting a pipeline frees its uploads (otherwise invisible space). */
+/**
+ * A copied pipeline keeps its uploads (MyPipelines "Duplicate", "Keep a copy"). Missing ones are skipped; a
+ * storage failure throws (STORE-FULL / STORE-BLOCKED) so the caller can say so before saving the copy.
+ */
+export async function copyUploads(fromId: string, toId: string, sourceIds: string[]): Promise<void> {
+  for (const s of sourceIds) {
+    const rows = await loadRows(fromId, s);
+    if (rows) await saveRows(toId, s, rows);
+  }
+}
+
+const DELETED = '.deleted';
+/** Deleted uploads stay this long, so Undo and another tab's "Keep a copy" can still use them. */
+export const UPLOAD_GRACE_MS = 10 * 60_000;
+
+async function uploadsRoot() {
+  return (await navigator.storage.getDirectory()).getDirectoryHandle('uploads');
+}
+
+/** Deleting a pipeline marks its uploads; they are freed by purgeDeletedUploads after the grace period. */
 export async function deleteUploads(pipelineId: string): Promise<void> {
   try {
-    const root = await navigator.storage.getDirectory();
-    const uploads = await root.getDirectoryHandle('uploads');
-    await uploads.removeEntry(pipelineId, { recursive: true });
+    const f = await (await dir(pipelineId, false)).getFileHandle(DELETED, { create: true });
+    const w = await f.createWritable();
+    await w.write(String(Date.now()));
+    await w.close();
   } catch {
-    // nothing stored for it, or OPFS unavailable: nothing to free
+    // no uploads stored for this pipeline: nothing to mark
+  }
+}
+
+/** Undo of a delete: the uploads are kept. */
+export async function restoreUploads(pipelineId: string): Promise<void> {
+  try {
+    await (await dir(pipelineId, false)).removeEntry(DELETED);
+  } catch {
+    // never marked (no uploads): nothing to restore
+  }
+}
+
+/** Frees uploads deleted longer ago than the grace period (called when My pipelines opens). */
+export async function purgeDeletedUploads(now = Date.now()): Promise<void> {
+  let root: FileSystemDirectoryHandle;
+  try {
+    root = await uploadsRoot();
+  } catch {
+    return; // no uploads at all
+  }
+  const entries = (root as unknown as { entries(): AsyncIterable<[string, FileSystemHandle]> }).entries();
+  for await (const [name, h] of entries) {
+    if (h.kind !== 'directory') continue;
+    try {
+      const at = Number(
+        await (await (await (h as FileSystemDirectoryHandle).getFileHandle(DELETED)).getFile()).text(),
+      );
+      if (now - at >= UPLOAD_GRACE_MS) await root.removeEntry(name, { recursive: true });
+    } catch {
+      // not deleted: keep it
+    }
   }
 }

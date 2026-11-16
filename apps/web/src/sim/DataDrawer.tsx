@@ -3,6 +3,7 @@ import { effectiveGenerator, generatorIssues, type GeneratorSettings as Gen } fr
 import { Button, Drawer, Field, Input, Tabs, useToast } from '@sl/ui';
 import { Copy, Database } from 'lucide-react';
 import { useState } from 'react';
+import { create } from 'zustand';
 import { useGraph } from './store';
 import { UploadTab } from './UploadTab';
 
@@ -122,8 +123,12 @@ function DataForm({ onDone }: { onDone: () => void }) {
   );
 }
 
+/** Open from the header button, or from a toast's "Open data" (DATA-UPLOAD-UNUSED). */
+export const useDataDrawer = create<{ open: boolean }>(() => ({ open: false }));
+
 export function DataButton() {
-  const [open, setOpen] = useState(false);
+  const open = useDataDrawer((s) => s.open);
+  const setOpen = (o: boolean) => useDataDrawer.setState({ open: o });
   return (
     <>
       <Button

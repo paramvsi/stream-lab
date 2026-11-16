@@ -212,7 +212,8 @@ export const normBasePath = (p: string) => p.trim().replace(/\/+$/, '');
  * A base path the app can put in front of every request: "/" then segments of ASCII path characters or
  * %-escapes, nothing else. Each segment is also checked decoded (as a gateway that decodes before routing sees
  * it): not "." or "..", nothing the raw path may not hold (/ \\ ? # @ or any space), nothing invisible,
- * control, private-use or unassigned, and valid UTF-8.
+ * control, private-use or a noncharacter (a fixed set: unassigned code points depend on the runtime's Unicode
+ * version, so they are not checked), and valid UTF-8.
  */
 export function basePathOk(p: string): boolean {
   if (!/^(\/([A-Za-z0-9\-._~!$&'()*+,;=:]|%[0-9A-Fa-f]{2})+)+$/.test(p)) return false;
@@ -226,7 +227,9 @@ export function basePathOk(p: string): boolean {
       } catch {
         return false; // a %-escape that is not UTF-8
       }
-      return d !== '.' && d !== '..' && !/[/\\?#@]|[\p{Z}\p{Cc}\p{Cf}\p{Co}\p{Cn}]/u.test(d);
+      return (
+        d !== '.' && d !== '..' && !/[/\\?#@]|[\p{Z}\p{Cc}\p{Cf}\p{Co}\uFDD0-\uFDEF\uFFFE\uFFFF]/u.test(d)
+      );
     });
 }
 

@@ -5,7 +5,7 @@ const PORT = 5290; // apps/desktop's dev port (--strictPort)
 /** The desktop app's React screens in a browser (the Tauri shell is not built yet: TESTING.md's WebDriver run comes with it). */
 export default defineConfig({
   testDir: 'apps/desktop/e2e',
-  outputDir: 'test-results/desktop',
+  outputDir: 'test-results-desktop',
   fullyParallel: true,
   reporter: [['list']],
   use: { baseURL: `http://localhost:${PORT}`, channel: 'chrome', trace: 'retain-on-failure' },

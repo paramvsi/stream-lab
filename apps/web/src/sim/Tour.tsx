@@ -46,7 +46,7 @@ const STEPS: Step[] = [
 ];
 
 /** step: 0–4 the steps, 5 the "You know your way around" card (T06), null closed. */
-export const useTour = create<{ step: number | null }>(() => ({ step: null }));
+export const useTour = create<{ step: number | null; added: boolean }>(() => ({ step: null, added: false }));
 
 // Kept in memory too: with storage blocked, a skipped tour stays skipped for this visit.
 let doneThisVisit = false;
@@ -65,7 +65,7 @@ const open = (step = 0) => {
     document.activeElement instanceof HTMLElement && document.activeElement !== document.body
       ? document.activeElement
       : null;
-  useTour.setState({ step });
+  useTour.setState({ step, added: false });
 };
 const close = () => {
   doneThisVisit = true;
@@ -115,6 +115,7 @@ function useTargetRect(targets: string[] | null) {
 
 export function Tour() {
   const step = useTour((s) => s.step);
+  const added = useTour((s) => s.added);
   const titleId = useId();
   const next = useRef<HTMLButtonElement>(null);
   const s = step !== null && step < STEPS.length ? STEPS[step]! : null;
@@ -134,6 +135,7 @@ export function Tour() {
       const id = g.addNode('Source', { x: 120, y: 160 });
       useGraph.getState().rename(id, 'payments');
       first = useGraph.getState().nodes.find((n) => n.id === id);
+      useTour.setState({ added: true });
     }
     const at = first?.position;
     return useGraph.subscribe((st) => {
@@ -153,13 +155,17 @@ export function Tour() {
     if (step === null || step >= STEPS.length) return;
     next.current?.focus();
     const onKey = (e: KeyboardEvent) => {
-      if (e.key !== 'Escape' || e.defaultPrevented) return;
-      if (document.querySelector('[role="dialog"]:not([data-tour-card])')) return;
+      if (e.key !== 'Escape') return;
+      // Pressed on the tour card: it is the tour's, whatever else is open (a node drawer, say).
+      if ((e.target as Element | null)?.closest?.('[data-tour-card]')) return close();
+      // Otherwise it belongs to what is open: a menu or dialog handles it first (bubble phase: Radix marks it
+      // handled), and while one is open the tour stays.
+      if (e.defaultPrevented) return;
+      if (document.querySelector('[role="dialog"]:not([data-tour-card]), [role="menu"]')) return;
       close();
     };
-    // Capture: seen before a dialog's own Escape closes it (so the check above still finds it open).
-    window.addEventListener('keydown', onKey, true);
-    return () => window.removeEventListener('keydown', onKey, true);
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
   }, [step]);
 
   if (step === null) return null;
@@ -262,7 +268,12 @@ export function Tour() {
         <h2 id={titleId} className="m-0 text-[17px] font-semibold">
           {s!.title}
         </h2>
-        <p className="m-0 text-[14px] text-muted">{s!.body}</p>
+        <p className="m-0 text-[14px] text-muted">
+          {/* Step 2 says it added the Source only when it did (an empty pipeline, board T02). */}
+          {step === 1 && !added
+            ? 'Every pipeline starts with a source. Try dragging the first node a little.'
+            : s!.body}
+        </p>
         <div className="flex items-center gap-2 pt-2">
           <button
             type="button"

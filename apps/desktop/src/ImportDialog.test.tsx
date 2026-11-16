@@ -2,7 +2,7 @@ import { exportConnections, type Connection } from '@sl/flink';
 import { ToastProvider, TooltipProvider } from '@sl/ui';
 import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { App } from './App';
 
 const conn = (name: string, over: Partial<Connection> = {}): Connection => ({
@@ -46,7 +46,7 @@ describe('CONN-08 import (board D03b)', () => {
     expect(within(dialog).getByText('connections.json')).toBeTruthy();
     expect(within(dialog).getByRole('row', { name: /analytics-prod/ }).textContent).toContain('New');
     expect(within(dialog).getByRole('row', { name: /payments-staging/ }).textContent).toContain(
-      'Enter its secret after import',
+      'New · Enter its secret after import',
     );
     await userEvent.click(within(dialog).getByRole('button', { name: 'Import 2' }));
     expect(await screen.findByText('Imported 2 connections.')).toBeTruthy();
@@ -82,5 +82,47 @@ describe('CONN-08 import (board D03b)', () => {
       await within(dialog).findByText(/connections\.json is not a Stream Lab connections file/),
     ).toBeTruthy();
     expect(within(dialog).getByRole('button', { name: 'Import' }).getAttribute('aria-disabled')).toBe('true');
+  });
+});
+
+describe('audit of 558633c/99e35ff', () => {
+  it("#1 a renamed copy never takes a later row's name; #3 focus starts at the list heading after import", async () => {
+    app();
+    await userEvent.click(screen.getByRole('button', { name: 'Import connections' }));
+    await choose(exportConnections([conn('a')]));
+    await userEvent.click(screen.getByRole('button', { name: 'Import 1' }));
+    await vi.waitFor(() =>
+      expect(document.activeElement).toBe(screen.getByRole('heading', { level: 1, name: 'Connections' })),
+    );
+    await userEvent.click(screen.getByRole('button', { name: 'Import' }));
+    await choose(exportConnections([conn('a'), conn('a (2)')]));
+    await userEvent.click(screen.getByRole('button', { name: 'Import 2' }));
+    const rows = within(screen.getByRole('table', { name: 'Connections' }))
+      .getAllByRole('row')
+      .slice(1);
+    expect(rows.map((r) => r.querySelector('td')!.textContent)).toEqual(['a', 'a (3)', 'a (2)']);
+  });
+  it('#2 Cancel clears the preview; #4 a proxy login needs its secret; #5 export switches are all on again', async () => {
+    app();
+    await userEvent.click(screen.getByRole('button', { name: 'Import connections' }));
+    await choose(
+      exportConnections([
+        conn('p', { transport: { type: 'proxy', url: 'http://proxy:3128', user: 'u' } }),
+        conn('q'),
+      ]),
+    );
+    expect(within(screen.getByRole('dialog')).getByRole('row', { name: /^p/ }).textContent).toContain(
+      'Enter its secret after import',
+    );
+    await userEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Import connections' }));
+    expect(within(screen.getByRole('dialog')).queryByText('connections.json')).toBeNull();
+    await choose(exportConnections([conn('p'), conn('q')]));
+    await userEvent.click(screen.getByRole('button', { name: 'Import 2' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Export' }));
+    await userEvent.click(screen.getByRole('switch', { name: 'p' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Export' }));
+    expect((screen.getByRole('switch', { name: 'p' }) as HTMLInputElement).checked).toBe(true);
   });
 });

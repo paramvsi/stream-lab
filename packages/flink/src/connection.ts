@@ -327,7 +327,7 @@ export function importConnections(
       return invalid(
         lineOf(i),
         // "X is required" names its field; the others (an address that is wrong…) need it said.
-        `${c.name || 'a connection'}${e!.code === 'CONN-REQUIRED' ? '' : `, ${FIELD_LABEL[field as ConnectionField]}`}: ${present(e!).message.replace(/\.$/, '')}`,
+        `${c.name.trim() || 'a connection'}${e!.code === 'CONN-REQUIRED' ? '' : `, ${FIELD_LABEL[field as ConnectionField]}`}: ${present(e!).message.replace(/\.$/, '')}`,
       );
     }
     const k = c.name.trim().toLowerCase();

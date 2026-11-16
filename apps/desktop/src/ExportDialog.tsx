@@ -28,17 +28,28 @@ export function ExportDialog({
     a.click();
     // Revoked a moment later: some engines cancel a download whose URL is revoked straight after the click.
     setTimeout(() => URL.revokeObjectURL(url), 1000);
+    setOff(new Set());
     onOpenChange(false);
   };
   return (
     <Dialog
       open={open}
-      onOpenChange={onOpenChange}
+      onOpenChange={(o) => {
+        if (!o) setOff(new Set()); // every connection on again next time (board D03c)
+        onOpenChange(o);
+      }}
       title="Export connections"
       width={520}
       footer={
         <>
-          <Button onClick={() => onOpenChange(false)}>Cancel</Button>
+          <Button
+            onClick={() => {
+              setOff(new Set());
+              onOpenChange(false);
+            }}
+          >
+            Cancel
+          </Button>
           <Button
             variant="primary"
             icon={<Download size={16} aria-hidden="true" />}

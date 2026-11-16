@@ -52,12 +52,16 @@ export const CAPABILITIES: { id: string; label: string; support: Record<Band, Ca
 ];
 
 /**
- * The band a version belongs to ("v2.3.0", "2.10.1", "1.18.1-SNAPSHOT" all read); "unknown" when there is no
- * major.minor to read (a build without its version, e.g. "<unknown>"): not called old.
+ * The band a version belongs to ("v2.3.0", "2.10.1", "1.18.1-SNAPSHOT" all read); "unknown" when it does not start
+ * with major.minor (a build without its version, e.g. "<unknown>"; "1"; " 1.18"): not called old.
  */
+/** A version Stream Lab can read: major.minor at the start, an optional "v". */
+export const READABLE = /^v?\d+\.\d+/i;
+
 export function bandOf(version: string): Band | 'unknown' {
-  if (!/^\s*v?\d+(\.\d+)?/i.test(version)) return 'unknown';
-  if (!versionSupported(version.trim())) return 'old';
+  // The same rule as Test connection's "is there a version" (testConnection.ts): one cluster, one answer.
+  if (!READABLE.test(version)) return 'unknown';
+  if (!versionSupported(version)) return 'old';
   const [maj = 0, min = 0] = version
     .replace(/^v/i, '')
     .split('.')

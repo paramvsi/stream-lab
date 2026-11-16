@@ -30,12 +30,18 @@ describe('audit of eb939e0', () => {
       'unknown',
       'unknown',
     ]);
-    expect(['1', ' 2.3.0', 'V2.3', '2.3-rc1', '1.20-SNAPSHOT'].map(bandOf)).toEqual([
-      'old',
-      '2.3',
+    expect(['V2.3', '2.3-rc1', '1.20-SNAPSHOT', '2.x'].map(bandOf)).toEqual([
       '2.3',
       '2.3',
       '1.20',
+      'unknown',
+    ]);
+    // As Test connection reads them (one cluster, one answer): no major.minor at the start is unknown.
+    expect(['1', ' 1.18', ' v1.20', ' 2.3.0'].map(bandOf)).toEqual([
+      'unknown',
+      'unknown',
+      'unknown',
+      'unknown',
     ]);
   });
   it("every cell is the board's (C05): one row per feature, the four bands in order", () => {

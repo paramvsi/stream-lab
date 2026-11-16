@@ -1,5 +1,6 @@
 import { AppError } from '@sl/errors';
 import type { ZodType } from 'zod';
+import { READABLE } from './capabilities';
 import { ConfigSchema, versionSupported, type FlinkConfig } from './endpoints/config';
 import { GatewayInfoSchema, OpenSessionSchema } from './endpoints/gateway';
 import { OverviewSchema } from './endpoints/overview';
@@ -127,7 +128,7 @@ export async function* testConnection(
     const version = config['flink-version'];
     if (versionSupported(version)) yield { id: 'flink', status: 'pass', detail: `Flink ${version}` };
     // A build without a version ("<unknown>"): Flink, but nothing to adapt the UI to.
-    else if (!/^v?\d+\.\d+/i.test(version))
+    else if (!READABLE.test(version))
       yield { id: 'flink', status: 'warn', detail: 'Flink (it does not report its version)' };
     else
       yield {

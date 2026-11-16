@@ -149,3 +149,24 @@ test('SIM-16 Chaos injects late, duplicate and malformed events and stalls a sou
   ).toBeVisible();
   await expect(status(page)).toHaveText(new RegExp(`of ${(totalBefore + 15).toLocaleString('en-US')}$`));
 });
+
+test('ENG-03 the stage inspector shows events per subtask and each key’s key group and subtask', async ({
+  page,
+}) => {
+  await scenario(page, 'Card fraud bursts');
+  await page.getByText('10×', { exact: true }).click();
+  await page.locator('.react-flow__panel.top').getByRole('button', { name: 'Run', exact: true }).click();
+  await expect(status(page)).toHaveText(/^Finished/, { timeout: 15000 });
+  await page.locator('.react-flow__node').filter({ hasText: 'Bursts per card' }).dblclick();
+  const d = page.getByRole('dialog', { name: 'Window settings' });
+  await d.getByRole('tab', { name: 'Output preview' }).click();
+  const subs = d.getByRole('table', { name: 'Events per subtask' }).locator('tbody tr');
+  await expect(subs).toHaveCount(2);
+  const keys = d.getByRole('table', { name: 'Busiest keys and their subtask' }).locator('tbody tr');
+  await expect(keys.first()).toContainText(/c_\d+/);
+  // 2 subtasks over 128 key groups: groups 0–63 run on subtask 0, 64–127 on subtask 1.
+  for (const row of await keys.all()) {
+    const [, group, sub] = await row.locator('td').allTextContents();
+    expect(Number(sub)).toBe(Number(group) >= 64 ? 1 : 0);
+  }
+});

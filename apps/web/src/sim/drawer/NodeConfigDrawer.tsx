@@ -8,6 +8,7 @@ import { useGraph } from '../store';
 import { CelEditor } from './CelEditor';
 import { NODE_DOCS } from './docs';
 import { PreviewPanel } from './PreviewPanel';
+import { StageInspector } from './StageInspector';
 import { SchemaForm } from './SchemaForm';
 
 const MIN = 200;
@@ -313,7 +314,12 @@ export function NodeConfigDrawer({
               {
                 value: 'preview',
                 label: 'Output preview',
-                content: <PreviewPanel nodeId={node.id} events={events} />,
+                content: (
+                  <div className="flex flex-col gap-4">
+                    <PreviewPanel nodeId={node.id} events={events} />
+                    <StageInspector nodeId={node.id} />
+                  </div>
+                ),
               },
               {
                 value: 'docs',

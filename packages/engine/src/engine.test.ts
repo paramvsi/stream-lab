@@ -1,7 +1,7 @@
 import { spec, type Graph, type NodeType, type PipelineEdge, type PipelineNode } from '@sl/graph';
 import { describe, expect, it } from 'vitest';
 import { BASE_TIME, createRun } from './engine';
-import { subtaskOf } from './keygroups';
+import { keyGroupOf, subtaskOf } from './keygroups';
 
 const node = (id: string, type: NodeType, config: object = {}): PipelineNode => ({
   id,
@@ -345,5 +345,23 @@ describe('SIM-16 · Chaos', () => {
     expect(s.nodes['val']!.failed).toBe(p.nodes['val']!.failed + 5); // malformed rows fail the rule
     expect(s.nodes['win']!.late).toBeGreaterThanOrEqual(p.nodes['win']!.late + 5); // a minute behind: late
     expect(s.processed).toBe(p.processed + 15);
+  });
+});
+
+describe('ENG-03 · stage inspector data', () => {
+  it('lists the busiest keys of a keyed node with the key group and subtask Flink would use', () => {
+    const r = createRun(fraud(42, 2000), { parallelism: 4 });
+    r.advance(Infinity);
+    const k = r.stats().nodes['win']!.keyRouting!;
+    expect(k.length).toBeGreaterThan(0);
+    expect(k.length).toBeLessThanOrEqual(50);
+    for (const x of k) {
+      expect(x.keyGroup).toBe(keyGroupOf(x.key));
+      expect(x.subtask).toBe(subtaskOf(x.key, 4));
+    }
+    expect(k.reduce((a, x) => a + x.events, 0)).toBe(
+      r.stats().nodes['win']!.subtasks!.reduce((a, b) => a + b, 0),
+    );
+    expect([...k].sort((a, b) => b.events - a.events)).toEqual(k);
   });
 });

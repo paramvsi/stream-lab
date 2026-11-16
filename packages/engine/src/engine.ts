@@ -10,7 +10,7 @@ import {
   type Schema,
 } from '@sl/graph';
 import { BUILTIN_TABLES, refSchemas } from './fintech';
-import { subtaskOf } from './keygroups';
+import { keyGroupOf, subtaskOf } from './keygroups';
 import { BASE_TIME, rng, type Event } from './random';
 
 /**
@@ -71,6 +71,8 @@ export interface NodeStats {
   watermark: number;
   /** Events per simulated subtask (keyed operators). */
   subtasks?: number[];
+  /** ENG-03 stage inspector: the busiest keys (up to 50) and where they run. */
+  keyRouting?: { key: string; keyGroup: number; subtask: number; events: number }[];
   /** Keys held in state. */
   keys?: number;
 }
@@ -949,6 +951,7 @@ export function createRun(g: Graph, opts: RunOptions = {}): Run {
     ops.get(id)?.process(port, ev, from);
   };
   // SIM-RUNTIME-EXPR dead letter: the enabled Dead-letter node this node feeds, else the first enabled one.
+  const routing = new Map<string, Map<string, number>>(); // keyed node → events per key (ENG-03)
   const dlqIds = new Set(order.filter((n) => n.type === 'Dead-letter' && !n.disabled).map((n) => n.id));
   const deadLetterFor = (id: string) =>
     (out.get(id) ?? []).find((e) => dlqIds.has(e.target))?.target ?? [...dlqIds][0];
@@ -958,6 +961,8 @@ export function createRun(g: Graph, opts: RunOptions = {}): Run {
     const inSchema = s.in.get(n.id)?.['main']?.[0] ?? s.in.get(n.id)?.['left']?.[0] ?? [];
     const keyed = ['Window', 'Deduplicate', 'Top-N', 'Join'].includes(t);
     if (keyed) st.subtasks = Array.from({ length: parallelism }, () => 0);
+    const keyCounts = new Map<string, number>();
+    if (keyed) routing.set(n.id, keyCounts);
     const x: Ctx = {
       emit: (port, ev) => deliver(n.id, port, ev),
       fail: (ev, reason) => {
@@ -976,7 +981,9 @@ export function createRun(g: Graph, opts: RunOptions = {}): Run {
       fire: (ts) => log({ kind: 'fire', node: n.id, at: stats.now, ts, watermark: st.watermark }),
       now: () => stats.now,
       keyed: (key) => {
-        if (st.subtasks) st.subtasks[subtaskOf(key, parallelism)]!++;
+        if (!st.subtasks) return;
+        st.subtasks[subtaskOf(key, parallelism)]!++;
+        keyCounts.set(key, (keyCounts.get(key) ?? 0) + 1);
       },
     };
     if (t === 'Sink' || t === 'Dead-letter') {
@@ -1131,6 +1138,16 @@ export function createRun(g: Graph, opts: RunOptions = {}): Run {
     tapped: () => tapped,
     snapshot: (id) => ops.get(id)?.snapshot?.(),
     stats: () => {
+      for (const [id, counts] of routing)
+        ns(id).keyRouting = [...counts]
+          .sort((a, b) => b[1] - a[1] || (a[0] < b[0] ? -1 : 1))
+          .slice(0, 50)
+          .map(([key, events]) => ({
+            key,
+            keyGroup: keyGroupOf(key),
+            subtask: subtaskOf(key, parallelism),
+            events,
+          }));
       for (const [id, op] of ops) if (op.keys) ns(id).keys = op.keys();
       return stats;
     },

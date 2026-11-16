@@ -86,3 +86,11 @@ export function fromTransport(f: TransportFailure, cause?: unknown): AppError {
       return new AppError('CONN-IO', { host, reason: f.reason ?? 'connection reset' }, cause);
   }
 }
+
+/** A 4xx/5xx answer as its catalog code; verb says what was being done ("reading the overview"). */
+export function httpStatusError(r: FlinkResponse, conn: string, verb: string): AppError {
+  if (r.status === 401) return new AppError('API-401', { conn });
+  if (r.status === 403) return new AppError('API-403', { action: verb });
+  if (r.status >= 500) return new AppError('API-5XX', { conn, verb });
+  return new AppError('API-4XX', { conn, status: r.status });
+}

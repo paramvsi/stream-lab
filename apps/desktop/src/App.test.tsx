@@ -67,3 +67,27 @@ describe('audit of 45e2672', () => {
     );
   });
 });
+
+describe('FLEET-01 home', () => {
+  it('with a transport and a saved connection, home is the fleet; Connections opens the list', async () => {
+    const http = async () => ({ status: 503, headers: {}, body: '', url: '' });
+    render(
+      <TooltipProvider>
+        <ToastProvider>
+          <App transport={() => http} />
+        </ToastProvider>
+      </TooltipProvider>,
+    );
+    await userEvent.click(screen.getByRole('button', { name: 'Add a connection' }));
+    await userEvent.click(screen.getByRole('radio', { name: /Self-managed/ }));
+    await userEvent.click(screen.getByRole('button', { name: 'Continue' }));
+    await userEvent.type(screen.getByLabelText(/^Name/), 'local-docker');
+    await userEvent.selectOptions(screen.getByLabelText(/^Environment/), 'dev');
+    await userEvent.type(screen.getByLabelText(/JobManager REST URL/), 'http://localhost:8081');
+    await userEvent.click(screen.getByRole('button', { name: 'Save' }));
+    expect(screen.getByRole('heading', { level: 1, name: 'Fleet' })).toBeTruthy();
+    expect(await screen.findByText(/local-docker had an internal error while reading/)).toBeTruthy();
+    await userEvent.click(screen.getByRole('button', { name: 'Connections' }));
+    expect(screen.getByRole('heading', { level: 1, name: 'Connections' })).toBeTruthy();
+  });
+});

@@ -1,4 +1,5 @@
-import type { Connection, KindChoice } from '@sl/flink';
+import type { Connection, FlinkHttp, KindChoice } from '@sl/flink';
+import { Fleet } from './Fleet';
 import { useToast } from '@sl/ui';
 import { useState } from 'react';
 import { ConnectionForm } from './ConnectionForm';
@@ -15,9 +16,12 @@ import { Welcome } from './Welcome';
  * (and their secrets nowhere) until the Tauri storage (SQLite) and keychain land.
  */
 type Screen =
-  { name: 'home' } | { name: 'kind'; kind: KindChoice | null } | { name: 'form'; kind: Connection['kind'] };
+  | { name: 'home' }
+  | { name: 'list' }
+  | { name: 'kind'; kind: KindChoice | null }
+  | { name: 'form'; kind: Connection['kind'] };
 
-export function App() {
+export function App({ transport }: { transport?: (c: Connection) => FlinkHttp } = {}) {
   const [screen, setScreen] = useState<Screen>({ name: 'home' });
   const [connections, setConnections] = useState<Connection[]>([]);
   const [importing, setImporting] = useState(false);
@@ -60,6 +64,19 @@ export function App() {
       }}
     />
   );
+  // With a way to reach clusters, home is the fleet (D04); the list is one click away.
+  if (transport && connections.length && screen.name === 'home')
+    return (
+      <>
+        <Fleet
+          connections={connections}
+          transport={transport}
+          onAdd={add}
+          onManage={() => setScreen({ name: 'list' })}
+        />
+        {importDialog}
+      </>
+    );
   if (!connections.length)
     return (
       <>

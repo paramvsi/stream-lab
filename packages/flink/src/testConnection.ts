@@ -3,7 +3,14 @@ import type { ZodType } from 'zod';
 import { ConfigSchema, versionSupported, type FlinkConfig } from './endpoints/config';
 import { GatewayInfoSchema, OpenSessionSchema } from './endpoints/gateway';
 import { OverviewSchema } from './endpoints/overview';
-import { fromTransport, TransportError, type FlinkHttp, type FlinkRequest, type FlinkResponse } from './http';
+import {
+  fromTransport,
+  httpStatusError,
+  TransportError,
+  type FlinkHttp,
+  type FlinkRequest,
+  type FlinkResponse,
+} from './http';
 
 /**
  * CONN-05 Test connection (FLINK_API.md, board C04): seven steps in order, each yielded as it finishes so the
@@ -87,14 +94,7 @@ export async function* testConnection(
     }
     throw new StepFailure(at, bad());
   };
-  const statusError = (r: FlinkResponse, verb: string) =>
-    r.status === 401
-      ? new AppError('API-401', { conn: t.name })
-      : r.status === 403
-        ? new AppError('API-403', { action: verb })
-        : r.status >= 500
-          ? new AppError('API-5XX', { conn: t.name, verb })
-          : new AppError('API-4XX', { conn: t.name, status: r.status });
+  const statusError = (r: FlinkResponse, verb: string) => httpStatusError(r, t.name, verb);
   const skipFrom = function* (i: number) {
     for (const s of STEPS.slice(i)) yield { id: s.id, status: 'skip' as const };
   };

@@ -5,13 +5,13 @@ import { useEffect, useRef, useState } from 'react';
 import { ExportDialog } from './ExportDialog';
 import { useScreenHeading } from './focus';
 
-const ENV: Record<Connection['env'], string> = {
+export const ENV: Record<Connection['env'], string> = {
   prod: 'Production',
   staging: 'Staging',
   dev: 'Dev',
   none: '—',
 };
-const DOT: Record<NonNullable<Connection['color']> | Connection['env'], string> = {
+export const DOT: Record<NonNullable<Connection['color']> | Connection['env'], string> = {
   red: 'bg-danger-600',
   orange: 'bg-orange-700',
   green: 'bg-success-600',
@@ -30,7 +30,7 @@ const LOGIN: Record<Connection['auth']['type'], string> = {
   mtls: 'Client certificate',
 };
 /** host:port, as the board shows addresses (the scheme and path are in the connection). */
-const shortAddress = (u: string) => {
+export const shortAddress = (u: string) => {
   try {
     return new URL(u).host;
   } catch {

@@ -103,3 +103,50 @@ test('LEARN-01 opening a chapter marks it in progress: the course offers Continu
   await page.getByRole('navigation', { name: 'Main' }).getByRole('link', { name: 'Learn' }).click();
   await expect(page.getByRole('link', { name: 'Continue chapter 1' })).toBeVisible();
 });
+
+// ---- Audit of 02e7c4a ----
+test('LEARN-01 audit 1: all open chapters done shows the W04c callout and a green bar', async ({ page }) => {
+  await page.goto('/#/learn');
+  await page.evaluate(async () => {
+    const s = await import('/src/storage.ts');
+    for (const id of ['event-time', 'watermarks', 'windows', 'aggregations', 'deduplication', 'joins'])
+      await s.setChapterStatus(id, 'done');
+  });
+  await page.reload();
+  const callout = page.getByRole('status').filter({ hasText: 'You finished the course.' });
+  await expect(callout).toBeVisible();
+  await expect(page.locator('[aria-label="Chapters done"] > div')).toHaveClass(/bg-success-600/);
+  await axe(page);
+  await callout.getByRole('link', { name: 'Open the simulator' }).click();
+  await expect(page).toHaveURL(/#\/new$/);
+});
+
+test('LEARN-01 audit 2: storage blocked on /learn says so without a dead Export button', async ({ page }) => {
+  await page.addInitScript(() => {
+    indexedDB.open = () => {
+      throw new Error('blocked');
+    };
+  });
+  await page.goto('/#/learn');
+  await expect(page.getByText('This browser is not letting Stream Lab save.')).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Export now' })).toHaveCount(0);
+  await expect(page.getByRole('region', { name: 'Your progress' })).toContainText(
+    'Not saved in this browser right now',
+  );
+});
+
+test('LAND-05 audit 4+8+11: rose focus ring on site links, Simulator current on My pipelines, page titles', async ({
+  page,
+}) => {
+  await page.goto('/#/pipelines');
+  const nav = page.getByRole('navigation', { name: 'Main' });
+  await expect(nav.getByRole('link', { name: 'Simulator' })).toHaveAttribute('aria-current', 'page');
+  await expect(page).toHaveTitle('My pipelines · Stream Lab');
+  await nav.getByRole('link', { name: 'Learn' }).focus();
+  await page.keyboard.press('Shift+Tab');
+  await page.keyboard.press('Tab'); // keyboard focus, so :focus-visible applies
+  await expect(nav.getByRole('link', { name: 'Learn' })).toHaveCSS('box-shadow', /204, 61, 92/);
+  await page.goto('/#/nowhere');
+  await expect(page).toHaveTitle('Page not found · Stream Lab');
+  await expect(page.locator('header a').first()).toHaveText('streamlab');
+});

@@ -4,7 +4,7 @@ import { SiteShell } from './SiteShell';
 /** LAND-05 the 404 page (board W03): any unknown route, with links to the course and the simulator. */
 export function NotFound() {
   return (
-    <SiteShell grid>
+    <SiteShell grid docTitle="Page not found">
       <div className="flex flex-col items-center gap-5 py-24 text-center">
         <p className="m-0 font-mono text-[14px] text-orange-700">404 · event arrived after the watermark</p>
         <h1 className="m-0 text-[44px] leading-[1.1] font-bold tracking-[-0.03em]">

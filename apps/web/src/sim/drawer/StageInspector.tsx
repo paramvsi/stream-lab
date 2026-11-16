@@ -28,6 +28,9 @@ const NO_DROPPED = new Set([
   'Source',
   'Generator',
 ]);
+// The engine lists the open state of these (Run.snapshot); the others keep state it can not list yet.
+const SNAPSHOT = new Set(['Window', 'Deduplicate']);
+const HOLDS_STATE = new Set(['Window', 'Deduplicate', 'Join', 'Top-N', 'Pattern']);
 function portName(node: PipelineNode, port: string) {
   if (port === 'main') return 'Out';
   if (port === 'default') return 'Default branch';
@@ -79,8 +82,14 @@ export function RunCounts({ node }: { node: PipelineNode }) {
         )}
       </p>
       {still && rows && rows.length > 0 && <Events rows={rows} label="State per key in the run" />}
-      {still && rows && rows.length === 0 && (
+      {still && rows && rows.length === 0 && SNAPSHOT.has(type) && (
         <p className="m-0 text-[13px] text-muted">No state is open for this node at this point of the run.</p>
+      )}
+      {/* ponytail: Join, Top-N and Pattern keep state the engine does not list yet; say so, not "none". */}
+      {still && HOLDS_STATE.has(type) && !SNAPSHOT.has(type) && (
+        <p className="m-0 text-[13px] text-muted">
+          This node keeps state per key; listing it is not available yet.
+        </p>
       )}
       {!still && <p className="m-0 text-[13px] text-muted">Pause the run to see its state per key.</p>}
     </section>

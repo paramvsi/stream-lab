@@ -280,3 +280,32 @@ test('EXPL-06 audit 2+5: a Sink is not said to drop what it wrote; a Route shows
   await expect(sec).not.toContainText('Dropped');
   await expect(sec).not.toContainText('main');
 });
+
+test('EXPL-06 audit 9: a Route shows its branch names; a Join says its state is not listed (not "none")', async ({
+  page,
+}) => {
+  await scenario(page, 'Card velocity');
+  await page.getByText('10×', { exact: true }).click();
+  await page.locator('.react-flow__panel.top').getByRole('button', { name: 'Run', exact: true }).click();
+  await expect(page.locator('.react-flow__panel.top [data-run-label]')).toHaveText(/^Finished/, {
+    timeout: 20000,
+  });
+  const d = await open(page, 'Velocity');
+  await d.getByRole('tab', { name: 'Output preview' }).click();
+  const sec = d.getByRole('region', { name: 'This node in the run' });
+  await expect(sec).toContainText('high velocity');
+  await expect(sec).toContainText('Default branch');
+  await expect(sec).not.toContainText('route-');
+  await page.keyboard.press('Escape');
+  await scenario(page, 'Refunds matching');
+  await page.getByText('10×', { exact: true }).click();
+  await page.locator('.react-flow__panel.top').getByRole('button', { name: 'Run', exact: true }).click();
+  await expect(page.locator('.react-flow__panel.top [data-run-label]')).toHaveText(/^Finished/, {
+    timeout: 20000,
+  });
+  const j = await open(page, 'Refund to payment');
+  await j.getByRole('tab', { name: 'Output preview' }).click();
+  await expect(j.getByRole('region', { name: 'This node in the run' })).toContainText(
+    'listing it is not available yet',
+  );
+});

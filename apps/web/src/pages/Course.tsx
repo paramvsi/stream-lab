@@ -1,5 +1,6 @@
 import { CHAPTERS, nextChapter, type Progress } from '@sl/course';
-import { AppError, ErrorBanner } from '@sl/errors';
+import { AppError, present } from '@sl/errors';
+import { Banner } from '@sl/ui';
 import { Link } from '@tanstack/react-router';
 import { Check } from 'lucide-react';
 import { useEffect, useState } from 'react';
@@ -24,6 +25,8 @@ export function Course() {
   const open = CHAPTERS.filter((c) => !c.v1);
   const done = progress ? CHAPTERS.filter((c) => progress[c.id] === 'done').length : 0;
   const next = progress ? nextChapter(progress) : undefined;
+  // Every open chapter done (7–10 are v1 and can not be taken yet).
+  const finished = !!progress && !next;
   return (
     <SiteShell
       narrow
@@ -32,7 +35,8 @@ export function Course() {
       title="Apache Flink®, hands on"
       lede="Ten chapters. Each one explains a concept, gives you a live pipeline, and ends with a challenge."
     >
-      {error && <ErrorBanner error={error} onAction={() => {}} />}
+      {/* Message only: the catalog's actions (Export now…) are about pipelines, and there is nothing to export here. */}
+      {error && <Banner severity={present(error).severity}>{present(error).message}</Banner>}
       <section
         aria-label="Your progress"
         className="flex w-[320px] flex-col gap-2 rounded-xl border border-line bg-surface p-5"
@@ -49,12 +53,34 @@ export function Course() {
           aria-valuenow={done}
           className="h-1.5 overflow-hidden rounded-full bg-subtle"
         >
-          <div className="h-full bg-rose-600" style={{ width: `${(done / CHAPTERS.length) * 100}%` }} />
+          <div
+            className={`h-full ${finished ? 'bg-success-600' : 'bg-rose-600'}`}
+            style={{ width: `${(done / CHAPTERS.length) * 100}%` }}
+          />
         </div>
         <p className="m-0 text-[12px] text-muted">
-          {error ? 'Not saved: this browser blocks storage' : 'Saved in this browser'}
+          {error ? 'Not saved in this browser right now' : 'Saved in this browser'}
         </p>
       </section>
+      {/* Board W04c: every open chapter done. */}
+      {finished && (
+        <div
+          role="status"
+          className="flex items-center gap-3 rounded-lg bg-success-50 px-4 py-3 text-[14px] text-ink"
+        >
+          <Check size={18} aria-hidden="true" className="shrink-0 text-success-600" />
+          <span className="flex-1">
+            <b>You finished the course.</b> Try the open simulator, or connect a real cluster with the desktop
+            app.
+          </span>
+          <Link
+            to="/new"
+            className="sl-focus rounded-lg border border-line bg-surface px-3 py-1.5 text-[13px] font-semibold text-ink no-underline hover:bg-subtle"
+          >
+            Open the simulator
+          </Link>
+        </div>
+      )}
       {/* Done for all six open chapters (W04c): every row says Completed and no row is highlighted. */}
       <ol aria-label="Chapters" className="m-0 flex list-none flex-col gap-3 p-0" aria-busy={!progress}>
         {CHAPTERS.map((c) => {

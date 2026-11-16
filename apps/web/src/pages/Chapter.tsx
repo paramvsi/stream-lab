@@ -6,7 +6,7 @@ import { Check, ChevronRight, Flag, X } from 'lucide-react';
 import { useEffect, useId, useState } from 'react';
 import { getProgress, setChapterStatus } from '../storage';
 import { NotFound } from './NotFound';
-import { SiteHeader } from './SiteShell';
+import { SiteHeader, useDocTitle } from './SiteShell';
 
 /**
  * LEARN-02 a chapter (boards W05 reading, W05c challenge, W05d wrong, W05e pass, W05f complete): the chapter
@@ -37,6 +37,7 @@ export function ChapterPage({ id }: { id: string }) {
     );
     // eslint-disable-next-line react-hooks/exhaustive-deps -- once per chapter (the route keys the page by id)
   }, []);
+  useDocTitle(c?.title);
   if (!c || !content) return <NotFound />;
   const done = CHAPTERS.filter((x) => progress[x.id] === 'done').length;
   const pct = Math.round((done / CHAPTERS.length) * 100);

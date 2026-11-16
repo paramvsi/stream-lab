@@ -36,7 +36,13 @@ function db() {
     );
     opening.then(
       (d) => (gaveUp ? d.close() : resolve(d)), // opened after we gave up: the next call opens it again
-      (e: unknown) => reject(new AppError('STORE-BLOCKED', {}, e)), // private mode / blocked storage
+      // A newer version is already there (this tab's code is older than another tab's): reload, not blocked.
+      (e: unknown) =>
+        reject(
+          (e as { name?: string } | null)?.name === 'VersionError'
+            ? new AppError('STORE-UPGRADE-BLOCKED', {}, e)
+            : new AppError('STORE-BLOCKED', {}, e), // private mode / blocked storage
+        ),
     );
   }).catch((e: unknown) => {
     dbp = null;

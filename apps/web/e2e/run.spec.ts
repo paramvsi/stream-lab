@@ -235,9 +235,7 @@ test('WM01 output rows drop in as they arrive; rows already there stay still; of
   expect((await anim(n))[0]).toBe('none');
 });
 
-test('WM06 only edges carrying events flow, at a pace set by the speed; counters fade on update', async ({
-  page,
-}) => {
+test('WM06 only edges carrying events flow, at a pace set by the speed', async ({ page }) => {
   await scenario(page, 'Refunds matching');
   // A disabled Source emits nothing, so its edge never carries an event (no timing involved).
   await page.locator('.react-flow__node').filter({ hasText: 'Refunds' }).first().click();
@@ -253,13 +251,67 @@ test('WM06 only edges carrying events flow, at a pace set by the speed; counters
   await expect(carrying).toHaveClass(/sl-flow/);
   expect(await carrying.evaluate((p) => getComputedStyle(p).animationDuration)).toBe('3.2s'); // 0.8 s / 0.25
   await expect(path('e_ref_main_join_right')).not.toHaveClass(/sl-flow/);
-  // Counters remount per update: read one inside a retry, not a single snapshot.
-  await expect
-    .poll(() =>
-      page
-        .locator('.sl-count')
-        .first()
-        .evaluate((e) => [getComputedStyle(e).animationName, getComputedStyle(e).animationDuration]),
-    )
-    .toEqual(['sl-count-in', '0.16s']);
+});
+
+test('WM06 side outputs stay still; edge counts tick at full opacity (MOTION.md, AA contrast)', async ({
+  page,
+}) => {
+  await scenario(page, 'Card fraud bursts');
+  await page.locator('.react-flow__panel.top').getByRole('button', { name: 'Run', exact: true }).click();
+  await expect(status(page)).toHaveText(/^Running/);
+  const path = (id: string) => page.getByTestId(`rf__edge-${id}`).locator('path.react-flow__edge-path');
+  await expect(path('e_gen_main_val_main')).toHaveClass(/sl-flow/);
+  // Once a side output has carried events (a non-zero rejected/late count shows), none of them flows.
+  await expect(
+    page
+      .locator('.react-flow__edgelabel-renderer')
+      .getByText(/^[1-9][\d,]* (rejected|late)$/)
+      .first(),
+  ).toBeVisible({ timeout: 15000 });
+  const side = page
+    .locator('[data-testid*="_rejected_"], [data-testid*="_late_"]')
+    .locator('path.react-flow__edge-path');
+  expect(await side.count()).toBe(3);
+  expect(await side.evaluateAll((ps) => ps.filter((x) => x.classList.contains('sl-flow')).length)).toBe(0);
+  // Sample the count labels for a second while counts change: never dimmed.
+  const label = page.locator('.react-flow__edgelabel-renderer').getByText(/^[\d,]+( \w+)?$/);
+  const seen: string[] = [];
+  for (let i = 0; i < 25; i++) {
+    seen.push(...(await label.evaluateAll((ls) => ls.map((l) => getComputedStyle(l).opacity))));
+    await page.waitForTimeout(40);
+  }
+  expect(seen.length).toBeGreaterThan(0);
+  expect(new Set(seen)).toEqual(new Set(['1']));
+});
+
+test('WM01 a run that starts over shows its rows dropping in again (no stale count from the last run)', async ({
+  page,
+}) => {
+  await scenario(page, 'Refunds matching');
+  await page.getByText('10×', { exact: true }).click();
+  await page.locator('.react-flow__panel.top').getByRole('button', { name: 'Run', exact: true }).click();
+  await expect(status(page)).toHaveText(/^Finished/, { timeout: 20000 });
+  const panel = page.getByRole('region', { name: 'Run panel' });
+  await panel.getByRole('tab', { name: 'Output' }).click();
+  const rows = panel.getByRole('table', { name: /^Output of / }).locator('tbody tr');
+  await expect.poll(() => rows.count()).toBeGreaterThan(3);
+  // Remount with the rows there (they count as old), then the same table sees a run start over: no rows,
+  // then a few new ones (what Step → Resume after a stale edit does, without its timing).
+  await panel.getByRole('tab', { name: 'Timeline' }).click();
+  await panel.getByRole('tab', { name: 'Output' }).click();
+  await page.evaluate(async () => {
+    const r = await import('/src/sim/run.ts');
+    const st = r.useRun.getState().stats!;
+    const id = Object.keys(st.outputs).find((k) => (st.outputs[k] ?? []).length > 3)!;
+    const keep = st.outputs[id]!.slice(0, 3);
+    r.useRun.setState({ stats: { ...st, outputs: { ...st.outputs, [id]: [] } } });
+    await new Promise((f) => setTimeout(f, 100));
+    r.useRun.setState({ stats: { ...st, outputs: { ...st.outputs, [id]: keep } } });
+  });
+  await expect(rows).toHaveCount(3);
+  expect(await rows.evaluateAll((rs) => rs.map((x) => x.classList.contains('sl-row-arrive')))).toEqual([
+    true,
+    true,
+    true,
+  ]);
 });

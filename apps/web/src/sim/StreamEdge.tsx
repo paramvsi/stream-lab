@@ -36,12 +36,13 @@ export const StreamEdge = memo(function StreamEdge(p: EdgeProps<SlEdge>) {
   const speed = useRun((s) => s.speed);
   // WM06: only edges carrying events flow, at a pace that scales with the sim speed (0.8 s at 1×).
   // ponytail: "carrying" = has carried any event this run; per-tick deltas if idle edges should stop mid-run.
-  const flowing = running && !!count;
   const side =
     p.sourceHandleId &&
     p.sourceHandleId !== 'main' &&
     !p.sourceHandleId.startsWith('route-') &&
     p.sourceHandleId !== 'default';
+  // Side outputs (rejected, late) stay still on the board.
+  const flowing = running && !!count && !side;
   const fields = p.data?.schema.map((f) => `${f.name}: ${f.type}${f.required ? '' : '?'}`) ?? [];
   return (
     <>
@@ -61,9 +62,9 @@ export const StreamEdge = memo(function StreamEdge(p: EdgeProps<SlEdge>) {
         {/* SIM-17: events that crossed this edge (outside the hover tools, so it always shows). */}
         {count !== null && (
           <div
-            // WM06 "Counter update 160 ms fade": remounted per value.
-            key={count}
-            className="sl-count pointer-events-none absolute rounded-pill bg-surface px-1.5 font-mono text-[11px] text-muted tabular-nums"
+            // MOTION.md "Counters: tick numbers without animation" (a per-update fade restarts every 100 ms tick
+            // and keeps busy counts below AA contrast; board WM06's fade is D46).
+            className="pointer-events-none absolute rounded-pill bg-surface px-1.5 font-mono text-[11px] text-muted tabular-nums"
             style={{ transform: `translate(-50%, 0) translate(${lx}px, ${ly + 14}px)` }}
           >
             {fmt(count)}

@@ -29,7 +29,9 @@ export function Events({
 }) {
   const keys = [...new Set(rows.flatMap((r) => Object.keys(r)))];
   // WM01: rows there when the table mounted (tab switch, drawer closed) stay still; only later ones drop in.
-  const [mounted] = useState(rows.length);
+  const [mounted, setMounted] = useState(rows.length);
+  // A run that starts over empties the table: its rows are all new, so they drop in again.
+  if (!rows.length && mounted) setMounted(0);
   if (!rows.length) return <p className="m-0 text-[13px] text-muted">{empty}</p>;
   return (
     <Table

@@ -179,20 +179,29 @@ const SQL_TYPE: Record<FieldType, string> = {
 // enforcer would stop the job on the first one.
 const columns = (s: Schema) => s.map((f) => `  ${q(f.name)} ${SQL_TYPE[f.type]}`);
 /** A duration as a Flink interval literal (sign left to the caller). */
+// FLINK: an interval field's leading precision defaults to 2 digits (Calcite): 100 or more needs it stated.
+const prec = (whole: number, frac = '') => {
+  const d = String(Math.floor(whole)).length;
+  return d > 2 ? `(${d}${frac})` : frac ? `(2${frac})` : '';
+};
 const ival = (ms: number) => {
   const a = Math.abs(ms);
   return a % 60000 === 0 && a
-    ? `INTERVAL '${a / 60000}' MINUTE`
+    ? `INTERVAL '${a / 60000}' MINUTE${prec(a / 60000)}`
     : a % 1000 === 0
-      ? `INTERVAL '${a / 1000}' SECOND`
-      : `INTERVAL '${(a / 1000).toFixed(3)}' SECOND`;
+      ? `INTERVAL '${a / 1000}' SECOND${prec(a / 1000)}`
+      : `INTERVAL '${(a / 1000).toFixed(3)}' SECOND${prec(a / 1000, ', 3')}`;
 };
 const plus = (t: string, ms: number) => (ms === 0 ? t : `${t} ${ms < 0 ? '-' : '+'} ${ival(ms)}`);
 const AGG: Record<string, string> = { count: 'COUNT', sum: 'SUM', avg: 'AVG', min: 'MIN', max: 'MAX' };
 // FLINK: Stream Lab times are ISO-8601 ("2026-11-15T12:00:39.980Z"); the json format reads 'SQL' style by default.
 // https://nightlies.apache.org/flink/flink-docs-release-1.20/docs/connectors/table/formats/json/
-const KAFKA = (topic: string) =>
-  `WITH (\n  'connector' = 'kafka',\n  'topic' = ${str(topic)},\n  'properties.bootstrap.servers' = 'localhost:9092',\n  'format' = 'json',\n  'json.timestamp-format.standard' = 'ISO-8601'\n)`;
+// A source reads from the start of the topic: the default (group offsets) needs a consumer group id.
+const KAFKA = (topic: string, source = false) =>
+  `WITH (\n  'connector' = 'kafka',\n  'topic' = ${str(topic)},\n  'properties.bootstrap.servers' = 'localhost:9092',${source ? "\n  'scan.startup.mode' = 'earliest-offset'," : ''}\n  'format' = 'json',\n  'json.timestamp-format.standard' = 'ISO-8601'\n)`;
+// FLINK: updating results (Top-N, keep-last dedup, a regular LEFT join) need an upsert sink with a primary key.
+const UPSERT_KAFKA = (topic: string) =>
+  `WITH (\n  'connector' = 'upsert-kafka',\n  'topic' = ${str(topic)},\n  'properties.bootstrap.servers' = 'localhost:9092',\n  'key.format' = 'json',\n  'value.format' = 'json',\n  'value.json.timestamp-format.standard' = 'ISO-8601'\n)`;
 /** Where a SQL condition holds; NULL (a malformed row) counts as not holding, as a failed rule does. */
 const holds = (c: string) => `${c} IS TRUE`;
 const fails = (c: string) => `${c} IS NOT TRUE`;
@@ -204,7 +213,13 @@ export interface SqlExport {
 }
 
 /** Export a pipeline as Flink SQL. `ctx`: the reference tables Lookups use (schemas only). */
-export function toFlinkSql(g: Graph, ctx: SchemaCtx = EMPTY_CTX): SqlExport {
+export function toFlinkSql(
+  g: Graph,
+  ctx: SchemaCtx = EMPTY_CTX,
+  /** Reference tables that are versioned (their rows carry valid_from even when the schema does not list it). */
+  opts: { versioned?: string[] } = {},
+): SqlExport {
+  const versioned = new Set(opts.versioned ?? []);
   const s = propagate(g, ctx);
   const order = topoOrder(g);
   const taken = new Set<string>();
@@ -231,6 +246,13 @@ export function toFlinkSql(g: Graph, ctx: SchemaCtx = EMPTY_CTX): SqlExport {
       topicOf.set(n.id, name);
       nameOf.set(n.id, unique(name, true));
     }
+  // Reference tables too: one name per table, whatever the Lookups using it are labelled.
+  const refName = new Map<string, string>();
+  for (const n of order)
+    if (n.type === 'Lookup') {
+      const t = String((configOf(n) as Record<string, unknown>)['table'] ?? '');
+      if (t && ctx.refTables[t] && !refName.has(t)) refName.set(t, unique(t, true));
+    }
   for (const n of order) if (!nameOf.has(n.id)) nameOf.set(n.id, unique(n.label?.trim() || n.id));
   const portName = new Map<string, string>();
   const outName = (id: string, port: string) => {
@@ -253,7 +275,16 @@ export function toFlinkSql(g: Graph, ctx: SchemaCtx = EMPTY_CTX): SqlExport {
   const tainted = new Set<string>();
   // What a side output says about its rows, for Dead-letter's reason field (the simulator's reasons).
   const reasons = new Map<string, string>();
-  const refDone = new Set<string>();
+  const refKind = new Map<string, 'as-of' | 'lookup'>();
+  // Views whose rows can be updated or retracted: they can not feed a window, and a sink needs a key (upsert).
+  // (Keep-first dedup is append-only for a window but still needs an upsert sink on Flink 1.20.)
+  const updating = new Set<string>();
+  const firstRow = new Set<string>();
+  /** Explicit columns plus the time attribute when the schema does not list it (window_time after a window). */
+  const withTime = (sch: Schema, t: string | null, prefix = '') =>
+    [list(sch, prefix), t && !sch.some((f) => f.name === t) ? `${prefix}${q(t)}` : '']
+      .filter(Boolean)
+      .join(', ');
 
   const parts: string[] = [];
   const inserts: string[] = [];
@@ -281,6 +312,14 @@ export function toFlinkSql(g: Graph, ctx: SchemaCtx = EMPTY_CTX): SqlExport {
       taintOut(n);
       continue;
     }
+    const upd = ins.some((i) => updating.has(i.from));
+    if (upd && ['Window', 'Join', 'Deduplicate', 'Lookup'].includes(n.type)) {
+      todo(
+        n,
+        'its input is an updating result (Top-N, keep-last dedup or a regular LEFT join), which it can not read',
+      );
+      continue;
+    }
     if (n.disabled) {
       if (n.type === 'Source' || n.type === 'Generator' || !from) {
         parts.push(`-- Left out: ${labelOf(n)} is disabled and emits nothing.`);
@@ -306,7 +345,7 @@ export function toFlinkSql(g: Graph, ctx: SchemaCtx = EMPTY_CTX): SqlExport {
           ? `,\n  WATERMARK FOR ${q(t)} AS ${q(t)} - ${ival(Number(c['outOfOrdernessMs'] ?? 0))}`
           : '';
         parts.push(
-          `CREATE TABLE ${q(me)} (\n${columns(schema).join(',\n')}${wm}\n) ${KAFKA(topicOf.get(n.id)!)};`,
+          `CREATE TABLE ${q(me)} (\n${columns(schema).join(',\n')}${wm}\n) ${KAFKA(topicOf.get(n.id)!, true)};`,
         );
         rt.set(me, wm ? t : null);
         break;
@@ -342,12 +381,11 @@ export function toFlinkSql(g: Graph, ctx: SchemaCtx = EMPTY_CTX): SqlExport {
           todo(n, `an expression has no direct SQL: ${exprs.find((x) => !x.sql)?.a.expr ?? ''}`);
           break;
         }
+        const kept = inSchema(n).filter((f) => !drop.has(f.name));
         const cols = [
-          ...inSchema(n)
-            .filter((f) => !drop.has(f.name))
-            .map((f) => q(f.name)),
+          withTime(kept, time && !drop.has(time) ? time : null),
           ...exprs.map(({ a, sql }) => `CAST(${sql} AS ${SQL_TYPE[a.type]}) AS ${q(a.field)}`),
-        ];
+        ].filter(Boolean);
         view(me, `SELECT ${cols.join(', ')}\nFROM ${q(from)}`);
         // A dropped or recomputed time column is no longer a time attribute.
         rt.set(me, time && !drop.has(time) ? time : null);
@@ -402,16 +440,19 @@ export function toFlinkSql(g: Graph, ctx: SchemaCtx = EMPTY_CTX): SqlExport {
         const tag = String(c['tagField'] ?? '');
         if (!ins.length) break;
         const label = (id: string) => labelOf(g.nodes.find((x) => x.id === id)!);
+        const times = new Set(ins.map((i) => rt.get(i.from) ?? null));
+        const uTime = times.size === 1 ? [...times][0]! : null;
         view(
           me,
           ins
             .map((i) => {
               // A tag named like an existing column replaces it (one column, as the schema has).
               const cols = (s.out.get(i.e.source)?.[i.e.sourceHandle] ?? []).filter((f) => f.name !== tag);
-              return `SELECT ${list(cols)}${tag ? `, ${str(label(i.e.source))} AS ${q(tag)}` : ''} FROM ${q(i.from)}`;
+              return `SELECT ${withTime(cols, uTime)}${tag ? `, ${str(label(i.e.source))} AS ${q(tag)}` : ''} FROM ${q(i.from)}`;
             })
             .join('\nUNION ALL\n'),
         );
+        rt.set(me, uTime);
         break;
       }
       case 'Sink': {
@@ -420,9 +461,19 @@ export function toFlinkSql(g: Graph, ctx: SchemaCtx = EMPTY_CTX): SqlExport {
           break;
         }
         const schema = inSchema(n);
-        parts.push(
-          `CREATE TABLE ${q(me)} (\n${columns(schema).join(',\n')}\n) ${KAFKA(topicOf.get(n.id)!)};`,
-        );
+        if (ins.some((i) => updating.has(i.from) || firstRow.has(i.from))) {
+          const key = String(c['key'] ?? '');
+          if (!key) {
+            todo(n, 'it receives updating results; set its key so it is written as an upsert table');
+            break;
+          }
+          parts.push(
+            `CREATE TABLE ${q(me)} (\n${[...columns(schema), `  PRIMARY KEY (${q(key)}) NOT ENFORCED`].join(',\n')}\n) ${UPSERT_KAFKA(topicOf.get(n.id)!)};`,
+          );
+        } else
+          parts.push(
+            `CREATE TABLE ${q(me)} (\n${columns(schema).join(',\n')}\n) ${KAFKA(topicOf.get(n.id)!)};`,
+          );
         // Explicit columns: views may carry extra time columns (window_time, proc_time).
         for (const i of ins) inserts.push(`INSERT INTO ${q(me)}\nSELECT ${list(schema)} FROM ${q(i.from)};`);
         break;
@@ -454,16 +505,39 @@ export function toFlinkSql(g: Graph, ctx: SchemaCtx = EMPTY_CTX): SqlExport {
         }
         const keys = (c['keyBy'] ?? []) as string[];
         const k = String(c['kind']);
+        if (k === 'hop' && Number(c['sizeMs']) % Number(c['slideMs']) !== 0) {
+          // FLINK: "HOP table function based aggregate requires size must be an integral multiple of slide".
+          todo(n, 'Flink needs the hop size to be a whole multiple of the slide');
+          break;
+        }
+        let src = from;
+        let wt = time;
+        const sch = inSchema(n);
+        if (wt === 'window_time' || sch.some((f) => f.name === 'window_start' || f.name === 'window_end')) {
+          if (keys.some((x) => x.startsWith('window_'))) {
+            todo(n, "it is keyed by an earlier window's column, which the window function adds again");
+            break;
+          }
+          // FLINK: a window after a window renames the earlier window's columns (cascading window aggregation),
+          // https://nightlies.apache.org/flink/flink-docs-release-1.20/docs/dev/table/sql/queries/window-agg/
+          src = unique(`${me}_in`);
+          const rest = sch.filter((f) => !['window_start', 'window_end', 'window_time'].includes(f.name));
+          view(
+            src,
+            `SELECT ${[list(rest), `${q(wt)} AS ${q('window_rowtime')}`].filter(Boolean).join(', ')} FROM ${q(from)}`,
+          );
+          wt = 'window_rowtime';
+        }
         // FLINK: window TVFs, https://nightlies.apache.org/flink/flink-docs-release-1.20/docs/dev/table/sql/queries/window-tvf/
         // (SESSION as a TVF since 1.19, with PARTITION BY for the keys).
         const tvf =
           k === 'hop'
-            ? `HOP(TABLE ${q(from)}, DESCRIPTOR(${q(time)}), ${ival(Number(c['slideMs']))}, ${ival(Number(c['sizeMs']))})`
+            ? `HOP(TABLE ${q(src)}, DESCRIPTOR(${q(wt)}), ${ival(Number(c['slideMs']))}, ${ival(Number(c['sizeMs']))})`
             : k === 'cumulate'
-              ? `CUMULATE(TABLE ${q(from)}, DESCRIPTOR(${q(time)}), ${ival(Number(c['slideMs']))}, ${ival(Number(c['sizeMs']))})`
+              ? `CUMULATE(TABLE ${q(src)}, DESCRIPTOR(${q(wt)}), ${ival(Number(c['slideMs']))}, ${ival(Number(c['sizeMs']))})`
               : k === 'session'
-                ? `SESSION(TABLE ${q(from)}${keys.length ? ` PARTITION BY ${keys.map(q).join(', ')}` : ''}, DESCRIPTOR(${q(time)}), ${ival(Number(c['gapMs']))})`
-                : `TUMBLE(TABLE ${q(from)}, DESCRIPTOR(${q(time)}), ${ival(Number(c['sizeMs']))})`;
+                ? `SESSION(TABLE ${q(src)}${keys.length ? ` PARTITION BY ${keys.map(q).join(', ')}` : ''}, DESCRIPTOR(${q(wt)}), ${ival(Number(c['gapMs']))})`
+                : `TUMBLE(TABLE ${q(src)}, DESCRIPTOR(${q(wt)}), ${ival(Number(c['sizeMs']))})`;
         const aggs = ((c['aggregates'] ?? []) as { fn: string; field: string; as: string }[]).map((a) => {
           const typ = outSchema(n).find((f) => f.name === a.as)?.type ?? 'number';
           const arg = a.fn === 'count' && !a.field ? '*' : q(a.field);
@@ -497,9 +571,13 @@ export function toFlinkSql(g: Graph, ctx: SchemaCtx = EMPTY_CTX): SqlExport {
         const hi = c['upperMs'] as number | null;
         const left = inSchema(n, 'left');
         const leftNames = new Set(left.map((f) => f.name));
-        const right = inSchema(n, 'right').map(
-          (f) => `R.${q(f.name)}${leftNames.has(f.name) ? ` AS ${q(`right_${f.name}`)}` : ''}`,
-        );
+        // A sink takes one time attribute: the right side's is written as a plain timestamp.
+        const right = inSchema(n, 'right').map((f) => {
+          const as = leftNames.has(f.name) ? `right_${f.name}` : f.name;
+          return f.name === rtR && lo !== null && hi !== null
+            ? `CAST(R.${q(f.name)} AS TIMESTAMP(3)) AS ${q(as)}`
+            : `R.${q(f.name)}${as !== f.name ? ` AS ${q(as)}` : ''}`;
+        });
         const on = [`L.${q(String(c['leftKey']))} = R.${q(String(c['rightKey']))}`];
         const bounded = lo !== null && hi !== null;
         if (bounded) {
@@ -512,10 +590,12 @@ export function toFlinkSql(g: Graph, ctx: SchemaCtx = EMPTY_CTX): SqlExport {
         }
         view(
           me,
-          `${bounded ? '' : '-- Regular join: no time bound, so its state grows without limit (JOIN-NO-BOUND).\n'}SELECT ${[list(left, 'L.'), ...right].filter(Boolean).join(', ')}\nFROM ${q(l.from)} AS L\n${c['kind'] === 'left' ? 'LEFT JOIN' : 'JOIN'} ${q(r.from)} AS R\nON ${on.join('\n  AND ')}`,
+          `${bounded ? '' : '-- Regular join: no time bound, so its state grows without limit (JOIN-NO-BOUND).\n'}SELECT ${[withTime(left, bounded ? lt : null, 'L.'), ...right].filter(Boolean).join(', ')}\nFROM ${q(l.from)} AS L\n${c['kind'] === 'left' ? 'LEFT JOIN' : 'JOIN'} ${q(r.from)} AS R\nON ${on.join('\n  AND ')}`,
         );
-        // FLINK: an interval join keeps both time attributes; a regular join keeps none.
+        // FLINK: an interval join keeps both time attributes; a regular join keeps none, and a regular LEFT join
+        // retracts its NULL-padded rows when a match arrives (updating).
         rt.set(me, bounded ? lt : null);
+        if (!bounded && c['kind'] === 'left') updating.add(me);
         break;
       }
       case 'Lookup': {
@@ -526,19 +606,28 @@ export function toFlinkSql(g: Graph, ctx: SchemaCtx = EMPTY_CTX): SqlExport {
           break;
         }
         const tk = String(c['tableKey']);
-        const asOf = Boolean(c['asOf']) && cols.some((f) => f.name === 'valid_from');
+        const hasValid = cols.some((f) => f.name === 'valid_from');
+        const asOf = Boolean(c['asOf']) && (hasValid || versioned.has(table));
+        const kind = asOf ? 'as-of' : 'lookup';
+        if (refKind.has(table) && refKind.get(table) !== kind) {
+          todo(n, `"${table}" is used both as-of and at processing time; Flink needs one kind of table`);
+          break;
+        }
         if (asOf && !time) {
           todo(n, 'an as-of lookup needs an event-time column');
           break;
         }
-        const tname = refDone.has(table) ? table : unique(table, true);
-        if (!refDone.has(table)) {
-          refDone.add(table);
+        const tname = refName.get(table)!;
+        // A versioned table's rows carry valid_from even when its schema does not list it (the built-in ones).
+        const ddlCols: Schema =
+          asOf && !hasValid ? [...cols, { name: 'valid_from', type: 'timestamp', required: true }] : cols;
+        if (!refKind.has(table)) {
+          refKind.set(table, kind);
           // FLINK: a temporal (versioned) table needs a primary key and an event-time attribute; a lookup
           // table is read per row by key. Connector options are placeholders.
           parts.push(
             asOf
-              ? `CREATE TABLE ${q(tname)} (\n${columns(cols).join(',\n')},\n  PRIMARY KEY (${q(tk)}) NOT ENFORCED,\n  WATERMARK FOR ${q('valid_from')} AS ${q('valid_from')}\n) WITH (\n  'connector' = 'upsert-kafka',\n  'topic' = ${str(table)},\n  'properties.bootstrap.servers' = 'localhost:9092',\n  'key.format' = 'json',\n  'value.format' = 'json',\n  'value.json.timestamp-format.standard' = 'ISO-8601'\n);`
+              ? `CREATE TABLE ${q(tname)} (\n${columns(ddlCols).join(',\n')},\n  PRIMARY KEY (${q(tk)}) NOT ENFORCED,\n  WATERMARK FOR ${q('valid_from')} AS ${q('valid_from')}\n) WITH (\n  'connector' = 'upsert-kafka',\n  'topic' = ${str(table)},\n  'properties.bootstrap.servers' = 'localhost:9092',\n  'key.format' = 'json',\n  'value.format' = 'json',\n  'value.json.timestamp-format.standard' = 'ISO-8601'\n);`
               : `CREATE TABLE ${q(tname)} (\n${columns(cols).join(',\n')},\n  PRIMARY KEY (${q(tk)}) NOT ENFORCED\n) WITH (\n  'connector' = 'jdbc',\n  'url' = 'jdbc:postgresql://localhost:5432/streamlab',\n  'table-name' = ${str(table)}\n);`,
           );
         }
@@ -553,14 +642,14 @@ export function toFlinkSql(g: Graph, ctx: SchemaCtx = EMPTY_CTX): SqlExport {
         const ev = inSchema(n);
         const evNames = new Set(ev.map((f) => f.name));
         const extra = cols
-          .filter((f) => f.name !== tk)
+          .filter((f) => f.name !== tk && f.name !== 'valid_from')
           .map((f) => `T.${q(f.name)}${evNames.has(f.name) ? ` AS ${q(`right_${f.name}`)}` : ''}`);
         const join = (kind: string) =>
           `FROM ${q(probe)} AS E\n${kind} ${q(tname)} FOR SYSTEM_TIME AS OF ${at} AS T\nON E.${q(String(c['key']))} = T.${q(tk)}`;
         const miss = String(c['onMiss']);
         view(
           me,
-          `SELECT ${[list(ev, 'E.'), ...extra].join(', ')}\n${join(miss === 'pass' ? 'LEFT JOIN' : 'JOIN')}`,
+          `SELECT ${[withTime(ev, asOf ? time : null, 'E.'), ...extra].join(', ')}\n${join(miss === 'pass' ? 'LEFT JOIN' : 'JOIN')}`,
         );
         if (miss === 'reject' && edgesFrom(n, 'rejected')) {
           const r = outName(n.id, 'rejected');
@@ -581,9 +670,10 @@ export function toFlinkSql(g: Graph, ctx: SchemaCtx = EMPTY_CTX): SqlExport {
         const ttl = c['ttlMs'] as number | null;
         view(
           me,
-          `${ttl ? `-- State TTL ${ival(ttl)}: SET 'table.exec.state.ttl' = '${ttl} ms';\n` : ''}SELECT ${list(inSchema(n))}\nFROM (\n  SELECT *, ROW_NUMBER() OVER (PARTITION BY ${keys.map(q).join(', ')} ORDER BY ${q(time)} ${c['keep'] === 'last' ? 'DESC' : 'ASC'}) AS ${q('rn')}\n  FROM ${q(from)}\n)\nWHERE ${q('rn')} = 1`,
+          `${ttl ? `-- State TTL ${ival(ttl)}: SET 'table.exec.state.ttl' = '${ttl} ms';\n` : ''}SELECT ${withTime(inSchema(n), c['keep'] === 'last' ? null : time)}\nFROM (\n  SELECT *, ROW_NUMBER() OVER (PARTITION BY ${keys.map(q).join(', ')} ORDER BY ${q(time)} ${c['keep'] === 'last' ? 'DESC' : 'ASC'}) AS ${q('rn')}\n  FROM ${q(from)}\n)\nWHERE ${q('rn')} = 1`,
         );
         rt.set(me, c['keep'] === 'last' ? null : time); // FLINK: keep-last emits updates (no time attribute)
+        (c['keep'] === 'last' ? updating : firstRow).add(me);
         break;
       }
       case 'Top-N': {
@@ -602,6 +692,8 @@ export function toFlinkSql(g: Graph, ctx: SchemaCtx = EMPTY_CTX): SqlExport {
           `SELECT ${list(sch)}, CAST(${q('rn')} AS DOUBLE) AS ${q('rank')}\nFROM (\n  SELECT *, ROW_NUMBER() OVER (${by.length ? `PARTITION BY ${by.join(', ')} ` : ''}ORDER BY ${q(String(c['orderBy']))} ${c['desc'] ? 'DESC' : 'ASC'}) AS ${q('rn')}\n  FROM ${q(from)}\n)\nWHERE ${q('rn')} <= ${Number(c['n'])}`,
         );
         rt.set(me, null);
+        // FLINK: a plain Top-N updates its ranks; a window Top-N after a window aggregate is append-only.
+        if (!within) updating.add(me);
         break;
       }
       default:
@@ -609,10 +701,15 @@ export function toFlinkSql(g: Graph, ctx: SchemaCtx = EMPTY_CTX): SqlExport {
         // are v1.
         todo(n, 'no direct Flink SQL in this version');
     }
-    // Views that did not say otherwise keep their input's time attribute.
+    // Views that did not say otherwise keep their input's time attribute, and pass on updating rows (a window's
+    // output is append-only again).
     for (const port of outPorts(n)) {
       const o = outName(n.id, port);
       if (!rt.has(o)) rt.set(o, time);
+      if (n.type !== 'Window') {
+        if (upd) updating.add(o);
+        if (ins.some((i) => firstRow.has(i.from))) firstRow.add(o);
+      }
     }
   }
   const run =

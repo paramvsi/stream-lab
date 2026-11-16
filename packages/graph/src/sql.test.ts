@@ -444,3 +444,163 @@ describe('EXP-01 SQL export audit (52a0095): graph-level', () => {
       expect(line.match(/`status`/g)).toHaveLength(1);
   });
 });
+
+describe('EXP-01 SQL export audit 2 (17324f5, checked by the auditor against the Flink 1.20 / 2.2 planners)', () => {
+  const sink = (id: string, name: string, key = '') => node(id, 'Sink', { name, format: 'json', key });
+  const win = (id: string, sizeMs: number, keyBy: string[] = []) =>
+    node(id, 'Window', {
+      kind: 'tumble',
+      sizeMs,
+      keyBy,
+      aggregates: [{ fn: 'count', field: '', as: 'n' }],
+      allowedLatenessMs: 0,
+    });
+  it('#1 Kafka sources say where to start reading (no group id needed)', () => {
+    const { sql } = toFlinkSql({
+      nodes: [node('src', 'Source', SRC), sink('o', 'a')],
+      edges: [edge('src', 'o')],
+    });
+    const src = sql.slice(sql.indexOf('CREATE TABLE `payments`'), sql.indexOf('CREATE TABLE `a`'));
+    expect(src).toContain("'scan.startup.mode' = 'earliest-offset'");
+  });
+  it('#2 intervals of 100+ units carry a precision (Calcite defaults to 2 digits)', () => {
+    const { sql } = toFlinkSql({
+      nodes: [
+        node('src', 'Source', { ...SRC, outOfOrdernessMs: 150000 }),
+        win('w', 43200 * 60000),
+        sink('o', 'a'),
+      ],
+      edges: [edge('src', 'w'), edge('w', 'o')],
+    });
+    expect(sql).toContain("INTERVAL '43200' MINUTE(5)");
+    expect(sql).toContain("INTERVAL '150' SECOND(3)");
+  });
+  it('#3 an interval join writes one rowtime: the right one is cast to a plain timestamp', () => {
+    const { sql } = toFlinkSql({
+      nodes: [
+        node('a', 'Source', SRC),
+        node('b', 'Source', { ...SRC, name: 'refunds' }),
+        node('j', 'Join', {
+          kind: 'inner',
+          leftKey: 'card_id',
+          rightKey: 'card_id',
+          lowerMs: -60000,
+          upperMs: 0,
+        }),
+        sink('o', 'm'),
+      ],
+      edges: [edge('a', 'j', 'main', 'left'), edge('b', 'j', 'main', 'right'), edge('j', 'o')],
+    });
+    expect(sql).toContain('CAST(R.`event_time` AS TIMESTAMP(3)) AS `right_event_time`');
+  });
+  it('#4/#5 a window after a window: the time column is carried, and the inner window columns do not clash', () => {
+    const { sql, unsupported } = toFlinkSql({
+      nodes: [
+        node('src', 'Source', SRC),
+        win('w1', 60000, ['card_id']),
+        node('m', 'Map', { assignments: [], drop: [] }),
+        win('w2', 300000, ['card_id']),
+        sink('o', 'a'),
+      ],
+      edges: [edge('src', 'w1'), edge('w1', 'm'), edge('m', 'w2'), edge('w2', 'o')],
+    });
+    expect(unsupported).toEqual([]);
+    expect(sql).toMatch(/CREATE TEMPORARY VIEW `m` AS\nSELECT [^\n]*`window_time`\nFROM `w1`/);
+    expect(sql).toContain('`window_time` AS `window_rowtime`');
+    expect(sql).toContain('DESCRIPTOR(`window_rowtime`)');
+  });
+  it('#6 updating results need an upsert sink with a key; without one the sink is flagged', () => {
+    const top = (key: string) =>
+      toFlinkSql({
+        nodes: [
+          node('src', 'Source', SRC),
+          node('t', 'Top-N', {
+            partitionBy: ['merchant_id'],
+            orderBy: 'amount',
+            desc: true,
+            n: 3,
+            withinWindow: false,
+          }),
+          sink('o', 'top', key),
+        ],
+        edges: [edge('src', 't'), edge('t', 'o')],
+      });
+    expect(top('merchant_id').sql).toContain("'connector' = 'upsert-kafka'");
+    expect(top('merchant_id').sql).toContain('PRIMARY KEY (`merchant_id`) NOT ENFORCED');
+    expect(top('').unsupported.map((u) => u.id)).toEqual(['o']);
+    expect(top('').sql).not.toContain('INSERT INTO `top`');
+  });
+  it('#7 a built-in versioned table is joined as-of the event time (not downgraded to processing time)', () => {
+    const { sql } = toFlinkSql(
+      {
+        nodes: [
+          node('src', 'Source', SRC),
+          node('l', 'Lookup', {
+            table: 'merchants',
+            key: 'merchant_id',
+            tableKey: 'merchant_id',
+            asOf: true,
+            onMiss: 'pass',
+          }),
+          sink('o', 'a'),
+        ],
+        edges: [edge('src', 'l'), edge('l', 'o')],
+      },
+      {
+        refTables: {
+          merchants: [
+            { name: 'merchant_id', type: 'string', required: true },
+            { name: 'risk_tier', type: 'string', required: true },
+          ],
+        },
+      },
+      { versioned: ['merchants'] },
+    );
+    expect(sql).toContain('FOR SYSTEM_TIME AS OF E.`event_time` AS T');
+    expect(sql).toContain('`valid_from` TIMESTAMP(3)');
+  });
+  it('#8 two Lookups on one table use the same table, even when a view is labelled like it', () => {
+    const T = {
+      refTables: {
+        blocklist: [
+          { name: 'merchant_id', type: 'string' as const, required: true },
+          { name: 'blocked_reason', type: 'string' as const, required: true },
+        ],
+      },
+    };
+    const lk = (id: string, label?: string) =>
+      node(
+        id,
+        'Lookup',
+        { table: 'blocklist', key: 'merchant_id', tableKey: 'merchant_id', asOf: false, onMiss: 'pass' },
+        label,
+      );
+    const { sql } = toFlinkSql(
+      {
+        nodes: [node('src', 'Source', SRC), lk('l1', 'Blocklist'), lk('l2'), sink('o', 'a')],
+        edges: [edge('src', 'l1'), edge('l1', 'l2'), edge('l2', 'o')],
+      },
+      T,
+    );
+    expect(sql.match(/CREATE TABLE `blocklist` \(/g)).toHaveLength(1);
+    expect(sql.match(/JOIN `blocklist` FOR SYSTEM_TIME AS OF/g)).toHaveLength(2);
+  });
+  it('#9 a HOP whose size is not a multiple of its slide is flagged (Flink refuses it)', () => {
+    const { unsupported } = toFlinkSql({
+      nodes: [
+        node('src', 'Source', SRC),
+        node('w', 'Window', {
+          kind: 'hop',
+          sizeMs: 10000,
+          slideMs: 3000,
+          keyBy: [],
+          aggregates: [],
+          allowedLatenessMs: 0,
+        }),
+        sink('o', 'a'),
+      ],
+      edges: [edge('src', 'w'), edge('w', 'o')],
+    });
+    expect(unsupported.map((u) => u.id)).toEqual(['w']);
+  });
+});

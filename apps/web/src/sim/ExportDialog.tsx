@@ -3,7 +3,7 @@ import { toFlinkSql } from '@sl/graph';
 import { Button, Dialog, useToast } from '@sl/ui';
 import { Copy, Download, FileCode2 } from 'lucide-react';
 import { useMemo, useState } from 'react';
-import { refCtx, useRefTables } from './refTables';
+import { allTables, refCtx, useRefTables } from './refTables';
 import { useGraph } from './store';
 
 /** EXP-01: the pipeline as Flink SQL, recomputed when the graph or the reference tables change. */
@@ -11,8 +11,18 @@ export function useFlinkSql() {
   const nodes = useGraph((s) => s.nodes);
   const edges = useGraph((s) => s.edges);
   const tables = useRefTables((s) => s.user);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  return useMemo(() => toFlinkSql({ nodes, edges }, refCtx()), [nodes, edges, tables]);
+  return useMemo(
+    () =>
+      toFlinkSql({ nodes, edges }, refCtx(), {
+        // Versioned tables are joined as of the event time (their rows carry valid_from).
+        versioned: Object.values(allTables())
+          .filter((t) => t.versioned)
+          .map((t) => t.name),
+      }),
+    // refCtx() and allTables() read the tables store: `tables` is what changes them.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [nodes, edges, tables],
+  );
 }
 
 /** Board W17: numbered, read-only SQL. A scroll region the keyboard can reach. */

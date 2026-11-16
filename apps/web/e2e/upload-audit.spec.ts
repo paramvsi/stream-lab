@@ -321,6 +321,11 @@ test('purge audit 2: a copy still being saved (fresh rows, no pipeline yet) is n
     const u = await import('/src/sim/uploads.ts');
     await u.saveRows('p_race', 'pay', [{ a: 1 }]); // rows written, pipeline not saved yet
     await u.purgeDeletedUploads(new Set()); // a My pipelines visit with a list that lacks p_race
+  });
+  // The stale-list visit must not even mark the fresh rows (the rule under test, not the later unmark).
+  expect((await opfs(page)).filter((f) => f.startsWith('p_race/'))).toEqual(['p_race/pay.jsonl']);
+  await page.evaluate(async () => {
+    const u = await import('/src/sim/uploads.ts');
     // The copy is saved; a later visit (after the grace period) knows it.
     await u.purgeDeletedUploads(new Set(['p_race']), Date.now() + 11 * 60_000);
   });

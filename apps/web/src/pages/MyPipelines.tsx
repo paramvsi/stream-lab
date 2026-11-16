@@ -6,7 +6,14 @@ import { fileSize } from '@sl/engine';
 import { Copy, DatabaseZap, FileUp, Plus, Trash2, Workflow } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { newId } from '../sim/store';
-import { deletePipeline, getPipeline, listPipelines, savePipeline, type PipelineMeta } from '../storage';
+import {
+  deletePipeline,
+  getPipeline,
+  listPipelines,
+  savePipeline,
+  unsaved,
+  type PipelineMeta,
+} from '../storage';
 import { SiteShell } from './SiteShell';
 import {
   copyUploads,
@@ -70,7 +77,8 @@ export function MyPipelines() {
   // Free uploads of pipelines deleted longer ago than the grace period (and mark orphans), then measure.
   useEffect(() => {
     void listPipelines()
-      .then((ps) => purgeDeletedUploads(new Set(ps.map((p) => p.id))))
+      // Pipelines whose first save failed (still in this tab's memory) exist too: their rows are not orphans.
+      .then((ps) => purgeDeletedUploads(new Set([...ps.map((p) => p.id), ...unsaved.keys()])))
       .then(measure, (e: unknown) => {
         if (!(e instanceof AppError)) throw e;
         setStoreError(e);
@@ -391,7 +399,8 @@ export function MyPipelines() {
                     try {
                       await removeUploads(m.id);
                     } catch (e) {
-                      if (p) await save(p);
+                      // Claim the rows again; if even that fails, its storage error is the one to show.
+                      if (p && !(await save(p))) return;
                       const reason =
                         (e as { name?: string })?.name === 'NoModificationAllowedError'
                           ? 'another tab is using it'

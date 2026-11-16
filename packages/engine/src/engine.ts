@@ -957,7 +957,7 @@ export function createRun(g: Graph, opts: RunOptions = {}): Run {
   };
   // SIM-RUNTIME-EXPR dead letter: the enabled Dead-letter node this node feeds, else the first enabled one.
   const routing = new Map<string, Map<string, number>>(); // keyed node → events per key (ENG-03)
-  let statsCalls = 0;
+  let routedAt = -1;
   const dlqIds = new Set(order.filter((n) => n.type === 'Dead-letter' && !n.disabled).map((n) => n.id));
   const deadLetterFor = (id: string) =>
     (out.get(id) ?? []).find((e) => dlqIds.has(e.target))?.target ?? [...dlqIds][0];
@@ -1151,13 +1151,16 @@ export function createRun(g: Graph, opts: RunOptions = {}): Run {
     tapped: () => tapped,
     snapshot: (id) => ops.get(id)?.snapshot?.(),
     stats: () => {
-      // The busiest keys, about once a second (every 10th call) and at the end: one pass keeping the top 50,
-      // not a sort of every key on every 100 ms tick.
-      if (statsCalls++ % 10 === 0 || stats.done)
+      // Recomputed whenever events were processed since the last time (steps and pauses included): one
+      // pass keeping the top 50, not a sort of every key.
+      if (stats.processed !== routedAt || stats.done) {
+        routedAt = stats.processed;
         for (const [id, counts] of routing) {
           const top: [string, number][] = [];
           for (const e of counts) {
-            if (top.length === 50 && e[1] <= top[49]![1]) continue;
+            const last = top[49];
+            // Below the 50th (or tied with it but later by key): not in the top 50.
+            if (last && (e[1] < last[1] || (e[1] === last[1] && e[0] >= last[0]))) continue;
             let at = top.findIndex((t) => e[1] > t[1] || (e[1] === t[1] && e[0] < t[0]));
             if (at < 0) at = top.length;
             top.splice(at, 0, e);
@@ -1170,6 +1173,7 @@ export function createRun(g: Graph, opts: RunOptions = {}): Run {
             events,
           }));
         }
+      }
       for (const [id, op] of ops) if (op.keys) ns(id).keys = op.keys();
       return stats;
     },

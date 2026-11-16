@@ -152,10 +152,15 @@ export function purgeDeletedUploads(
   existing: Set<string>,
   now = Date.now(),
 ): Promise<void> {
-  purging ??= purgePass(existing, now).finally(() => {
-    purging = null;
-  });
-  return purging;
+  // One pass at a time; a caller during a pass gets its own pass after it (with its own list and time).
+  const run: Promise<void> = (purging ?? Promise.resolve())
+    .catch(() => undefined) // the earlier pass's error went to its own caller
+    .then(() => purgePass(existing, now))
+    .finally(() => {
+      if (purging === run) purging = null;
+    });
+  purging = run;
+  return run;
 }
 
 async function purgePass(existing: Set<string>, now: number): Promise<void> {
@@ -194,8 +199,11 @@ async function purgePass(existing: Set<string>, now: number): Promise<void> {
         if (f.kind === 'file')
           newest = Math.max(newest, (await (f as FileSystemFileHandle).getFile()).lastModified);
       if (now - newest >= UPLOAD_GRACE_MS) await deleteUploads(name);
-    } catch {
-      // Another tab holds this folder: leave it for the next pass (housekeeping only, nothing the user asked for).
+    } catch (e) {
+      // Another tab holds this folder (or it just went): leave it for the next pass. Anything else is real.
+      const n = (e as { name?: string } | null)?.name;
+      if (n !== 'NoModificationAllowedError' && n !== 'NotFoundError' && n !== 'InvalidStateError')
+        throw new AppError('STORE-BLOCKED', {}, e);
     }
   }
 }

@@ -567,3 +567,40 @@ describe('inspector audit', () => {
     );
   });
 });
+
+describe('routing audit', () => {
+  const g: Graph = {
+    nodes: [
+      node('s', 'Source', { schema: SCHEMA, outOfOrdernessMs: 0 }),
+      node('w', 'Window', { sizeMs: 3600000, keyBy: ['card_id'] }),
+      node('out', 'Sink'),
+    ],
+    edges: [edge('s', 'w'), edge('w', 'out')],
+  };
+  // k_01 … k_60, key k_i with i events: the 50 busiest are k_11 … k_60.
+  const rows = Array.from({ length: 60 }, (_, i) => i + 1).flatMap((n) =>
+    Array.from({ length: n }, () => row(0, `k_${String(n).padStart(2, '0')}`)),
+  );
+  it('#1 the busiest keys are current after every step and on pause (not every 10th call only)', () => {
+    const r = createRun(g, { sourceData: { s: rows } });
+    for (let k = 1; k <= 7; k++) {
+      r.step();
+      const st = r.stats().nodes['w']!;
+      expect(st.keyRouting!.reduce((a, x) => a + x.events, 0)).toBe(st.subtasks!.reduce((a, b) => a + b, 0));
+    }
+  });
+  it('#2 the top 50 are the 50 busiest keys, ties broken by key', () => {
+    const r = createRun(g, { sourceData: { s: [...rows].reverse() } });
+    r.advance(Infinity);
+    const keys = r.stats().nodes['w']!.keyRouting!.map((k) => k.key);
+    expect(keys).toHaveLength(50);
+    expect(new Set(keys)).toEqual(new Set(Array.from({ length: 50 }, (_, i) => `k_${i + 11}`)));
+  });
+  it('#2 ties: with equal counts the first 50 keys win, whatever order they arrived in', () => {
+    const ties = Array.from({ length: 60 }, (_, i) => row(0, `t_${String(59 - i).padStart(2, '0')}`));
+    const r = createRun(g, { sourceData: { s: ties } });
+    r.advance(Infinity);
+    const keys = r.stats().nodes['w']!.keyRouting!.map((k) => k.key);
+    expect(keys).toEqual(Array.from({ length: 50 }, (_, i) => `t_${String(i).padStart(2, '0')}`));
+  });
+});

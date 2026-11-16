@@ -95,3 +95,4 @@ Overnight log. **Decisions** need your call; **Commands** need you to run them. 
   - Board W13b's time-axis timeline is a row of nearby-version buttons plus a picker. 480 per-minute versions don't fit an axis.
 - Storage audit, not fixed: if a pipeline is open in another tab and you choose "Keep editing here" after its uploaded data was deleted, the next autosave writes the upload records back. Every later run then shows DATA-UPLOAD-UNUSED (the run still works on the generator).
 - Stack deviation: the run panel's Timeline is a small inline SVG, not uPlot (the stack table names uPlot for charts). It was kept small on purpose; switch to uPlot when the timeline needs zoom or scrubbing. OK?
+- Routing audit, low and not fixed: an Undo that lands while a My pipelines pass is running on an older list can re-mark the restored pipeline's rows. The next visit with a correct list unmarks them, so nothing is lost, but the Uploaded data cell reads "—" until then.

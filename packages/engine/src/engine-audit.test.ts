@@ -702,6 +702,10 @@ describe('DATA-05 generator: key skew and fraud patterns', () => {
     for (const k of [12, 37, 62, 987])
       expect(listed.has(JSON.parse(byId.get(`p_${100000 + k}`)![0]!).merchant_id)).toBe(true);
   });
+  it('audit: no burst in a run too short for 8 payments (as before)', () => {
+    const evs = generate(PAYMENTS, { ...base, count: 5, patterns: { burst: true, blocklisted: false } });
+    expect(evs.map((e) => e.ev.data['card_id'])).not.toContain('c_1399');
+  });
   it('burst: one card makes 8 small payments in a row', () => {
     const evs = generate(PAYMENTS, { ...base, patterns: { burst: true, blocklisted: false } });
     const runs = evs.map((e, i) => evs.slice(i, i + 8)).filter((w) => w.length === 8);

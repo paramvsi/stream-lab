@@ -148,6 +148,8 @@ export function generate(
   const top = Math.max(1, Math.ceil(c.keys / 100));
   const card = () => (c.skewPct && r() * 100 < c.skewPct ? Math.floor(r() * top) : Math.floor(r() * c.keys));
   const burstAt = Math.floor(c.count * 0.3);
+  // As before: no burst in a run too short for 8, or with no card to repeat.
+  const burst = !!c.patterns?.burst && c.count >= 8 && schema.some((f) => f.name === 'card_id');
   for (let i = 0; i < c.count; i++) {
     const at = i * gap;
     let ts = BASE_TIME + Math.round(at);
@@ -178,7 +180,7 @@ export function generate(
     }
     // DATA-05 built-in fraud patterns, applied to the payment itself (before its duplicate is copied and before
     // the malformed step), by payment number: the draws above happen either way, so a run without them is unchanged.
-    if (c.patterns?.burst && i >= burstAt && i < burstAt + 8) {
+    if (burst && i >= burstAt && i < burstAt + 8) {
       // Card testing: one card makes 8 small payments in a row, 30% of the way in.
       if ('card_id' in data) data['card_id'] = `c_${1000 + c.keys - 1}`;
       if ('amount' in data) data['amount'] = 1 + (i - burstAt) * 0.5;

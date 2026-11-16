@@ -118,3 +118,8 @@ Overnight log. **Decisions** need your call; **Commands** need you to run them. 
   - A table key that is 7 in one row and 7.0 in another is the same text key "7".
   - An uploaded table's bad-row list is not sorted by line, unlike the Source upload's.
 - Flaky test, named: `run.spec.ts` "SIM-16 at 10× a 1,000-event run finishes and says so" waits 15 s for "Finished". A run is about 2 s of wall-clock work at 10×. Under parallel gate load it failed once (toHaveText at 19.5 s). It passed 3/3 alone and in a full rerun (80/80). It is probably the unnamed toHaveText failure in the 971f5ed gate too. The run speed depends on wall-clock ticks; the test could use the Step button or a longer wait. Left as is until you decide whether slow-under-load should fail.
+- SQL export audit (52a0095), not fixed:
+  - `'json.timestamp-format.standard' = 'ISO-8601'` is set, but whether Flink reads the trailing `Z` into TIMESTAMP(3) is unverified. It matters when the docker bundle (EXP-02, v1) actually runs.
+  - Validate in the export rejects on every rule, as the simulator does. D37 still decides what a warning should do in both.
+  - A Map expression that can be NULL feeds a sink column; columns are now nullable, so nothing enforces a NOT NULL contract.
+  - The union-tag test passes on the old code too: the old SQL used `SELECT *`, so the duplicate column was not visible in the text.

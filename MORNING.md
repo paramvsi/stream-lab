@@ -4,8 +4,7 @@ Overnight log. **Decisions** need your call; **Commands** need you to run them. 
 
 ## Commands for you
 
-1. **Push.** No remote exists yet. Create the GitHub repo, then:
-   `git remote add origin <url> && git push -u origin main`
+1. **Push.** Done on 2026-11-16: public repo https://github.com/paramvsi/stream-lab, `main` tracking `origin/main`. CI run 43811285671 is green: lint, format, typecheck, all unit tests, build, Storybook and all e2e tests. That is the first full-suite run. CI warns that the actions target Node 20, which is deprecated. If the IP-clause check in PRODUCT.md is not settled, make the repo private: `gh repo edit paramvsi/stream-lab --visibility private`.
 2. **Docker.** Port 9092 is used by your `dtxsim-kafka-1` container, so run ours with `KAFKA_PORT=9094`. **Credential helper:** `~/.docker/config.json` has `"credsStore": "desktop"`, but `docker-credential-desktop` is not on PATH, so `docker compose up` fails on the image pull. Either add it to your shell profile:
    `export PATH="$PATH:/Applications/Docker.app/Contents/Resources/bin"`
    or remove the `credsStore` line. (I put it on PATH for single commands only and did not change your config.)

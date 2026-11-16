@@ -30,6 +30,11 @@ function useRunAction(onAction?: OnAction) {
   };
 }
 
+/** Only actions that do something: "Copy details" is built in; the rest need an onAction handler (and, when the
+ * caller says which labels it handles, one of those). */
+const shown = (p: Presented, onAction?: OnAction, handles?: ReadonlySet<string>) =>
+  p.actions.filter((l) => l === 'Copy details' || (onAction && (!handles || handles.has(l))));
+
 function Actions({
   p,
   e,
@@ -44,11 +49,7 @@ function Actions({
   handles?: ReadonlySet<string> | undefined;
 }) {
   const run = useRunAction(onAction);
-  // Only actions that do something: "Copy details" is built in; the rest need an onAction handler (and, when
-  // the caller says which labels it handles, one of those).
-  const labels = p.actions
-    .filter((l) => l === 'Copy details' || (onAction && (!handles || handles.has(l))))
-    .slice(0, max);
+  const labels = shown(p, onAction, handles).slice(0, max);
   return labels.map((l, i) => (
     <Button
       key={l}
@@ -85,7 +86,10 @@ export function ErrorBanner({
       severity={p.severity}
       {...(onDismiss ? { onDismiss } : {})}
       actions={
-        p.actions.length ? <Actions p={p} e={error} onAction={onAction} handles={handles} /> : undefined
+        // None left to show: no (empty) action row.
+        shown(p, onAction, handles).length ? (
+          <Actions p={p} e={error} onAction={onAction} handles={handles} />
+        ) : undefined
       }
     >
       {p.message}

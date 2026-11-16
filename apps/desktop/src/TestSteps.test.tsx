@@ -251,3 +251,50 @@ describe('audit of 882b42b', () => {
     );
   });
 });
+
+describe('audit of e92f1b3', () => {
+  const fill = async (env = true) => {
+    await toForm();
+    await userEvent.type(screen.getByLabelText(/^Name/), 'local-docker');
+    if (env) await userEvent.selectOptions(screen.getByLabelText(/^Environment/), 'dev');
+    await userEvent.type(screen.getByLabelText(/JobManager REST URL/), 'http://localhost:8081');
+  };
+  it('#1 a test that could not run names the check that broke (Failed); the ones after say Skipped', async () => {
+    app(() => async (r) => {
+      if (r.path === '/overview') throw new TypeError('invoke failed');
+      return healthy(r);
+    });
+    await fill();
+    await userEvent.click(screen.getByRole('button', { name: 'Test connection' }));
+    await steps().findByText(/the test could not run/);
+    const rows = steps()
+      .getAllByRole('listitem')
+      .map((li) => li.textContent);
+    expect(rows.find((t) => t!.startsWith('This is Flink'))).toContain('Passed');
+    expect(rows.find((t) => t!.startsWith('Read the overview'))).toContain('Failed');
+    expect(rows.find((t) => t!.startsWith('SQL Gateway'))).toContain('Skipped');
+  });
+  it('#2 "Save as read-only" that has to wait for a field clears the old result (no stale "Save anyway")', async () => {
+    app(() => async (r) => {
+      if (r.gateway) throw new TransportError({ kind: 'refused', host: 'localhost', port: 8083 });
+      return healthy(r);
+    });
+    await fill(false);
+    await userEvent.type(screen.getByLabelText(/SQL Gateway URL/), 'http://localhost:8083');
+    await userEvent.click(screen.getByRole('button', { name: 'Test connection' }));
+    await userEvent.click(await steps().findByRole('button', { name: 'Save as read-only' }));
+    expect(screen.queryByRole('region', { name: 'Test connection' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Save anyway' })).toBeNull();
+    expect((screen.getByRole('switch', { name: /Read-only connection/ }) as HTMLInputElement).checked).toBe(
+      true,
+    );
+  });
+  it('#3 an outcome with no action to show has no (empty) action row', async () => {
+    app(() => async () => ({ status: 401, headers: {}, body: '', url: 'http://localhost:8081/config' }));
+    await fill();
+    await userEvent.click(screen.getByRole('button', { name: 'Test connection' }));
+    const msg = await steps().findByText(/rejected the token/);
+    const banner = msg.closest('[role="alert"], [role="status"]')!.parentElement!;
+    expect(banner.querySelector('.shrink-0.items-center.gap-2')).toBeNull();
+  });
+});

@@ -204,15 +204,20 @@ export function ConnectionForm({
           return c.url;
         }
       })();
-      // The checks that never ran say so (not "Waiting" after the test ended).
-      setResults((r) =>
-        Object.fromEntries(STEPS.map((x) => [x.id, r?.[x.id] ?? { id: x.id, status: 'skip' }])),
-      );
-      setOutcome({
-        result: 'fail',
-        error:
-          e instanceof AppError ? e : new AppError('CONN-IO', { host, reason: 'the test could not run' }, e),
+      const error =
+        e instanceof AppError ? e : new AppError('CONN-IO', { host, reason: 'the test could not run' }, e);
+      // The check that was running failed (named, as boards D02f/C04 do); the ones after it never ran.
+      setResults((r) => {
+        const failedAt = STEPS.find((x) => !r?.[x.id])?.id;
+        return Object.fromEntries(
+          STEPS.map((x) => [
+            x.id,
+            r?.[x.id] ??
+              (x.id === failedAt ? { id: x.id, status: 'fail', error } : { id: x.id, status: 'skip' }),
+          ]),
+        );
       });
+      setOutcome({ result: 'fail', error });
     }
   };
   const form = useRef<HTMLFormElement>(null);
@@ -222,6 +227,9 @@ export function ConnectionForm({
       // The switch shows it too, so the choice stays if Save has to wait for a field to be fixed.
       setD((x) => ({ ...x, readOnly: true }));
       save({ readOnly: true });
+      // The result described the form before Read-only: it is cleared (if Save waits for a field, the switch
+      // keeps the choice; "Save anyway" from the old result can no longer save it read-only).
+      changed();
     } else if (label === 'Save anyway') save();
     else if (label === 'Retry') {
       void startTest();

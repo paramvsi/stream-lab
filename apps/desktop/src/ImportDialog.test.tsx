@@ -126,3 +126,30 @@ describe('audit of 558633c/99e35ff', () => {
     expect((screen.getByRole('switch', { name: 'p' }) as HTMLInputElement).checked).toBe(true);
   });
 });
+
+describe('audit of 15bceee', () => {
+  it('#1 a separate gateway login needs its secret only for a password or token; #6 the same file can be chosen again', async () => {
+    app();
+    await userEvent.click(screen.getByRole('button', { name: 'Import connections' }));
+    const text = exportConnections([
+      conn('g', {
+        gateway: { url: 'https://g.example.com:8083', sameLogin: false, auth: { type: 'bearer' } },
+      }),
+      conn('t', {
+        gateway: {
+          url: 'https://t.example.com:8083',
+          sameLogin: false,
+          auth: { type: 'token-command', command: 'tok' },
+        },
+      }),
+    ]);
+    await choose(text);
+    const dialog = screen.getByRole('dialog', { name: 'Import connections' });
+    expect(within(dialog).getByRole('row', { name: /^g/ }).textContent).toContain(
+      'Enter its secret after import',
+    );
+    expect(within(dialog).getByRole('row', { name: /^t/ }).textContent).not.toContain('Enter its secret');
+    const input = dialog.querySelector('input[type="file"]') as HTMLInputElement;
+    expect(input.value).toBe('');
+  });
+});

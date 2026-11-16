@@ -25,7 +25,9 @@ const needsSecret = (c: Connection) =>
   c.auth.type === 'bearer' ||
   c.headers.some((h) => h.secret) ||
   (c.transport.type === 'proxy' && !!c.transport.user) ||
-  (!!c.gateway && !c.gateway.sameLogin && !!c.gateway.auth && c.gateway.auth.type !== 'none');
+  (!!c.gateway &&
+    !c.gateway.sameLogin &&
+    (c.gateway.auth?.type === 'basic' || c.gateway.auth?.type === 'bearer'));
 
 /**
  * CONN-08 import (board D03b): choose a connections file, see what it holds — new, already here (skip / replace /
@@ -85,8 +87,8 @@ export function ImportDialog({
         add.push({ ...c, name });
       }
     });
-    imported.current = true;
     onImport({ add, replace });
+    imported.current = true; // only once it went in: a throw leaves Cancel's focus return alone
     close();
   };
   return (

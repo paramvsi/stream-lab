@@ -121,7 +121,7 @@ describe('audit of 1f108b1', () => {
     expect(screen.getByLabelText('Header 1 value').getAttribute('type')).toBe('password');
     const box = screen.getByRole('checkbox', { name: 'Header 1 in keychain' }) as HTMLInputElement;
     expect(box.checked).toBe(true);
-    expect(box.disabled).toBe(true);
+    expect(box.getAttribute('aria-disabled')).toBe('true');
     await userEvent.click(screen.getByRole('button', { name: 'Save' }));
     expect(onSave).not.toHaveBeenCalled();
     expect(screen.getByText('The value of header "X-Api-Key" is required.')).toBeTruthy();
@@ -138,7 +138,7 @@ describe('audit of 1f108b1', () => {
     await userEvent.type(screen.getByLabelText(/SQL Gateway URL/), 'https://gw.example.com');
     await userEvent.selectOptions(screen.getByLabelText('SQL Gateway login'), 'basic');
     await userEvent.click(screen.getByRole('button', { name: 'Save' }));
-    expect(screen.getAllByText('SQL Gateway login is required.')).toHaveLength(1);
+    expect(screen.getAllByText('SQL Gateway user is required.')).toHaveLength(1);
     await userEvent.selectOptions(screen.getByLabelText('SQL Gateway login'), 'bearer');
     await userEvent.type(screen.getByLabelText(/^SQL Gateway token/), 'GWT');
     await userEvent.type(screen.getByLabelText(/HTTP proxy/), 'http://proxy:3128');
@@ -153,5 +153,66 @@ describe('audit of 1f108b1', () => {
     await vi.waitFor(() =>
       expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Remove header 1' })),
     );
+  });
+});
+
+describe('audit of 3b050a8', () => {
+  it('#1 a bad base path blocks Test (a login pasted there never reaches the transport)', async () => {
+    const seen: unknown[] = [];
+    form((c) => {
+      seen.push(c.basePath);
+      return async () => {
+        throw new Error('stop');
+      };
+    });
+    await basics();
+    await userEvent.type(screen.getByLabelText('Base path'), 'https://u:p@h/x');
+    expect(screen.getByRole('button', { name: 'Test connection' }).getAttribute('aria-disabled')).toBe(
+      'true',
+    );
+    expect(seen).toEqual([]);
+  });
+  it('#2 a header error marks only its own row and input, and Save goes there', async () => {
+    form();
+    await basics();
+    for (const [n, v] of [
+      ['X-Tenant', 'a'],
+      ['X-Region', 'b'],
+      ['X-Api-Key', ''],
+    ] as const) {
+      await userEvent.click(screen.getByRole('button', { name: 'Add header' }));
+      const i = screen.getAllByLabelText(/^Header \d+ name$/).length;
+      await userEvent.type(screen.getByLabelText(`Header ${i} name`), n);
+      if (v) await userEvent.type(screen.getByLabelText(`Header ${i} value`), v);
+    }
+    await userEvent.click(screen.getByRole('button', { name: 'Save' }));
+    const value3 = screen.getByLabelText('Header 3 value');
+    await vi.waitFor(() => expect(document.activeElement).toBe(value3));
+    const invalid = [...document.querySelectorAll('[aria-invalid="true"]')].map((e) =>
+      e.getAttribute('aria-label'),
+    );
+    expect(invalid).toEqual(['Header 3 value']);
+  });
+  it("#3 a credential header's Keychain box is reachable, says why it is on, and stays on", async () => {
+    form();
+    await basics();
+    await userEvent.click(screen.getByRole('button', { name: 'Add header' }));
+    await userEvent.type(screen.getByLabelText('Header 1 name'), 'X-Api-Key');
+    const box = screen.getByRole('checkbox', { name: 'Header 1 in keychain' }) as HTMLInputElement;
+    expect(box.disabled).toBe(false);
+    expect(box.getAttribute('aria-disabled')).toBe('true');
+    expect(document.getElementById(box.getAttribute('aria-describedby')!)!.textContent).toBe(
+      'X-Api-Key always goes to the keychain.',
+    );
+    await userEvent.click(box);
+    expect(box.checked).toBe(true);
+  });
+  it('#7 a separate SQL Gateway user missing says "SQL Gateway user is required."', async () => {
+    form();
+    await basics();
+    await userEvent.type(screen.getByLabelText(/SQL Gateway URL/), 'https://gw.example.com');
+    await userEvent.selectOptions(screen.getByLabelText('SQL Gateway login'), 'basic');
+    await userEvent.click(screen.getByRole('button', { name: 'Save' }));
+    expect(screen.getByText('SQL Gateway user is required.')).toBeTruthy();
   });
 });

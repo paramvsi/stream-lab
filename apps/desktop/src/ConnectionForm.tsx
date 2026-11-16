@@ -1,6 +1,8 @@
 import { AppError, ErrorBanner, present } from '@sl/errors';
 import {
+  headerProblem,
   isSecretHeader,
+  normBasePath,
   secretKey,
   STEPS,
   testConnection,
@@ -83,7 +85,7 @@ const toConnection = (d: Draft, id: string, kind: Connection['kind']): Connectio
   env: d.env || 'none',
   ...(d.color ? { color: d.color } : {}),
   readOnly: d.readOnly,
-  basePath: d.basePath.trim().replace(/(.)\/+$/, '$1'), // "/a/" → "/a": no "//config"
+  basePath: normBasePath(d.basePath),
   auth:
     d.auth === 'basic'
       ? { type: 'basic', user: d.user.trim() }
@@ -123,10 +125,21 @@ function problems(d: Draft, c: Connection, taken: string[]): Partial<Record<Fiel
       field: d.gwAuth === 'basic' ? 'SQL Gateway password' : 'SQL Gateway token',
     });
   // A keychain header with no value would claim a secret that does not exist.
-  const empty = d.headers.find((h) => h.name.trim() && isSecretHeader(h) && !h.value);
+  const empty = d.headers.find((h) => h.name.trim() && isSecretHeader(h) && !h.value.trim());
   if (!out.headers && empty)
     out.headers = new AppError('CONN-REQUIRED', { field: `The value of header "${empty.name.trim()}"` });
+  // The SQL Gateway user missing: said by its own name under that field (the model says "login").
+  if (out.gatewayLogin && !d.gwSame && d.gwAuth === 'basic' && !d.gwUser.trim())
+    out.gatewayLogin = new AppError('CONN-REQUIRED', { field: 'SQL Gateway user' });
   return out;
+}
+
+/** Which header row (and which of its inputs) the headers error is about. */
+function badHeader(d: Draft, c: Connection): { i: number; part: 'name' | 'value' } | undefined {
+  const p = headerProblem(c.headers);
+  if (p) return { i: p.index, part: 'name' };
+  const i = d.headers.findIndex((h) => h.name.trim() && isSecretHeader(h) && !h.value.trim());
+  return i >= 0 ? { i, part: 'value' } : undefined;
 }
 
 /**
@@ -155,6 +168,7 @@ export function ConnectionForm({
   const h1 = useScreenHeading();
   const colorName = useId();
   const headersErr = useId();
+  const keychainNote = useId();
   const [id] = useState(() => `c_${crypto.randomUUID()}`);
   const [d, setD] = useState<Draft>({
     name: '',
@@ -228,6 +242,7 @@ export function ConnectionForm({
       'headers',
       'gatewayLogin',
       'gwSecret',
+      'basePath',
     ] as const
   ).some((f) => all[f]);
   const startTest = async () => {
@@ -309,6 +324,8 @@ export function ConnectionForm({
   };
   const blur = (f: FieldKey) => () => setTouched((t) => new Set(t).add(f));
   const count = Object.keys(all).length;
+  const bad = all.headers && shown('headers') ? badHeader(d, c) : undefined;
+  const isBad = (i: number, part: 'name' | 'value') => bad?.i === i && bad.part === part;
   const save = (over?: Partial<Draft>) => {
     const conn = over ? toConnection({ ...d, ...over }, id, kind) : c;
     setSubmitted(true);
@@ -536,8 +553,8 @@ export function ConnectionForm({
                 <div key={i} className="grid grid-cols-[1fr_1fr_auto_auto] items-center gap-2">
                   <Input
                     aria-label={`Header ${i + 1} name`}
-                    aria-invalid={msg('headers') ? true : undefined}
-                    aria-describedby={msg('headers') ? headersErr : undefined}
+                    aria-invalid={isBad(i, 'name') || undefined}
+                    aria-describedby={isBad(i, 'name') ? headersErr : undefined}
                     mono
                     value={h.name}
                     placeholder="X-Tenant"
@@ -551,8 +568,8 @@ export function ConnectionForm({
                   />
                   <Input
                     aria-label={`Header ${i + 1} value`}
-                    aria-invalid={msg('headers') ? true : undefined}
-                    aria-describedby={msg('headers') ? headersErr : undefined}
+                    aria-invalid={isBad(i, 'value') || undefined}
+                    aria-describedby={isBad(i, 'value') ? headersErr : undefined}
                     mono
                     type={isSecretHeader(h) ? 'password' : 'text'}
                     autoComplete="off"
@@ -569,10 +586,13 @@ export function ConnectionForm({
                       type="checkbox"
                       className="sl-focus accent-rose-600"
                       aria-label={`Header ${i + 1} in keychain`}
-                      // Names that always carry a credential (Authorization-like) go to the keychain whatever is ticked.
                       checked={isSecretHeader(h)}
-                      disabled={!h.secret && isSecretHeader(h)}
+                      // A credential name is always kept in the keychain: the box says so and stays reachable
+                      // (aria-disabled, not disabled: still focusable, and focus is never pulled away from it).
+                      aria-disabled={!h.secret && isSecretHeader(h) ? true : undefined}
+                      aria-describedby={!h.secret && isSecretHeader(h) ? `${keychainNote}-${i}` : undefined}
                       onChange={(e) =>
+                        !(!h.secret && isSecretHeader(h)) &&
                         set(
                           'headers',
                           d.headers.map((x, j) => (j === i ? { ...x, secret: e.target.checked } : x)),
@@ -580,6 +600,11 @@ export function ConnectionForm({
                       }
                     />
                     Keychain
+                    {!h.secret && isSecretHeader(h) && (
+                      <span id={`${keychainNote}-${i}`} className="sr-only">
+                        {h.name.trim()} always goes to the keychain.
+                      </span>
+                    )}
                   </label>
                   <Button
                     size="sm"

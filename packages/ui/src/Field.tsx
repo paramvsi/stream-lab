@@ -71,7 +71,7 @@ function useField(props: {
   'aria-invalid'?: boolean | 'true' | 'false' | 'grammar' | 'spelling' | undefined;
 }) {
   const f = useContext(Ctx);
-  // A control outside a Field (a row of a list) may say it is invalid itself; a Field's own state wins.
+  // A control outside a Field (a row of a list) may say it is invalid itself; inside one, either says so.
   const own = props['aria-invalid'] === true || props['aria-invalid'] === 'true';
   const invalid = f?.invalid || own;
   return {

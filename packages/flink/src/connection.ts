@@ -173,6 +173,42 @@ function loginErrors(a: Connection['auth']): Partial<Record<'user' | 'command' |
 }
 
 /**
+ * The first custom header that is wrong, and which one (the form marks that row): Authorization (use the Login
+ * section), a missing name, a name that is not an HTTP token, a name set twice.
+ */
+export function headerProblem(headers: { name: string }[]): { index: number; error: AppError } | undefined {
+  const auth = headers.findIndex((h) => h.name.trim().toLowerCase() === 'authorization');
+  if (auth >= 0) return { index: auth, error: new AppError('CONN-HEADER-AUTH') };
+  const blank = headers.findIndex((h) => !h.name.trim());
+  if (blank >= 0) return { index: blank, error: new AppError('CONN-REQUIRED', { field: 'Header name' }) };
+  // A header name is an HTTP token; one name once (secrets are keyed by name, and a second value would be lost).
+  const seen = new Set<string>();
+  for (const [index, h] of headers.entries()) {
+    const n = h.name.trim();
+    if (!HEADER_NAME.test(n))
+      return {
+        index,
+        error: new AppError('CONN-HEADER-INVALID', {
+          // Invisible and direction-changing characters shown as \uXXXX; the rest as typed.
+          name: n.replace(
+            // eslint-disable-next-line no-control-regex, no-misleading-character-class -- invisible and combining characters are exactly what is matched
+            /[\u0000-\u001f\u007f-\u009f\u00ad\u034f\u061c\u115f\u1160\u180e\u200b-\u200f\u2028-\u202e\u2060-\u2069\u3164\ufe00-\ufe0f\ufeff\uffa0\u{e0000}-\u{e007f}]/gu,
+            (ch) => `\\u{${ch.codePointAt(0)!.toString(16)}}`,
+          ),
+          reason: 'has characters a header name can not have',
+        }),
+      };
+    if (seen.has(n.toLowerCase()))
+      return { index, error: new AppError('CONN-HEADER-INVALID', { name: n, reason: 'is set twice' }) };
+    seen.add(n.toLowerCase());
+  }
+  return undefined;
+}
+
+/** A base path as it is stored: trimmed, without trailing slashes ("/a/" → "/a", "/" → ""), so "{path}/config". */
+export const normBasePath = (p: string) => p.trim().replace(/\/+$/, '');
+
+/**
  * CONN-02: every field's problem, on blur (one field) and on save (all). `taken`: the other connections' names.
  * CONN-MTLS-FILE is raised when the file is read (Rust side), not here.
  */
@@ -192,8 +228,9 @@ export function validateConnection(
   }
   Object.assign(out, loginErrors(c.auth));
   // A path, not an address: a pasted URL (with a login in it) would be stored as typed.
-  const bp = c.basePath.trim();
-  if (bp && (!bp.startsWith('/') || /\s|:\/\/|@|\/\//.test(bp)))
+  const bp = normBasePath(c.basePath);
+  // Path characters only: no address, login, query, fragment, backslash or empty segment.
+  if (bp && (!bp.startsWith('/') || /[\s?#\\@]|:\/\/|\/\//.test(bp)))
     out.basePath = new AppError('CONN-BASEPATH-FORMAT');
   if (c.transport.type === 'proxy') {
     if (!c.transport.url.trim()) out.proxy = required('proxy');
@@ -203,34 +240,8 @@ export function validateConnection(
     }
   }
   // Authorization belongs to the Login section: kept in the keychain and redacted (CONN-HEADER-AUTH).
-  if (c.headers.some((h) => h.name.trim().toLowerCase() === 'authorization'))
-    out.headers = new AppError('CONN-HEADER-AUTH');
-  else if (c.headers.some((h) => !h.name.trim()))
-    out.headers = new AppError('CONN-REQUIRED', { field: 'Header name' });
-  else {
-    // A header name is an HTTP token; one name once (secrets are keyed by name, and a second value would be lost).
-    const seen = new Set<string>();
-    for (const h of c.headers) {
-      const n = h.name.trim();
-      if (!HEADER_NAME.test(n)) {
-        out.headers = new AppError('CONN-HEADER-INVALID', {
-          // Invisible and direction-changing characters shown as \uXXXX; the rest as typed.
-          name: n.replace(
-            // eslint-disable-next-line no-control-regex, no-misleading-character-class -- invisible and combining characters are exactly what is matched
-            /[\u0000-\u001f\u007f-\u009f\u00ad\u034f\u061c\u115f\u1160\u180e\u200b-\u200f\u2028-\u202e\u2060-\u2069\u3164\ufe00-\ufe0f\ufeff\uffa0\u{e0000}-\u{e007f}]/gu,
-            (ch) => `\\u{${ch.codePointAt(0)!.toString(16)}}`,
-          ),
-          reason: 'has characters a header name can not have',
-        });
-        break;
-      }
-      if (seen.has(n.toLowerCase())) {
-        out.headers = new AppError('CONN-HEADER-INVALID', { name: n, reason: 'is set twice' });
-        break;
-      }
-      seen.add(n.toLowerCase());
-    }
-  }
+  const hp = headerProblem(c.headers);
+  if (hp) out.headers = hp.error;
   // A SQL Gateway counts only when it has an address; its own login must be complete.
   if (c.gateway && c.gateway.url.trim()) {
     const e = urlError(c.gateway.url.trim());
@@ -365,6 +376,7 @@ export function importConnections(
       ...c,
       id: newId(),
       name: c.name.trim(),
+      basePath: normBasePath(c.basePath),
       url: c.url.trim(),
       ...(c.transport.type === 'proxy' ? { transport: { ...c.transport, url: c.transport.url.trim() } } : {}),
       ...(c.gateway ? { gateway: { ...c.gateway, url: c.gateway.url.trim() } } : {}),

@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { exportConnections, importConnections, validateConnection, type Connection } from './connection';
+import {
+  exportConnections,
+  headerProblem,
+  importConnections,
+  validateConnection,
+  type Connection,
+} from './connection';
 
 const conn = (over: Partial<Connection> = {}): Connection => ({
   id: 'c1',
@@ -419,5 +425,31 @@ describe('audit of 62f3388', () => {
     const r = importConnections('c.json', exportConnections([conn({ name: 'pay ' })]), []);
     if ('error' in r) throw r.error;
     expect(r.connections[0]!.name).toBe('pay');
+  });
+});
+
+describe('audit of 3b050a8', () => {
+  it('#4 #5 #6 import stores the base path as the form does; path characters only; the row of a header problem', () => {
+    const imp = (basePath: string) => {
+      const r = importConnections('c.json', exportConnections([conn({ name: 'p', basePath })]), []);
+      return 'error' in r ? 'REFUSED' : r.connections[0]!.basePath;
+    };
+    expect(imp(' /a/ ')).toBe('/a');
+    expect(imp('/a//')).toBe('/a');
+    expect(imp('/')).toBe('');
+    expect(imp('/proxy/application_1_0001/')).toBe('/proxy/application_1_0001');
+    for (const bad of ['/a?x=1', '/a#f', '/a\\b', '/u@h', 'a/b', '/a//b']) expect(imp(bad)).toBe('REFUSED');
+    expect(headerProblem([{ name: 'X-A' }, { name: 'x-a' }])).toMatchObject({
+      index: 1,
+      error: { code: 'CONN-HEADER-INVALID' },
+    });
+    expect(headerProblem([{ name: 'X-A' }, { name: '' }])).toMatchObject({
+      index: 1,
+      error: { code: 'CONN-REQUIRED' },
+    });
+    expect(headerProblem([{ name: 'X-A' }, { name: 'authorization' }])).toMatchObject({
+      index: 1,
+      error: { code: 'CONN-HEADER-AUTH' },
+    });
   });
 });

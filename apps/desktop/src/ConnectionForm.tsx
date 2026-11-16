@@ -600,12 +600,6 @@ export function ConnectionForm({
                       }
                     />
                     Keychain
-                    {!h.secret && isSecretHeader(h) && (
-                      // Seen as well as heard: the box ignores clicks, so it says why.
-                      <span id={`${keychainNote}-${i}`} className="text-muted">
-                        <span aria-hidden="true">· </span>always for {h.name.trim()}
-                      </span>
-                    )}
                   </label>
                   <Button
                     size="sm"
@@ -630,6 +624,13 @@ export function ConnectionForm({
                   >
                     Remove
                   </Button>
+                  {!h.secret && isSecretHeader(h) && (
+                    // Seen as well as heard (the box ignores clicks), on a line of its own so every row's
+                    // columns stay the same width.
+                    <p id={`${keychainNote}-${i}`} className="col-span-4 m-0 text-[13px] text-muted">
+                      {h.name.trim()} is always kept in the keychain.
+                    </p>
+                  )}
                 </div>
               ))}
               {msg('headers') && <FieldMessage id={headersErr}>{msg('headers')}</FieldMessage>}

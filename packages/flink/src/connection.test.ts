@@ -453,3 +453,39 @@ describe('audit of 3b050a8', () => {
     });
   });
 });
+
+describe('audit of 9e989a0', () => {
+  const v = (basePath: string) => validateConnection(conn({ basePath }), []).basePath?.code ?? 'ok';
+  it('valid base paths are accepted (dots inside names, %-escapes in either case)', () => {
+    for (const ok of [
+      '/.well-known/x',
+      '/a.b/c',
+      '/v1.2',
+      '/proxy/application_1_0001',
+      '/a%20b',
+      '/%2F',
+      '/%2f',
+      '/...',
+      '/..a',
+      '/a;b=c',
+    ])
+      expect([ok, v(ok)]).toEqual([ok, 'ok']);
+  });
+  it('dot segments even when %-encoded, encoded controls, and anything outside ASCII path characters are refused', () => {
+    for (const bad of [
+      '/%2e%2e/admin',
+      '/%2E%2E/admin',
+      '/.%2e/admin',
+      '/%2e/x',
+      '/a/%2E',
+      '/a%00',
+      '/a%0d%0a',
+      '/a%7F',
+      '/a\u180b',
+      '/a\ufff9',
+      '/a\u2800',
+      '/日本',
+    ])
+      expect([bad, v(bad)]).toEqual([bad, 'CONN-BASEPATH-FORMAT']);
+  });
+});

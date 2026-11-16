@@ -229,16 +229,13 @@ export function validateConnection(
   Object.assign(out, loginErrors(c.auth));
   // A path, not an address: a pasted URL (with a login in it) would be stored as typed.
   const bp = normBasePath(c.basePath);
-  // Path characters only: no address, login, query, fragment, backslash, empty or dot segment, broken %-escape,
-  // and nothing invisible (control, zero-width, direction-changing: they would be encoded into every request).
+  // Allowed, not refused: ASCII path characters and valid %-escapes only (so nothing invisible or non-path gets
+  // in), no empty segment, no dot segment even when %-encoded ("/%2e%2e" resolves as ".."), no encoded control.
   if (
     bp &&
-    (!bp.startsWith('/') ||
-      /[\s?#\\@]|:\/\/|\/\/|\/\.\.?(\/|$)|%(?![0-9a-f]{2})/i.test(bp) ||
-      // eslint-disable-next-line no-control-regex, no-misleading-character-class -- invisible and combining characters are exactly what is matched
-      /[\u0000-\u001f\u007f-\u009f\u00ad\u034f\u061c\u115f\u1160\u180e\u200b-\u200f\u2028-\u202e\u2060-\u2069\u3164\ufe00-\ufe0f\ufeff\uffa0\u{e0000}-\u{e007f}]/u.test(
-        bp,
-      ))
+    (!/^(\/([A-Za-z0-9\-._~!$&'()*+,;=:]|%[0-9A-Fa-f]{2})+)+$/.test(bp) ||
+      /\/(\.|%2e){1,2}(\/|$)/i.test(bp) ||
+      /%(0[0-9a-f]|1[0-9a-f]|7f)/i.test(bp))
   )
     out.basePath = new AppError('CONN-BASEPATH-FORMAT');
   if (c.transport.type === 'proxy') {

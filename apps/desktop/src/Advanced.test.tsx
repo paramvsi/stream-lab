@@ -106,7 +106,7 @@ describe('audit of 1f108b1', () => {
       await userEvent.type(bp, bad);
       await userEvent.click(screen.getByRole('button', { name: 'Save' }));
       expect(onSave).not.toHaveBeenCalled();
-      expect(screen.getByText(/Enter a base path that starts with \//)).toBeTruthy();
+      expect(screen.getByText(/^Enter a base path like \/flink\/payments/)).toBeTruthy();
     }
     await userEvent.clear(bp);
     await userEvent.type(bp, '/flink/payments/');
@@ -203,7 +203,7 @@ describe('audit of 3b050a8', () => {
     expect(box.disabled).toBe(false);
     expect(box.getAttribute('aria-disabled')).toBe('true');
     expect(document.getElementById(box.getAttribute('aria-describedby')!)!.textContent).toContain(
-      'always for X-Api-Key',
+      'X-Api-Key is always kept in the keychain.',
     );
     // Seen, not only heard: the reason is not hidden from view.
     expect(document.getElementById(box.getAttribute('aria-describedby')!)!.className).not.toMatch(/sr-only/);
@@ -258,5 +258,22 @@ describe('audit of 66fa0a5', () => {
     expect(await screen.findByText(/the test could not run/)).toBeTruthy();
     await userEvent.click(screen.getByRole('checkbox', { name: 'Header 1 in keychain' }));
     expect(screen.getByText(/the test could not run/)).toBeTruthy();
+  });
+});
+
+describe('audit of 9e989a0', () => {
+  it('the always-on Keychain note is a line of its own: every row\'s Keychain label says only "Keychain"', async () => {
+    form();
+    await basics();
+    for (const n of ['X-Tenant', 'proxy-authorization']) {
+      await userEvent.click(screen.getByRole('button', { name: 'Add header' }));
+      const i = screen.getAllByLabelText(/^Header \d+ name$/).length;
+      await userEvent.type(screen.getByLabelText(`Header ${i} name`), n);
+    }
+    const labels = screen.getAllByRole('checkbox').map((b) => b.closest('label')!.textContent);
+    expect(labels).toEqual(['Keychain', 'Keychain']);
+    expect(
+      screen.getByText('proxy-authorization is always kept in the keychain.').closest('label'),
+    ).toBeNull();
   });
 });

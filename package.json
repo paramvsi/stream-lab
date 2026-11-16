@@ -11,7 +11,7 @@
     "format:check": "prettier --check .",
     "typecheck": "turbo run typecheck",
     "test": "vitest run",
-    "e2e": "playwright test",
+    "e2e": "playwright test && playwright test -c playwright.desktop.config.ts",
     "storybook": "pnpm --filter @sl/ui storybook",
     "build-storybook": "pnpm --filter @sl/ui build-storybook"
   },

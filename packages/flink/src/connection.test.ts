@@ -403,3 +403,21 @@ describe('audit of 17e57df', () => {
     expect(e.headers!.params).toMatchObject({ name: 'X\\u{3164}\\u{fe0f}\\u{34f}T' });
   });
 });
+
+describe('audit of 62f3388', () => {
+  it('#1 an import error on the proxy address says it is the proxy; #9 names are stored trimmed', () => {
+    const bad = JSON.stringify({
+      format: 'streamlab.connections',
+      version: 1,
+      connections: [conn({ name: 'p', transport: { type: 'proxy', url: 'nope' } })],
+    });
+    expect(importConnections('c.json', bad, [])).toMatchObject({
+      error: {
+        params: { reason: 'p, Proxy address: Enter a full address like https://flink.example.com:8081' },
+      },
+    });
+    const r = importConnections('c.json', exportConnections([conn({ name: 'pay ' })]), []);
+    if ('error' in r) throw r.error;
+    expect(r.connections[0]!.name).toBe('pay');
+  });
+});

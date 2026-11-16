@@ -1,7 +1,8 @@
-import { exportConnections, type Connection } from '@sl/flink';
+import type { Connection } from '@sl/flink';
 import { Button, Dialog, IconButton, StatusBadge, Table } from '@sl/ui';
 import { Download, Plus, Trash2, Upload } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import { ExportDialog } from './ExportDialog';
 import { useScreenHeading } from './focus';
 
 const ENV: Record<Connection['env'], string> = {
@@ -12,12 +13,12 @@ const ENV: Record<Connection['env'], string> = {
 };
 const DOT: Record<NonNullable<Connection['color']> | Connection['env'], string> = {
   red: 'bg-danger-600',
-  orange: 'bg-orange-500',
+  orange: 'bg-orange-700',
   green: 'bg-success-600',
   rose: 'bg-rose-500',
   grey: 'bg-muted',
   prod: 'bg-danger-600',
-  staging: 'bg-orange-500',
+  staging: 'bg-orange-700',
   dev: 'bg-success-600',
   none: 'bg-muted',
 };
@@ -58,15 +59,9 @@ export function Connections({
     document.title = 'Connections · Stream Lab';
   }, []);
   const [removing, setRemoving] = useState<Connection | null>(null);
-  const exportFile = () => {
-    const url = URL.createObjectURL(new Blob([exportConnections(connections)], { type: 'application/json' }));
-    const a = Object.assign(document.createElement('a'), {
-      href: url,
-      download: 'streamlab-connections.json',
-    });
-    a.click();
-    URL.revokeObjectURL(url);
-  };
+  const [exporting, setExporting] = useState(false);
+  /** Where focus goes once a row is removed: the next row's Remove (or the previous), else the heading. */
+  const removed = useRef<number | null>(null);
   return (
     <main className="flex min-h-screen flex-col gap-5 bg-surface px-8 py-8">
       <div className="flex flex-wrap items-start justify-between gap-4">
@@ -76,14 +71,14 @@ export function Connections({
           </h1>
           {/* Not the board's "Saved on this computer": until the storage and keychain land, that would be false. */}
           <p className="m-0 text-[14px] text-muted">
-            Kept for this session only: saving to this computer and the keychain come with the desktop build.
+            Kept for this session only: saving connections and secrets on this computer is not built yet.
           </p>
         </div>
         <div className="flex gap-3">
           <Button icon={<Upload size={16} aria-hidden="true" />} onClick={onImport}>
             Import
           </Button>
-          <Button icon={<Download size={16} aria-hidden="true" />} onClick={exportFile}>
+          <Button icon={<Download size={16} aria-hidden="true" />} onClick={() => setExporting(true)}>
             Export
           </Button>
           <Button variant="primary" icon={<Plus size={16} aria-hidden="true" />} onClick={onAdd}>
@@ -125,7 +120,12 @@ export function Connections({
             key: 'actions',
             header: <span className="sr-only">Actions</span>,
             render: (c) => (
-              <IconButton aria-label={`Remove ${c.name}`} size="sm" onClick={() => setRemoving(c)}>
+              <IconButton
+                data-remove-connection
+                aria-label={`Remove ${c.name}`}
+                size="sm"
+                onClick={() => setRemoving(c)}
+              >
                 <Trash2 size={16} aria-hidden="true" />
               </IconButton>
             ),
@@ -136,14 +136,26 @@ export function Connections({
         open={!!removing}
         onOpenChange={(o) => !o && setRemoving(null)}
         title={removing ? `Remove "${removing.name}"?` : ''}
-        width={440}
+        severity="error"
+        width={480}
+        onCloseAutoFocus={(e) => {
+          if (removed.current === null) return; // Cancel / Escape: back to the row's Remove (the kit's default)
+          e.preventDefault();
+          const i = removed.current;
+          removed.current = null;
+          const buttons = document.querySelectorAll<HTMLElement>('[data-remove-connection]');
+          (buttons[Math.min(i, buttons.length - 1)] ?? h1.current)?.focus();
+        }}
         footer={
           <>
             <Button onClick={() => setRemoving(null)}>Cancel</Button>
             <Button
               variant="danger"
               onClick={() => {
-                if (removing) onRemove(removing.id);
+                if (removing) {
+                  removed.current = connections.findIndex((c) => c.id === removing.id);
+                  onRemove(removing.id);
+                }
                 setRemoving(null);
               }}
             >
@@ -152,8 +164,9 @@ export function Connections({
           </>
         }
       >
-        <p className="m-0">This removes it from this computer. The cluster itself is not touched.</p>
+        <p className="m-0">This removes the connection from Stream Lab. The cluster itself is not touched.</p>
       </Dialog>
+      <ExportDialog open={exporting} onOpenChange={setExporting} connections={connections} />
     </main>
   );
 }

@@ -323,11 +323,11 @@ export function importConnections(
   for (const [i, c] of r.data.connections.entries()) {
     const problems = Object.entries(validateConnection(c, []));
     if (problems.length) {
-      const [, e] = problems[0]!;
+      const [field, e] = problems[0]!;
       return invalid(
         lineOf(i),
-        // The catalog message names the field itself ("JobManager REST URL is required").
-        `${c.name || 'a connection'}: ${present(e!).message.replace(/\.$/, '')}`,
+        // "X is required" names its field; the others (an address that is wrong…) need it said.
+        `${c.name || 'a connection'}${e!.code === 'CONN-REQUIRED' ? '' : `, ${FIELD_LABEL[field as ConnectionField]}`}: ${present(e!).message.replace(/\.$/, '')}`,
       );
     }
     const k = c.name.trim().toLowerCase();
@@ -348,10 +348,13 @@ export function importConnections(
     return {
       ...c,
       id: newId(),
+      name: c.name.trim(),
       url: c.url.trim(),
       ...(c.transport.type === 'proxy' ? { transport: { ...c.transport, url: c.transport.url.trim() } } : {}),
       ...(c.gateway ? { gateway: { ...c.gateway, url: c.gateway.url.trim() } } : {}),
-      headers: c.headers.map((h) => (isSecretHeader(h) ? { name: h.name, secret: true } : h)),
+      headers: c.headers.map((h) =>
+        isSecretHeader(h) ? { name: h.name.trim(), secret: true } : { ...h, name: h.name.trim() },
+      ),
     };
   });
   return {

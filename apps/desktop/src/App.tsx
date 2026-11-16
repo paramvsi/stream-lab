@@ -27,7 +27,7 @@ export function App({
 }: {
   transport?: (c: Connection) => FlinkHttp;
   /** Test connection before saving: the transport with the secret typed in the form (not yet in the keychain). */
-  test?: (c: Connection, secret: string) => FlinkHttp;
+  test?: (c: Connection, secret: string, more: { gateway: string; proxy: string }) => FlinkHttp;
 } = {}) {
   const [screen, setScreen] = useState<Screen>({ name: 'home' });
   const [connections, setConnections] = useState<Connection[]>([]);

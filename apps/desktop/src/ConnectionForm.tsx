@@ -12,7 +12,7 @@ import {
   type Connection,
   type ConnectionField,
 } from '@sl/flink';
-import { Button, Field, Input, Select } from '@sl/ui';
+import { Button, Field, FieldMessage, Input, Select } from '@sl/ui';
 import { Activity } from 'lucide-react';
 import { useEffect, useId, useRef, useState } from 'react';
 import { TestSteps } from './TestSteps';
@@ -51,8 +51,18 @@ interface Draft {
   pollMs: number;
   timeoutMs: number;
   readOnly: boolean;
+  /** C02 advanced settings. */
+  basePath: string;
+  headers: { name: string; value: string; secret: boolean }[];
+  proxy: string;
+  proxyUser: string;
+  proxySecret: string;
+  gwSame: boolean;
+  gwAuth: 'none' | 'basic' | 'bearer';
+  gwUser: string;
+  gwSecret: string;
 }
-type FieldKey = ConnectionField | 'env' | 'secret';
+type FieldKey = ConnectionField | 'env' | 'secret' | 'gwSecret';
 /** The catalog actions a test outcome can carry that this form carries out (the rest need screens not built). */
 const TEST_ACTIONS: ReadonlySet<string> = new Set([
   'Retry',
@@ -71,7 +81,7 @@ const toConnection = (d: Draft, id: string, kind: Connection['kind']): Connectio
   env: d.env || 'none',
   ...(d.color ? { color: d.color } : {}),
   readOnly: d.readOnly,
-  basePath: '',
+  basePath: d.basePath.trim(),
   auth:
     d.auth === 'basic'
       ? { type: 'basic', user: d.user.trim() }
@@ -80,11 +90,23 @@ const toConnection = (d: Draft, id: string, kind: Connection['kind']): Connectio
         : d.auth === 'mtls'
           ? { type: 'mtls', cert: d.cert.trim(), key: d.key.trim() }
           : { type: d.auth },
-  headers: [],
-  transport: { type: 'direct' },
+  headers: d.headers.map((h) => ({ name: h.name.trim(), value: h.value, secret: h.secret })),
+  transport: d.proxy.trim()
+    ? { type: 'proxy', url: d.proxy.trim(), ...(d.proxyUser.trim() ? { user: d.proxyUser.trim() } : {}) }
+    : { type: 'direct' },
   timeoutMs: d.timeoutMs,
   pollMs: d.pollMs,
-  ...(d.gateway.trim() ? { gateway: { url: d.gateway.trim(), sameLogin: true } } : {}),
+  ...(d.gateway.trim()
+    ? {
+        gateway: {
+          url: d.gateway.trim(),
+          sameLogin: d.gwSame,
+          ...(d.gwSame
+            ? {}
+            : { auth: d.gwAuth === 'basic' ? { type: 'basic', user: d.gwUser.trim() } : { type: d.gwAuth } }),
+        },
+      }
+    : {}),
 });
 
 /** Every field's problem: the model's own rules (CONN-02) plus the ones about fields not in the model. */
@@ -94,6 +116,10 @@ function problems(d: Draft, c: Connection, taken: string[]): Partial<Record<Fiel
   if (d.auth === 'basic' && !d.secret.trim())
     out.secret = new AppError('CONN-REQUIRED', { field: 'Password' });
   if (d.auth === 'bearer' && !d.secret.trim()) out.secret = new AppError('CONN-REQUIRED', { field: 'Token' });
+  if (d.gateway.trim() && !d.gwSame && d.gwAuth !== 'none' && !d.gwSecret.trim())
+    out.gwSecret = new AppError('CONN-REQUIRED', {
+      field: d.gwAuth === 'basic' ? 'SQL Gateway password' : 'SQL Gateway token',
+    });
   return out;
 }
 
@@ -115,7 +141,7 @@ export function ConnectionForm({
   onCancel: () => void;
   onSave: (r: { connection: Connection; secrets: { key: string; value: string }[] }) => void;
   /** How to reach a cluster before it is saved (the secret is the one typed here). None: Test says why. */
-  test?: (c: Connection, secret: string) => FlinkHttp;
+  test?: (c: Connection, secret: string, more: { gateway: string; proxy: string }) => FlinkHttp;
 }) {
   useEffect(() => {
     document.title = 'New connection · Stream Lab';
@@ -137,6 +163,15 @@ export function ConnectionForm({
     pollMs: 5000,
     timeoutMs: 10000,
     readOnly: false,
+    basePath: '',
+    headers: [],
+    proxy: '',
+    proxyUser: '',
+    proxySecret: '',
+    gwSame: true,
+    gwAuth: 'none',
+    gwUser: '',
+    gwSecret: '',
   });
   const [touched, setTouched] = useState<Set<FieldKey>>(new Set());
   const [submitted, setSubmitted] = useState(false);
@@ -173,16 +208,28 @@ export function ConnectionForm({
   };
   const testing = results !== null && outcome === null;
   /** What must be right before a test is sent: the addresses (no login inside them) and the login itself. */
-  const testBlocked = (['url', 'gateway', 'user', 'secret', 'command', 'cert', 'key'] as const).some(
-    (f) => all[f],
-  );
+  const testBlocked = (
+    [
+      'url',
+      'gateway',
+      'user',
+      'secret',
+      'command',
+      'cert',
+      'key',
+      'proxy',
+      'headers',
+      'gatewayLogin',
+      'gwSecret',
+    ] as const
+  ).some((f) => all[f]);
   const startTest = async () => {
     if (!test || testBlocked) return;
     const mine = ++run.current;
     setResults({});
     setOutcome(null);
     try {
-      const steps = testConnection(test(c, d.secret), {
+      const steps = testConnection(test(c, d.secret, { gateway: d.gwSecret, proxy: d.proxySecret }), {
         name: c.name || 'this cluster',
         url: c.url,
         readOnly: c.readOnly,
@@ -254,10 +301,17 @@ export function ConnectionForm({
     const key = secretKey(id, 'login');
     onSave({
       connection,
-      secrets:
-        d.secret && (d.auth === 'basic' || d.auth === 'bearer')
-          ? [...secrets, { key, value: d.secret }]
-          : secrets,
+      secrets: [
+        ...secrets,
+        ...(d.secret && (d.auth === 'basic' || d.auth === 'bearer') ? [{ key, value: d.secret }] : []),
+        // The SQL Gateway's own login and the proxy's password: keychain entries of their own.
+        ...(connection.gateway && !connection.gateway.sameLogin && d.gwAuth !== 'none' && d.gwSecret
+          ? [{ key: secretKey(id, 'gateway'), value: d.gwSecret }]
+          : []),
+        ...(connection.transport.type === 'proxy' && d.proxySecret
+          ? [{ key: secretKey(id, 'proxy'), value: d.proxySecret }]
+          : []),
+      ],
     });
   };
   return (
@@ -437,6 +491,173 @@ export function ConnectionForm({
             </Select>
           </Field>
         </div>
+        <details className="rounded-lg border border-line">
+          <summary className="sl-focus cursor-pointer px-4 py-3 text-[14px] font-semibold">
+            Advanced settings
+          </summary>
+          <div className="flex flex-col gap-4 border-t border-line px-4 py-4">
+            <Field
+              label="Base path"
+              help="For gateways and YARN proxies. Every call goes to the address, then the base path."
+            >
+              <Input
+                mono
+                value={d.basePath}
+                placeholder="/flink/payments"
+                onChange={(e) => set('basePath', e.target.value)}
+              />
+            </Field>
+            <fieldset className="m-0 flex flex-col gap-2 border-0 p-0">
+              <legend className="mb-1 p-0 text-[13px] font-medium">Custom headers</legend>
+              {d.headers.map((h, i) => (
+                <div key={i} className="grid grid-cols-[1fr_1fr_auto_auto] items-center gap-2">
+                  <Input
+                    aria-label={`Header ${i + 1} name`}
+                    mono
+                    value={h.name}
+                    placeholder="X-Tenant"
+                    onChange={(e) =>
+                      set(
+                        'headers',
+                        d.headers.map((x, j) => (j === i ? { ...x, name: e.target.value } : x)),
+                      )
+                    }
+                    onBlur={blur('headers')}
+                  />
+                  <Input
+                    aria-label={`Header ${i + 1} value`}
+                    mono
+                    type={h.secret ? 'password' : 'text'}
+                    autoComplete="off"
+                    value={h.value}
+                    onChange={(e) =>
+                      set(
+                        'headers',
+                        d.headers.map((x, j) => (j === i ? { ...x, value: e.target.value } : x)),
+                      )
+                    }
+                  />
+                  <label className="flex items-center gap-1.5 text-[13px]">
+                    <input
+                      type="checkbox"
+                      className="sl-focus accent-rose-600"
+                      checked={h.secret}
+                      onChange={(e) =>
+                        set(
+                          'headers',
+                          d.headers.map((x, j) => (j === i ? { ...x, secret: e.target.checked } : x)),
+                        )
+                      }
+                    />
+                    Keychain
+                  </label>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    aria-label={`Remove header ${i + 1}`}
+                    onClick={() =>
+                      set(
+                        'headers',
+                        d.headers.filter((_, j) => j !== i),
+                      )
+                    }
+                  >
+                    Remove
+                  </Button>
+                </div>
+              ))}
+              {msg('headers') && <FieldMessage>{msg('headers')}</FieldMessage>}
+              <div>
+                <Button
+                  size="sm"
+                  type="button"
+                  onClick={() => set('headers', [...d.headers, { name: '', value: '', secret: false }])}
+                >
+                  Add header
+                </Button>
+              </div>
+            </fieldset>
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+              <Field label="HTTP proxy (optional)" error={msg('proxy')} className="sm:col-span-3">
+                <Input
+                  mono
+                  value={d.proxy}
+                  placeholder="http://proxy:3128"
+                  onChange={(e) => set('proxy', e.target.value)}
+                  onBlur={blur('proxy')}
+                />
+              </Field>
+              {d.proxy.trim() && (
+                <>
+                  <Field label="Proxy user (optional)">
+                    <Input
+                      autoComplete="off"
+                      value={d.proxyUser}
+                      onChange={(e) => set('proxyUser', e.target.value)}
+                    />
+                  </Field>
+                  <Field label="Proxy password (optional)" help="Kept in your keychain.">
+                    <Input
+                      type="password"
+                      autoComplete="off"
+                      value={d.proxySecret}
+                      onChange={(e) => set('proxySecret', e.target.value)}
+                    />
+                  </Field>
+                </>
+              )}
+            </div>
+            {d.gateway.trim() && (
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+                <Field label="SQL Gateway login" error={msg('gatewayLogin')}>
+                  <Select
+                    value={d.gwSame ? 'same' : d.gwAuth}
+                    onChange={(e) => {
+                      const v = e.target.value;
+                      changed();
+                      setD((x) =>
+                        v === 'same'
+                          ? { ...x, gwSame: true, gwSecret: '' }
+                          : { ...x, gwSame: false, gwAuth: v as Draft['gwAuth'], gwSecret: '' },
+                      );
+                    }}
+                  >
+                    <option value="same">Same as REST</option>
+                    <option value="none">None</option>
+                    <option value="basic">User and password</option>
+                    <option value="bearer">Bearer token</option>
+                  </Select>
+                </Field>
+                {!d.gwSame && d.gwAuth === 'basic' && (
+                  <Field label="SQL Gateway user" required error={msg('gatewayLogin')}>
+                    <Input
+                      autoComplete="off"
+                      value={d.gwUser}
+                      onChange={(e) => set('gwUser', e.target.value)}
+                      onBlur={blur('gatewayLogin')}
+                    />
+                  </Field>
+                )}
+                {!d.gwSame && d.gwAuth !== 'none' && (
+                  <Field
+                    label={d.gwAuth === 'basic' ? 'SQL Gateway password' : 'SQL Gateway token'}
+                    required
+                    help="Kept in your keychain."
+                    error={msg('gwSecret')}
+                  >
+                    <Input
+                      type="password"
+                      autoComplete="off"
+                      value={d.gwSecret}
+                      onChange={(e) => set('gwSecret', e.target.value)}
+                      onBlur={blur('gwSecret')}
+                    />
+                  </Field>
+                )}
+              </div>
+            )}
+          </div>
+        </details>
         <label className="flex items-center justify-between gap-4 rounded-lg py-2">
           <span className="flex flex-col">
             <span className="text-[14px] font-semibold">Read-only connection</span>

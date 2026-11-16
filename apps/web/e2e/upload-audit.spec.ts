@@ -383,38 +383,38 @@ test('purge audit 5: a folder cleanup can not handle does not break My pipelines
   page,
 }) => {
   await upload(page);
-  await page.evaluate(async () => {
+  const bad = await page.evaluate(async () => {
     const u = await import('/src/sim/uploads.ts');
-    await u.saveRows('p_bad', 'pay', [{ a: 1 }]);
-    await u.deleteUploads('p_bad');
-    await u.saveRows('p_gone', 'pay', [{ a: 1 }]); // another long-deleted folder: the pass must still free it
-    await u.deleteUploads('p_gone');
-    // Pretend the marker is old, and that removing that one folder fails with an unexpected error.
-    const d = await (
-      await (await navigator.storage.getDirectory()).getDirectoryHandle('uploads')
-    ).getDirectoryHandle('p_bad');
-    const w = await (await d.getFileHandle('.deleted')).createWritable();
-    await w.write('1');
-    await w.close();
-    const g = await (
-      await (await navigator.storage.getDirectory()).getDirectoryHandle('uploads')
-    ).getDirectoryHandle('p_gone');
-    const w2 = await (await g.getFileHandle('.deleted')).createWritable();
-    await w2.write('1');
-    await w2.close();
+    const root = await (await navigator.storage.getDirectory()).getDirectoryHandle('uploads');
+    // Nine folders deleted long ago (marker time 1).
+    for (let i = 0; i < 9; i++) {
+      await u.saveRows(`p_old${i}`, 'pay', [{ a: 1 }]);
+      const w = await (
+        await (await root.getDirectoryHandle(`p_old${i}`)).getFileHandle('.deleted', { create: true })
+      ).createWritable();
+      await w.write('1');
+      await w.close();
+    }
+    // OPFS listing order is not stable between runs, so the one that fails is the first listed: the pass must
+    // still reach the eight after it.
+    let first = '';
+    for await (const [n] of (root as unknown as { entries(): AsyncIterable<[string]> }).entries())
+      if (!first && n.startsWith('p_old')) first = n;
     const orig = FileSystemDirectoryHandle.prototype.removeEntry;
     FileSystemDirectoryHandle.prototype.removeEntry = function (name: string, o?: FileSystemRemoveOptions) {
-      if (name === 'p_bad') return Promise.reject(new DOMException('odd', 'UnknownError'));
+      if (name === first) return Promise.reject(new DOMException('odd', 'UnknownError'));
       return orig.call(this, name, o);
     };
+    return first;
   });
   await page.getByRole('link', { name: 'stream lab' }).click(); // to My pipelines, same page (patch kept)
   await expect(page.getByText(/^Storage: /)).toBeVisible();
   await expect(page.getByRole('button', { name: 'Delete uploaded data of Refunds matching' })).toBeVisible();
   expect(await page.getByText(/not letting Stream Lab save/).count()).toBe(0);
-  // The pass went on past the folder it could not handle (and did run: p_bad is still there, p_gone is not).
-  await expect.poll(async () => (await opfs(page)).filter((f) => f.startsWith('p_gone/'))).toEqual([]);
-  expect(await opfs(page)).toContain('p_bad/.deleted');
+  // The pass ran, kept the folder it could not free, and went on to free all the others.
+  await expect
+    .poll(async () => (await opfs(page)).filter((f) => f.startsWith('p_old')).sort())
+    .toEqual([`${bad}/.deleted`, `${bad}/pay.jsonl`].sort());
 });
 
 test('purge audit 6: a stale unsaved entry in this tab does not undo another tab’s delete marker', async ({
@@ -435,15 +435,20 @@ test('purge audit 6: a stale unsaved entry in this tab does not undo another tab
   expect(files).toContain('p_x/.deleted');
 });
 
-test('purge audit 7: rows of a pipeline only in this tab’s memory are not marked as orphans', async ({
+test('purge audit 7: rows of a pipeline only in this tab’s memory survive a real My pipelines visit 11 min later', async ({
   page,
 }) => {
+  await page.clock.install();
   await upload(page);
   await page.evaluate(async () => {
     const u = await import('/src/sim/uploads.ts');
+    const s = await import('/src/storage.ts');
     await u.saveRows('p_mem', 'pay', [{ a: 1 }]);
-    // Long untouched (now = 11 min later), not in the saved list, but this tab still holds it unsaved.
-    await u.purgeDeletedUploads(new Set(), Date.now() + 11 * 60_000, new Set(['p_mem']));
+    s.unsaved.set('p_mem', { id: 'p_mem' } as never); // its first save failed; this tab still holds it
   });
+  await page.clock.fastForward(11 * 60_000); // the rows are now older than the grace period
+  await page.getByRole('link', { name: 'stream lab' }).click();
+  await expect(page.getByText(/^Storage: /)).toBeVisible();
+  await page.waitForTimeout(500); // the purge runs before the usage line; let any marker write settle
   expect((await opfs(page)).filter((f) => f.startsWith('p_mem/'))).toEqual(['p_mem/pay.jsonl']);
 });

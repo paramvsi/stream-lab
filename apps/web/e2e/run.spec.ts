@@ -209,40 +209,57 @@ test('WM01 a disabled Window passes events through and never flashes as if it fi
   await expect(win.locator('.sl-fire')).toHaveCount(0);
 });
 
-test('WM01 output rows drop in (240 ms ease-out); off under reduced motion', async ({ page }) => {
-  await scenario(page, 'Card fraud bursts');
-  await page.getByText('10×', { exact: true }).click();
+test('WM01 output rows drop in as they arrive; rows already there stay still; off under reduced motion', async ({
+  page,
+}) => {
+  // Matched refunds reach the sink as the run goes (no window), so output keeps growing.
+  await scenario(page, 'Refunds matching');
+  await page.getByText('1×', { exact: true }).click();
   await page.locator('.react-flow__panel.top').getByRole('button', { name: 'Run', exact: true }).click();
-  await expect(status(page)).toHaveText(/^Finished/, { timeout: 15000 });
-  const row = page
-    .getByRole('table', { name: /^Output of / })
-    .locator('tbody tr')
-    .first();
-  await expect(row).toBeVisible();
-  expect(
-    await row.evaluate((e) => [getComputedStyle(e).animationName, getComputedStyle(e).animationDuration]),
-  ).toEqual(['sl-row-in', '0.24s']);
+  await expect(status(page)).toHaveText(/^Running/);
+  await page.getByRole('tab', { name: 'Output' }).click();
+  const rows = page.getByRole('table', { name: /^Output of / }).locator('tbody tr');
+  await expect.poll(() => rows.count(), { timeout: 15000 }).toBeGreaterThan(0);
+  const anim = (i: number) =>
+    rows.nth(i).evaluate((e) => [getComputedStyle(e).animationName, getComputedStyle(e).animationDuration]);
+  // Switching tabs remounts the table with rows in it: those rows do not replay the drop.
+  await page.getByRole('tab', { name: 'Timeline' }).click();
+  await page.getByRole('tab', { name: 'Output' }).click();
+  expect((await anim(0))[0]).toBe('none');
+  const n = await rows.count();
+  // A row that arrives while the tab is open drops in.
+  await expect.poll(() => rows.count(), { timeout: 15000 }).toBeGreaterThan(n);
+  expect(await anim(n)).toEqual(['sl-row-in', '0.24s']);
+  // Reduced motion: no drop at all.
   await page.emulateMedia({ reducedMotion: 'reduce' });
-  expect(await row.evaluate((e) => getComputedStyle(e).animationName)).toBe('none');
+  expect((await anim(n))[0]).toBe('none');
 });
 
 test('WM06 only edges carrying events flow, at a pace set by the speed; counters fade on update', async ({
   page,
 }) => {
-  await scenario(page, 'Card fraud bursts');
+  await scenario(page, 'Refunds matching');
+  // A disabled Source emits nothing, so its edge never carries an event (no timing involved).
+  await page.locator('.react-flow__node').filter({ hasText: 'Refunds' }).first().click();
+  await page
+    .getByRole('toolbar', { name: /actions$/ })
+    .getByRole('button', { name: 'Disable' })
+    .click();
   await page.getByText('0.25×', { exact: true }).click();
   await page.locator('.react-flow__panel.top').getByRole('button', { name: 'Run', exact: true }).click();
   await expect(status(page)).toHaveText(/^Running/);
-  const paths = page.locator('.react-flow__edge path.react-flow__edge-path');
-  // Early in a slow run the source has emitted but nothing has reached the sink yet.
-  await expect(paths.first()).toHaveClass(/sl-flow/);
-  const flows = await paths.evaluateAll((ps) =>
-    ps.map((p) => (p.classList.contains('sl-flow') ? getComputedStyle(p).animationDuration : null)),
-  );
-  expect(flows).toContain('3.2s'); // 0.8 s / 0.25
-  expect(flows).toContain(null); // an edge with no events yet stays still
-  const counter = page.locator('.sl-count').first();
-  expect(
-    await counter.evaluate((e) => [getComputedStyle(e).animationName, getComputedStyle(e).animationDuration]),
-  ).toEqual(['sl-count-in', '0.16s']);
+  const path = (id: string) => page.getByTestId(`rf__edge-${id}`).locator('path.react-flow__edge-path');
+  const carrying = path('e_pay_main_join_left');
+  await expect(carrying).toHaveClass(/sl-flow/);
+  expect(await carrying.evaluate((p) => getComputedStyle(p).animationDuration)).toBe('3.2s'); // 0.8 s / 0.25
+  await expect(path('e_ref_main_join_right')).not.toHaveClass(/sl-flow/);
+  // Counters remount per update: read one inside a retry, not a single snapshot.
+  await expect
+    .poll(() =>
+      page
+        .locator('.sl-count')
+        .first()
+        .evaluate((e) => [getComputedStyle(e).animationName, getComputedStyle(e).animationDuration]),
+    )
+    .toEqual(['sl-count-in', '0.16s']);
 });

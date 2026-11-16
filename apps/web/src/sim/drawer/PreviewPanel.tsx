@@ -27,14 +27,17 @@ export function Events({
   arrive?: boolean;
 }) {
   const keys = [...new Set(rows.flatMap((r) => Object.keys(r)))];
+  // WM01: rows there when the table mounted (tab switch, drawer closed) stay still; only later ones drop in.
+  const [mounted] = useState(rows.length);
   if (!rows.length) return <p className="m-0 text-[13px] text-muted">{empty}</p>;
-  const table = (
+  return (
     <Table
       dense
       label={label}
       maxHeight={240}
       rows={rows.map((r, i) => ({ r, i }))}
       rowKey={(x) => x.i}
+      {...(arrive ? { rowClassName: (x: { i: number }) => (x.i >= mounted ? 'sl-row-arrive' : '') } : {})}
       columns={keys.map((k): Column<{ r: Event; i: number }> => ({
         key: k,
         header: k,
@@ -45,7 +48,6 @@ export function Events({
       }))}
     />
   );
-  return arrive ? <div className="sl-rows-arrive">{table}</div> : table;
 }
 
 const Count = ({ label, n, after }: { label: string; n: number; after?: string }) => (

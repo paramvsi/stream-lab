@@ -20,6 +20,8 @@ export interface TableProps<T> {
   onSelect?: (row: T) => void;
   /** Max height before the body scrolls under a sticky header. */
   maxHeight?: number;
+  /** Extra classes per row (for example a motion class on rows that just arrived). */
+  rowClassName?: (row: T) => string;
 }
 
 /** Board D07: line border, radius 12, header 12/500 muted on subtle, cells 14 px pad 13/14, selected rose-50. */
@@ -32,6 +34,7 @@ export function Table<T>({
   selectedKey,
   onSelect,
   maxHeight,
+  rowClassName,
 }: TableProps<T>) {
   const pad = dense ? 'py-2 px-3.5' : 'py-[13px] px-3.5';
   return (
@@ -77,7 +80,7 @@ export function Table<T>({
                       }
                     : undefined
                 }
-                className={`sl-focus ${selected ? 'bg-rose-50' : 'bg-surface'} ${onSelect ? 'cursor-pointer hover:bg-subtle' : ''}`}
+                className={`sl-focus ${selected ? 'bg-rose-50' : 'bg-surface'} ${onSelect ? 'cursor-pointer hover:bg-subtle' : ''} ${rowClassName?.(r) ?? ''}`}
               >
                 {columns.map((c) => (
                   <td

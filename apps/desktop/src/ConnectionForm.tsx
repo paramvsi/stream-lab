@@ -9,6 +9,7 @@ import {
 import { Banner, Button, Field, Input, Select } from '@sl/ui';
 import { Activity } from 'lucide-react';
 import { useEffect, useState } from 'react';
+import { useScreenHeading } from './focus';
 
 type Env = Connection['env'];
 type Color = NonNullable<Connection['color']>;
@@ -100,6 +101,7 @@ export function ConnectionForm({
   useEffect(() => {
     document.title = 'New connection · Stream Lab';
   }, []);
+  const h1 = useScreenHeading();
   const [id] = useState(() => `c_${crypto.randomUUID()}`);
   const [d, setD] = useState<Draft>({
     name: '',
@@ -144,7 +146,9 @@ export function ConnectionForm({
   return (
     <main className="flex min-h-screen flex-col gap-5 bg-surface px-8 py-8">
       <div className="flex flex-col gap-1">
-        <h1 className="m-0 text-[24px] font-bold">New connection</h1>
+        <h1 ref={h1} tabIndex={-1} className="m-0 text-[26px] font-semibold outline-none">
+          New connection
+        </h1>
         <p className="m-0 text-[14px] text-muted">Step 2 of 3 · the connection</p>
       </div>
       <form

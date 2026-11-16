@@ -359,6 +359,14 @@ describe('audit of acd5109', () => {
     ).toMatchObject({ name: 'X\\"T' });
     expect(
       validateConnection(conn({ headers: [{ name: 'X‮T', value: 'v', secret: false }] }), []).headers!.params,
-    ).toMatchObject({ name: 'X\\u202eT' });
+    ).toMatchObject({ name: 'X\\u{202e}T' });
+  });
+});
+
+describe('audit of db78f52', () => {
+  it('#1 a password with a backslash (an address the parser can not read) is still cut', () => {
+    const t = exportConnections([conn({ url: 'https://user:pa\\ss@flink.example.com' })]);
+    expect(t).not.toContain('pa\\\\ss');
+    expect(t).not.toContain('user:');
   });
 });

@@ -51,3 +51,19 @@ describe('INST-02 / CONN-01 first run (boards D01, C01)', () => {
     expect(screen.getByRole('heading', { level: 1, name: 'Welcome to Stream Lab' })).toBeTruthy();
   });
 });
+
+describe('audit of 45e2672', () => {
+  it('#3 an unsupported platform is a calm status (info), naming the platform; #5 each screen starts at its heading', async () => {
+    render(app());
+    await userEvent.click(screen.getByRole('button', { name: 'Add a connection' }));
+    expect(document.activeElement).toBe(screen.getByRole('heading', { level: 1, name: 'New connection' }));
+    await userEvent.click(screen.getByRole('radio', { name: /Confluent Cloud/ }));
+    const msg = await screen.findByText(/Confluent Cloud for Apache Flink uses a different API/);
+    expect(msg.closest('[role="alert"]')).toBeNull();
+    expect(msg.closest('[role="status"]')).not.toBeNull();
+    await userEvent.click(screen.getByRole('button', { name: 'Back' }));
+    expect(document.activeElement).toBe(
+      screen.getByRole('heading', { level: 1, name: 'Welcome to Stream Lab' }),
+    );
+  });
+});

@@ -1,6 +1,7 @@
 import { Button } from '@sl/ui';
 import { BookOpen, Lock, Plus, SquareTerminal, Upload, type LucideIcon } from 'lucide-react';
 import { useEffect } from 'react';
+import { useScreenHeading } from './focus';
 
 const CARDS: [LucideIcon, string, string][] = [
   [SquareTerminal, 'Try it locally', 'docker compose up gives you Flink on localhost:8081.'],
@@ -10,15 +11,22 @@ const CARDS: [LucideIcon, string, string][] = [
 
 /** INST-02 / board D01: the first run, no connections yet. */
 export function Welcome({ onAdd }: { onAdd: () => void }) {
+  const h1 = useScreenHeading();
   useEffect(() => {
     document.title = 'Welcome · Stream Lab';
   }, []);
   return (
     <main className="relative flex min-h-screen items-center justify-center bg-surface px-6">
-      <div aria-hidden="true" className="sl-grid pointer-events-none absolute inset-x-0 top-0 h-[560px]" />
+      <div aria-hidden="true" className="sl-grid pointer-events-none absolute inset-0" />
       <div className="relative flex w-full max-w-[640px] flex-col gap-6">
         <img src="/logo-mark.svg" width={36} height={36} alt="" />
-        <h1 className="m-0 text-[36px] leading-[1.15] font-bold tracking-[-0.02em]">Welcome to Stream Lab</h1>
+        <h1
+          ref={h1}
+          tabIndex={-1}
+          className="m-0 text-[36px] leading-[1.15] font-bold tracking-[-0.02em] outline-none"
+        >
+          Welcome to Stream Lab
+        </h1>
         <p className="m-0 text-[17px] text-muted">
           Connect a Flink cluster to see its jobs, checkpoints and history. Everything stays on this computer.
         </p>

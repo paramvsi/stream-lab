@@ -106,7 +106,8 @@ function withoutUserinfo(u: string): string {
   try {
     before = new URL(u);
   } catch {
-    return cut; // not an address the parser reads: nothing it would send a login for
+    // Not an address the parser reads: still never keep what looks like a login (to the last "@", "\\" included).
+    return u.replace(/^(\s*[a-z][a-z0-9+.-]*:\/\/)[^/?#]*@/i, '$1');
   }
   try {
     const after = new URL(cut);
@@ -200,8 +201,8 @@ export function validateConnection(
           // Invisible and direction-changing characters shown as \uXXXX; the rest as typed.
           name: n.replace(
             // eslint-disable-next-line no-control-regex -- control characters are exactly what is matched
-            /[\u0000-\u001f\u007f-\u009f\u200b-\u200f\u202a-\u202e\u2066-\u2069]/g,
-            (ch) => `\\u${ch.charCodeAt(0).toString(16).padStart(4, '0')}`,
+            /[\u0000-\u001f\u007f-\u009f\u00ad\u061c\u200b-\u200f\u2028-\u202e\u2060-\u2069\ufeff\u{e0000}-\u{e007f}]/gu,
+            (ch) => `\\u{${ch.codePointAt(0)!.toString(16)}}`,
           ),
           reason: 'has characters a header name can not have',
         });

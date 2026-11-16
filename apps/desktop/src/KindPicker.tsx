@@ -1,7 +1,8 @@
-import { AppError, present } from '@sl/errors';
+import { AppError, ErrorBanner } from '@sl/errors';
 import { KINDS, type KindChoice, type Support } from '@sl/flink';
-import { Banner, Button, StatusBadge, type BadgeTone } from '@sl/ui';
+import { Button, StatusBadge, type BadgeTone } from '@sl/ui';
 import { useEffect, useId } from 'react';
+import { useScreenHeading } from './focus';
 
 const BADGE: Record<Support, [string, BadgeTone]> = {
   full: ['Full support', 'success'],
@@ -25,14 +26,17 @@ export function KindPicker({
   onContinue: () => void;
 }) {
   const name = useId();
+  const h1 = useScreenHeading();
   useEffect(() => {
     document.title = 'New connection · Stream Lab';
   }, []);
   const picked = KINDS.find((k) => k.kind === value);
   const unsupported = picked?.support === 'unsupported';
   return (
-    <main className="flex min-h-screen flex-col gap-4 bg-surface px-8 py-8">
-      <h1 className="m-0 text-[24px] font-bold">New connection</h1>
+    <main className="flex min-h-screen flex-col gap-5 bg-surface px-8 py-8">
+      <h1 ref={h1} tabIndex={-1} className="m-0 text-[26px] font-semibold outline-none">
+        New connection
+      </h1>
       <p className="m-0 text-[14px] text-muted">Step 1 of 3 · where does it run?</p>
       <fieldset className="m-0 flex max-w-[760px] flex-col gap-2.5 border-0 p-0">
         <legend className="sr-only">Where does your cluster run?</legend>
@@ -42,17 +46,17 @@ export function KindPicker({
           return (
             <label
               key={k.kind}
-              className={`flex cursor-pointer items-center gap-4 rounded-xl border px-5 py-3.5 has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-rose-600 ${on ? 'border-rose-600 bg-rose-50' : 'border-line hover:bg-subtle'}`}
+              className={`flex cursor-pointer items-center gap-4 rounded-[12px] border px-3.5 py-3 has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-rose-600 has-[:focus-visible]:ring-offset-2 ${on ? 'border-rose-600 bg-rose-50' : 'border-line hover:bg-subtle'}`}
             >
               <input
                 type="radio"
                 name={name}
-                className="size-4 accent-rose-600"
+                className="size-4 accent-rose-600 outline-none"
                 checked={on}
                 onChange={() => onChange(k.kind)}
               />
               <span className="flex flex-1 flex-col">
-                <span className="text-[15px] font-semibold">{k.label}</span>
+                <span className="text-[14px] font-semibold">{k.label}</span>
                 <span className="text-[13px] text-muted">{k.hint}</span>
               </span>
               <StatusBadge tone={tone}>{label}</StatusBadge>
@@ -60,13 +64,11 @@ export function KindPicker({
           );
         })}
       </fieldset>
-      {unsupported && (
-        <Banner severity="error" className="max-w-[760px]">
-          {
-            present(new AppError('CONN-KIND-UNSUPPORTED', { kind: 'Confluent Cloud for Apache Flink' }))
-              .message
-          }
-        </Banner>
+      {unsupported && picked && (
+        // The catalog's placement and severity (inline in the picker, info).
+        <div className="max-w-[760px]">
+          <ErrorBanner error={new AppError('CONN-KIND-UNSUPPORTED', { kind: picked.label })} />
+        </div>
       )}
       <div className="flex gap-3">
         <Button onClick={onBack}>Back</Button>

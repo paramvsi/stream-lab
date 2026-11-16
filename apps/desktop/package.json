@@ -2,5 +2,21 @@
   "name": "@sl/desktop",
   "private": true,
   "type": "module",
-  "scripts": {}
+  "scripts": {
+    "dev": "vite --port 5290",
+    "build": "vite build",
+    "typecheck": "tsc -p ."
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "^4.3.5",
+    "tailwindcss": "^4.3.5"
+  },
+  "dependencies": {
+    "@sl/errors": "workspace:*",
+    "@sl/flink": "workspace:*",
+    "@sl/ui": "workspace:*",
+    "lucide-react": "^1.73.0",
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1"
+  }
 }

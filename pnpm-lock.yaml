@@ -78,7 +78,33 @@ importers:
         specifier: ^5.1.0
         version: 5.1.0(@types/node@26.6.6)(jsdom@31.0.1)(vite@8.3.8(@types/node@26.6.6)(esbuild@0.28.2)(jiti@2.7.0))
 
-  apps/desktop: {}
+  apps/desktop:
+    dependencies:
+      '@sl/errors':
+        specifier: workspace:*
+        version: link:../../packages/errors
+      '@sl/flink':
+        specifier: workspace:*
+        version: link:../../packages/flink
+      '@sl/ui':
+        specifier: workspace:*
+        version: link:../../packages/ui
+      lucide-react:
+        specifier: ^1.73.0
+        version: 1.73.0(@types/react@19.3.0)(react@19.3.1)
+      react:
+        specifier: ^19.3.1
+        version: 19.3.1
+      react-dom:
+        specifier: ^19.3.1
+        version: 19.3.1(react@19.3.1)
+    devDependencies:
+      '@tailwindcss/vite':
+        specifier: ^4.3.5
+        version: 4.3.5(vite@8.3.8(@types/node@26.6.6)(esbuild@0.28.2)(jiti@2.7.0))
+      tailwindcss:
+        specifier: ^4.3.5
+        version: 4.3.5
 
   apps/web:
     dependencies:

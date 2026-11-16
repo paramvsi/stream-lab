@@ -8,7 +8,8 @@ const TONE_CLS: Record<BadgeTone, string> = {
   error: 'bg-danger-50 text-danger-600',
   warning: 'bg-orange-50 text-orange-700',
   info: 'bg-rose-50 text-rose-700',
-  success: 'bg-success-50 text-success-600',
+  // Ink words: success-600 on success-50 is 4.49:1 at 12 px, below AA. The dot keeps the green.
+  success: 'bg-success-50 text-ink',
   neutral: 'bg-subtle text-muted',
 };
 
@@ -30,7 +31,10 @@ export function StatusBadge({
       tabIndex={reason ? 0 : undefined}
       className={`sl-focus inline-flex items-center gap-1.5 rounded-pill px-2.5 py-[3px] text-[12px] font-medium whitespace-nowrap ${TONE_CLS[tone]}`}
     >
-      <span aria-hidden="true" className="size-1.5 rounded-pill bg-current" />
+      <span
+        aria-hidden="true"
+        className={`size-1.5 rounded-pill ${tone === 'success' ? 'bg-success-600' : 'bg-current'}`}
+      />
       {children}
     </span>
   );

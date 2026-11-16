@@ -26,7 +26,7 @@ const hms = (ms: number) => new Date(ms).toISOString().slice(11, 19);
  * is the watermark, rose ticks are window fires, orange dots are late events. A text summary follows for screen
  * readers (the chart is never the only carrier).
  */
-function Timeline({ stats }: { stats: RunStats | null }) {
+export function Timeline({ stats }: { stats: RunStats | null }) {
   const t = stats?.timeline ?? [];
   if (!t.length)
     return (

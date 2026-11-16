@@ -80,8 +80,9 @@ test('LEARN-02/03 a chapter: sections and a challenge; a wrong pick says COURSE-
     page.getByText('Not yet: event time is stamped where the payment happened, not where it is read.'),
   ).toBeVisible();
   await axe(page);
-  await page.getByRole('button', { name: 'Reset' }).click();
-  await expect(page.getByText(/^Not yet:/)).toHaveCount(0);
+  await page.getByRole('button', { name: 'Reset', exact: true }).click();
+  // Not ^: the banner's text follows a screen-reader "Warning:" prefix.
+  await expect(page.getByText(/Not yet:/)).toHaveCount(0);
   await page.getByLabel('12:00:03').check();
   await expect(page.getByText('Correct.')).toBeVisible();
   await page.getByRole('button', { name: 'Next question' }).click();
@@ -149,4 +150,31 @@ test('LAND-05 audit 4+8+11: rose focus ring on site links, Simulator current on 
   await page.goto('/#/nowhere');
   await expect(page).toHaveTitle('Page not found · Stream Lab');
   await expect(page.locator('header a').first()).toHaveText('streamlab');
+});
+
+test('LEARN-02 the chapter sandbox: the scenario idle, Run fills the timeline and the output; nothing is saved (W05, W05b)', async ({
+  page,
+}) => {
+  await page.goto('/#/learn/windows');
+  const box = page.getByRole('region', { name: 'Sandbox' });
+  await expect(box.getByText('Press Run to start')).toBeVisible();
+  await expect(box.locator('.react-flow__node')).toHaveCount(6); // Card fraud bursts
+  await expect(box.getByText('Idle')).toBeVisible();
+  await axe(page);
+  await box.getByRole('button', { name: 'Run', exact: true }).click();
+  await expect(box.getByText('Finished')).toBeVisible({ timeout: 60000 });
+  await expect(
+    box
+      .getByRole('table', { name: /^Output of / })
+      .locator('tbody tr')
+      .first(),
+  ).toBeVisible();
+  await expect(
+    box.getByRole('img', { name: 'Timeline chart' }).or(box.getByLabel('Timeline chart')),
+  ).toBeVisible();
+  await axe(page);
+  await box.getByRole('button', { name: 'Reset sandbox' }).click();
+  await expect(box.getByText('Press Run to start')).toBeVisible();
+  await page.goto('/#/pipelines');
+  await expect(page.getByText('Card fraud bursts')).toHaveCount(0);
 });

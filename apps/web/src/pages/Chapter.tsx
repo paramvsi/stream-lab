@@ -6,6 +6,7 @@ import { Check, ChevronRight, Flag, X } from 'lucide-react';
 import { useEffect, useId, useState } from 'react';
 import { getProgress, setChapterStatus } from '../storage';
 import { NotFound } from './NotFound';
+import { Sandbox } from './Sandbox';
 import { SiteHeader, useDocTitle } from './SiteShell';
 
 /**
@@ -134,6 +135,9 @@ export function ChapterPage({ id }: { id: string }) {
             ]}
           />
         </main>
+        <div className="min-w-0 flex-1 py-8 pr-8">
+          <Sandbox chapter={c.id} scenario={content.sandbox} />
+        </div>
       </div>
       <Complete open={complete} onOpenChange={setComplete} n={c.n} done={done} />
     </div>

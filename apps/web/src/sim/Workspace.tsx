@@ -795,3 +795,52 @@ function SmallScreen() {
     </main>
   );
 }
+
+/**
+ * LEARN-02 a chapter's sandbox (board W05): the pipeline as the workspace draws it, read-only — no dragging,
+ * connecting, selecting or menus; it fits its box. Run marks (counts, window fires) show as in the workspace.
+ */
+export function SandboxCanvas() {
+  const nodes = useGraph((s) => s.nodes);
+  const edges = useGraph((s) => s.edges);
+  const schemas = useMemo(() => propagate({ nodes, edges }, refCtx()), [nodes, edges]);
+  const rfNodes = useMemo<SlNode[]>(
+    () =>
+      nodes.map((n) => ({
+        id: n.id,
+        type: 'sl',
+        position: n.position,
+        data: dataFor(n),
+        width: NODE_W,
+        height: NODE_H,
+      })),
+    [nodes],
+  );
+  const rfEdges = useMemo<SlEdge[]>(
+    () => edges.map((e) => ({ ...e, type: 'stream', data: stableData(e.id, schemas.edge.get(e.id) ?? []) })),
+    [edges, schemas],
+  );
+  return (
+    <ReactFlowProvider>
+      <ReactFlow<SlNode, SlEdge>
+        nodes={rfNodes}
+        edges={rfEdges}
+        nodeTypes={nodeTypes}
+        edgeTypes={edgeTypes}
+        fitView
+        nodesDraggable={false}
+        nodesConnectable={false}
+        elementsSelectable={false}
+        nodesFocusable={false}
+        edgesFocusable={false}
+        panOnDrag={false}
+        zoomOnScroll={false}
+        zoomOnPinch={false}
+        zoomOnDoubleClick={false}
+        preventScrolling={false}
+        proOptions={{ hideAttribution: false }}
+        aria-label="Sandbox pipeline"
+      />
+    </ReactFlowProvider>
+  );
+}

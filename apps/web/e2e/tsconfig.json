@@ -1,0 +1,13 @@
+{
+  "extends": "../../../tsconfig.base.json",
+  "compilerOptions": {
+    // Specs import app modules by the dev server's browser path inside page.evaluate ('/src/storage.ts'):
+    // the same files, so tsc checks them as the app does.
+    "paths": { "/src/*": ["../src/*"] },
+    "allowImportingTsExtensions": true,
+    "noEmit": true,
+    // Specs run in Node (Playwright): Buffer for upload fixtures.
+    "types": ["node", "vite/client"]
+  },
+  "include": ["."]
+}

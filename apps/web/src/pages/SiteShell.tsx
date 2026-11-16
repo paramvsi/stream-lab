@@ -35,31 +35,7 @@ export function SiteShell({
       {grid && (
         <div aria-hidden="true" className="sl-grid pointer-events-none absolute inset-x-0 top-16 h-[420px]" />
       )}
-      <header className="relative flex h-[72px] items-center border-b border-line px-16">
-        <Link
-          to="/"
-          className="flex items-center gap-2.5 text-[17px] font-semibold tracking-[-0.02em] text-ink no-underline"
-        >
-          <img src="/logo-mark.svg" width={28} height={28} alt="" />
-          stream<span className="text-rose-600">lab</span>
-        </Link>
-        <nav aria-label="Main" className="mx-auto flex gap-8 text-[15px] font-medium">
-          <Link to="/learn" className={navLink}>
-            Learn
-          </Link>
-          {/* The simulator's pages: the gallery and My pipelines. */}
-          <Link to="/new" className={navLink} activeOptions={{ exact: false }}>
-            Simulator
-          </Link>
-        </nav>
-        <a
-          href={REPO}
-          className="sl-focus flex h-10 items-center gap-2 rounded-lg border border-line px-4 text-[14px] font-semibold text-ink no-underline hover:bg-subtle"
-        >
-          <Star size={16} aria-hidden="true" />
-          Star on GitHub
-        </a>
-      </header>
+      <SiteHeader />
       <main
         className={`relative mx-auto flex w-full flex-1 flex-col gap-6 px-8 py-12 ${narrow ? 'max-w-[896px]' : 'max-w-[1120px]'}`}
       >
@@ -117,5 +93,36 @@ export function SiteShell({
         </nav>
       </footer>
     </div>
+  );
+}
+
+/** The site header (every web board). */
+export function SiteHeader() {
+  return (
+    <header className="relative flex h-[72px] items-center border-b border-line px-16">
+      <Link
+        to="/"
+        className="flex items-center gap-2.5 text-[17px] font-semibold tracking-[-0.02em] text-ink no-underline"
+      >
+        <img src="/logo-mark.svg" width={28} height={28} alt="" />
+        stream<span className="text-rose-600">lab</span>
+      </Link>
+      <nav aria-label="Main" className="mx-auto flex gap-8 text-[15px] font-medium">
+        <Link to="/learn" className={navLink}>
+          Learn
+        </Link>
+        {/* The simulator's pages: the gallery and My pipelines. */}
+        <Link to="/new" className={navLink} activeOptions={{ exact: false }}>
+          Simulator
+        </Link>
+      </nav>
+      <a
+        href={REPO}
+        className="sl-focus flex h-10 items-center gap-2 rounded-lg border border-line px-4 text-[14px] font-semibold text-ink no-underline hover:bg-subtle"
+      >
+        <Star size={16} aria-hidden="true" />
+        Star on GitHub
+      </a>
+    </header>
   );
 }

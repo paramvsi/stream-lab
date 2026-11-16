@@ -96,7 +96,7 @@ export function Course() {
                 <p className="m-0 text-[13px] text-muted">{c.blurb}</p>
               </div>
               {status === 'done' ? (
-                <span className="flex items-center gap-1.5 rounded-full bg-success-50 px-2.5 py-0.5 text-[12px] font-medium text-success-600">
+                <span className="flex items-center gap-1.5 rounded-full bg-success-50 px-2.5 py-0.5 text-[12px] font-medium text-ink">
                   <span aria-hidden="true" className="size-1.5 rounded-full bg-success-600" />
                   Completed
                 </span>

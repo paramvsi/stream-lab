@@ -60,3 +60,46 @@ test('LAND-05 an unknown route shows the 404 with links to the course and the si
   await page.getByRole('link', { name: 'Open the simulator' }).click();
   await expect(page).toHaveURL(/#\/new$/);
 });
+
+test('LEARN-02/03 a chapter: sections and a challenge; a wrong pick says COURSE-WRONG with a hint; passing completes it (W05c–f)', async ({
+  page,
+}) => {
+  await page.goto('/#/learn/event-time');
+  await expect(page.getByRole('heading', { level: 1, name: 'Event time vs processing time' })).toBeVisible();
+  await expect(page.getByRole('tablist', { name: 'Sections' }).getByRole('tab')).toHaveText([
+    'Two clocks',
+    'Why it matters',
+    'In Flink SQL',
+    'Challenge',
+  ]);
+  await axe(page);
+  await page.getByRole('tab', { name: 'Challenge' }).click();
+  await expect(page.getByText('CHAPTER 01 · CHALLENGE')).toBeVisible();
+  await page.getByLabel('12:00:41').check();
+  await expect(
+    page.getByText('Not yet: event time is stamped where the payment happened, not where it is read.'),
+  ).toBeVisible();
+  await axe(page);
+  await page.getByRole('button', { name: 'Reset' }).click();
+  await expect(page.getByText(/^Not yet:/)).toHaveCount(0);
+  await page.getByLabel('12:00:03').check();
+  await expect(page.getByText('Correct.')).toBeVisible();
+  await page.getByRole('button', { name: 'Next question' }).click();
+  await page.getByLabel('Counts by event time').check();
+  await page.getByRole('button', { name: 'Finish chapter' }).click();
+  const done = page.getByRole('dialog', { name: 'Chapter 1 complete' });
+  await expect(done).toContainText('1 of 10 done');
+  await axe(page);
+  await done.getByRole('button', { name: 'Back to course' }).click();
+  const rows = page.getByRole('list', { name: 'Chapters' }).getByRole('listitem');
+  await expect(rows.nth(0)).toContainText('Completed');
+  await expect(rows.nth(1).getByRole('link', { name: 'Start chapter 2' })).toBeVisible();
+  await axe(page);
+});
+
+test('LEARN-01 opening a chapter marks it in progress: the course offers Continue', async ({ page }) => {
+  await page.goto('/#/learn/event-time');
+  await expect(page.getByRole('heading', { level: 1, name: 'Event time vs processing time' })).toBeVisible();
+  await page.getByRole('navigation', { name: 'Main' }).getByRole('link', { name: 'Learn' }).click();
+  await expect(page.getByRole('link', { name: 'Continue chapter 1' })).toBeVisible();
+});

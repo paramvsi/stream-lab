@@ -74,7 +74,7 @@ test('SIM-17 while running: edges animate, node counts tick at least 5×/s, the 
     .getByText(/^[\d,]+$/)
     .first();
   await expect(label).toBeVisible();
-  expect(await label.evaluate((e) => getComputedStyle(e.closest('.sl-edge-tools') ?? e).opacity)).toBe('1');
+  expect(await label.evaluate((e) => !!e.closest('.sl-edge-tools'))).toBe(false);
   await page.getByRole('button', { name: 'Pause' }).click();
   await expect(page.locator('.react-flow__edge-path.sl-flow')).toHaveCount(0);
 });
@@ -224,4 +224,25 @@ test('WM01 output rows drop in (240 ms ease-out); off under reduced motion', asy
   ).toEqual(['sl-row-in', '0.24s']);
   await page.emulateMedia({ reducedMotion: 'reduce' });
   expect(await row.evaluate((e) => getComputedStyle(e).animationName)).toBe('none');
+});
+
+test('WM06 only edges carrying events flow, at a pace set by the speed; counters fade on update', async ({
+  page,
+}) => {
+  await scenario(page, 'Card fraud bursts');
+  await page.getByText('0.25×', { exact: true }).click();
+  await page.locator('.react-flow__panel.top').getByRole('button', { name: 'Run', exact: true }).click();
+  await expect(status(page)).toHaveText(/^Running/);
+  const paths = page.locator('.react-flow__edge path.react-flow__edge-path');
+  // Early in a slow run the source has emitted but nothing has reached the sink yet.
+  await expect(paths.first()).toHaveClass(/sl-flow/);
+  const flows = await paths.evaluateAll((ps) =>
+    ps.map((p) => (p.classList.contains('sl-flow') ? getComputedStyle(p).animationDuration : null)),
+  );
+  expect(flows).toContain('3.2s'); // 0.8 s / 0.25
+  expect(flows).toContain(null); // an edge with no events yet stays still
+  const counter = page.locator('.sl-count').first();
+  expect(
+    await counter.evaluate((e) => [getComputedStyle(e).animationName, getComputedStyle(e).animationDuration]),
+  ).toEqual(['sl-count-in', '0.16s']);
 });

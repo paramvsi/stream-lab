@@ -33,6 +33,10 @@ export const StreamEdge = memo(function StreamEdge(p: EdgeProps<SlEdge>) {
   const hovered = useHover((h) => h.id === p.id);
   const count = useEdgeCount(p.id);
   const running = useRun((s) => s.state === 'running');
+  const speed = useRun((s) => s.speed);
+  // WM06: only edges carrying events flow, at a pace that scales with the sim speed (0.8 s at 1×).
+  // ponytail: "carrying" = has carried any event this run; per-tick deltas if idle edges should stop mid-run.
+  const flowing = running && !!count;
   const side =
     p.sourceHandleId &&
     p.sourceHandleId !== 'main' &&
@@ -47,16 +51,19 @@ export const StreamEdge = memo(function StreamEdge(p: EdgeProps<SlEdge>) {
         style={{
           stroke: p.selected ? 'var(--sl-color-rose-600)' : 'var(--sl-color-line-strong)',
           strokeWidth: 1.5,
+          ...(flowing ? { animationDuration: `${0.8 / speed}s` } : {}),
         }}
         // SIM-17: edges animate while running (tokens.css sl-flow; off under reduced motion).
-        className={running ? 'sl-flow' : undefined}
+        className={flowing ? 'sl-flow' : undefined}
         interactionWidth={24}
       />
       <EdgeLabelRenderer>
         {/* SIM-17: events that crossed this edge (outside the hover tools, so it always shows). */}
         {count !== null && (
           <div
-            className="pointer-events-none absolute rounded-pill bg-surface px-1.5 font-mono text-[11px] text-muted tabular-nums"
+            // WM06 "Counter update 160 ms fade": remounted per value.
+            key={count}
+            className="sl-count pointer-events-none absolute rounded-pill bg-surface px-1.5 font-mono text-[11px] text-muted tabular-nums"
             style={{ transform: `translate(-50%, 0) translate(${lx}px, ${ly + 14}px)` }}
           >
             {fmt(count)}

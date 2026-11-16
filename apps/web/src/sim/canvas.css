@@ -154,3 +154,13 @@
 .sl-rows-arrive tbody tr {
   animation: sl-row-in 240ms cubic-bezier(0.2, 0, 0, 1) both;
 }
+
+/* WM06 counter update: 160 ms fade (off under reduced motion via tokens.css). */
+@keyframes sl-count-in {
+  from {
+    opacity: 0.35;
+  }
+}
+.sl-count {
+  animation: sl-count-in 160ms cubic-bezier(0.2, 0, 0, 1) both;
+}

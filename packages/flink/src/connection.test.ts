@@ -505,6 +505,10 @@ describe('audit of 9e989a0', () => {
       '/a%e2%80%a8',
       '/a%e2%80%a9',
       '/a%ef%bf%bf',
+      '/a%ef%b7%90',
+      '/a%ef%bf%be',
+      '/a%f0%9f%bf%be',
+      '/a%f4%8f%bf%bf',
     ])
       expect([bad, v(bad)]).toEqual([bad, 'CONN-BASEPATH-FORMAT']);
   });

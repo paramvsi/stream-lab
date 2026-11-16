@@ -228,7 +228,15 @@ export function basePathOk(p: string): boolean {
         return false; // a %-escape that is not UTF-8
       }
       return (
-        d !== '.' && d !== '..' && !/[/\\?#@]|[\p{Z}\p{Cc}\p{Cf}\p{Co}\uFDD0-\uFDEF\uFFFE\uFFFF]/u.test(d)
+        d !== '.' &&
+        d !== '..' &&
+        !/[/\\?#@]|[\p{Z}\p{Cc}\p{Cf}\p{Co}]/u.test(d) &&
+        // The 66 noncharacters, the same set in every Unicode version: U+FDD0–FDEF and U+nFFFE / U+nFFFF in
+        // every plane (unassigned code points are not checked: that set grows with the runtime's Unicode).
+        ![...d].some((ch) => {
+          const cp = ch.codePointAt(0)!;
+          return (cp >= 0xfdd0 && cp <= 0xfdef) || (cp & 0xfffe) === 0xfffe;
+        })
       );
     });
 }

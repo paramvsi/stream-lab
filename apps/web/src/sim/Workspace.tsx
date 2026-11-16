@@ -828,6 +828,8 @@ export function SandboxCanvas() {
         nodeTypes={nodeTypes}
         edgeTypes={edgeTypes}
         fitView
+        // The box is small (220 px high, ~390 px wide at 1280): fit every node, however far it has to zoom out.
+        minZoom={0.2}
         nodesDraggable={false}
         nodesConnectable={false}
         elementsSelectable={false}

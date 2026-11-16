@@ -23,9 +23,8 @@ export const setHoveredEdge = (id: string | null) => useHover.setState({ id });
 export type SlEdge = Edge<{ schema: Schema }, 'stream'>;
 
 /** Canvas callbacks for edges, passed by context so edge data stays plain (no functions in state). */
-export const EdgeActions = createContext<{ insertAt: (edgeId: string, x: number, y: number) => void }>({
-  insertAt: () => {},
-});
+/** No provider (a read-only canvas: the chapter sandbox): no insert buttons at all. */
+export const EdgeActions = createContext<{ insertAt?: (edgeId: string, x: number, y: number) => void }>({});
 
 /** SIM-09 "+" at the midpoint on hover; SIM-25 the schema on hover. */
 export const StreamEdge = memo(function StreamEdge(p: EdgeProps<SlEdge>) {
@@ -74,34 +73,36 @@ export const StreamEdge = memo(function StreamEdge(p: EdgeProps<SlEdge>) {
             {side ? ` ${p.sourceHandleId}` : ''}
           </div>
         )}
-        <div
-          className={`nodrag nopan sl-edge-tools pointer-events-auto absolute flex items-center ${hovered || p.selected ? 'sl-edge-tools-on' : ''}`}
-          style={{ transform: `translate(-50%, -50%) translate(${lx}px, ${ly}px)` }}
-        >
-          <button
-            type="button"
-            aria-label="Insert a node on this edge"
-            title={fields.length ? `Schema: ${fields.join(', ')}` : 'No schema yet'}
-            onClick={(e) => {
-              const r = e.currentTarget.getBoundingClientRect();
-              // Keyboard clicks report (0, 0): open at the button instead.
-              insertAt(p.id, e.clientX || r.left, e.clientY || r.bottom + 4);
-            }}
-            // Keep Enter/Space for this button: React Flow's edge handler would select the edge instead.
-            onKeyDown={(e) => e.stopPropagation()}
-            className="sl-focus flex size-6 items-center justify-center rounded-pill border border-line-strong bg-surface text-muted shadow-card hover:border-rose-600 hover:text-rose-600"
+        {insertAt && (
+          <div
+            className={`nodrag nopan sl-edge-tools pointer-events-auto absolute flex items-center ${hovered || p.selected ? 'sl-edge-tools-on' : ''}`}
+            style={{ transform: `translate(-50%, -50%) translate(${lx}px, ${ly}px)` }}
           >
-            <Plus size={14} aria-hidden="true" />
-          </button>
-          {hovered && fields.length > 0 && (
-            <span
-              role="tooltip"
-              className="absolute top-full left-1/2 mt-1 w-max max-w-[260px] -translate-x-1/2 rounded-md border border-line bg-surface px-2 py-1 font-mono text-[11px] leading-4 text-muted shadow-card"
+            <button
+              type="button"
+              aria-label="Insert a node on this edge"
+              title={fields.length ? `Schema: ${fields.join(', ')}` : 'No schema yet'}
+              onClick={(e) => {
+                const r = e.currentTarget.getBoundingClientRect();
+                // Keyboard clicks report (0, 0): open at the button instead.
+                insertAt(p.id, e.clientX || r.left, e.clientY || r.bottom + 4);
+              }}
+              // Keep Enter/Space for this button: React Flow's edge handler would select the edge instead.
+              onKeyDown={(e) => e.stopPropagation()}
+              className="sl-focus flex size-6 items-center justify-center rounded-pill border border-line-strong bg-surface text-muted shadow-card hover:border-rose-600 hover:text-rose-600"
             >
-              {fields.join(', ')}
-            </span>
-          )}
-        </div>
+              <Plus size={14} aria-hidden="true" />
+            </button>
+            {hovered && fields.length > 0 && (
+              <span
+                role="tooltip"
+                className="absolute top-full left-1/2 mt-1 w-max max-w-[260px] -translate-x-1/2 rounded-md border border-line bg-surface px-2 py-1 font-mono text-[11px] leading-4 text-muted shadow-card"
+              >
+                {fields.join(', ')}
+              </span>
+            )}
+          </div>
+        )}
       </EdgeLabelRenderer>
     </>
   );

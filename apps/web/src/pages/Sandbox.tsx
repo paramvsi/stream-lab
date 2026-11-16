@@ -1,10 +1,11 @@
 import { labelOf } from '@sl/graph';
-import { Button, EmptyState, StatusBadge, type BadgeTone } from '@sl/ui';
+import { AppError, present } from '@sl/errors';
+import { Banner, Button, EmptyState, StatusBadge, type BadgeTone } from '@sl/ui';
 import { Pause, Play, RotateCcw, SkipForward } from 'lucide-react';
 import { useEffect } from 'react';
 import { Events } from '../sim/drawer/PreviewPanel';
 import { Timeline } from '../sim/RunPanel';
-import { runner, useRun } from '../sim/run';
+import { dispose, runner, useRun } from '../sim/run';
 import { SCENARIOS } from '../sim/scenarios';
 import { useGraph } from '../sim/store';
 import { SandboxCanvas } from '../sim/Workspace';
@@ -26,13 +27,20 @@ const STATE: Record<string, [string, BadgeTone]> = {
 export function Sandbox({ chapter, scenario }: { chapter: string; scenario: string }) {
   const state = useRun((s) => s.state);
   const stats = useRun((s) => s.stats);
+  const crash = useRun((s) => s.crash);
   const sink = useGraph((g) => g.nodes.find((n) => n.type === 'Sink'));
   useEffect(() => {
     const s = SCENARIOS.find((x) => x.title === scenario);
     if (!s) return;
+    // Its own speed (1×) and its own run: the simulator's speed and any crash are put back / cleared on leaving.
+    const speed = useRun.getState().speed;
     runner.reset();
+    runner.speed(1);
     useGraph.getState().load({ id: `sandbox-${chapter}`, name: s.title, ...s.build() });
-    return () => runner.reset();
+    return () => {
+      dispose(); // stops the worker: a run left playing would keep going in the background
+      useRun.setState({ crash: null, speed });
+    };
   }, [chapter, scenario]);
   const [label, tone] = STATE[state] ?? ['Idle', 'neutral'];
   const rows = (sink && stats?.outputs[sink.id]) ?? [];
@@ -51,7 +59,11 @@ export function Sandbox({ chapter, scenario }: { chapter: string; scenario: stri
           size="sm"
           variant="ghost"
           icon={<RotateCcw size={16} aria-hidden="true" />}
-          onClick={runner.reset}
+          onClick={() => {
+            runner.pause(); // a playing run stops, not just its display
+            runner.reset();
+            useRun.setState({ crash: null });
+          }}
           aria-label="Reset sandbox"
         >
           Reset
@@ -91,6 +103,13 @@ export function Sandbox({ chapter, scenario }: { chapter: string; scenario: stri
       <div className="h-[160px]">
         <Timeline stats={stats} />
       </div>
+      {crash && (
+        // SIM-ENGINE-CRASH, here as a banner: the sandbox has no dialog of its own; Reset starts over.
+        <Banner severity="error">
+          {present(new AppError('SIM-ENGINE-CRASH', { n: crash.n, reason: crash.reason })).message} Press
+          Reset to start again.
+        </Banner>
+      )}
       {state === 'ready' ? (
         <EmptyState icon={Play} title="Press Run to start" level={3}>
           Events will flow from the source, and each window fires when the watermark passes its end.

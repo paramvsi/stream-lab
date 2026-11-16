@@ -3,7 +3,7 @@ import { AppError, ErrorBanner, present } from '@sl/errors';
 import { Banner, Button, Dialog, Tabs } from '@sl/ui';
 import { Link, useNavigate } from '@tanstack/react-router';
 import { Check, ChevronRight, Flag, X } from 'lucide-react';
-import { useEffect, useId, useRef, useState } from 'react';
+import { useCallback, useEffect, useId, useRef, useState } from 'react';
 import { getProgress, setChapterStatus } from '../storage';
 import { WithConcepts } from './Glossary';
 import { NotFound } from './NotFound';
@@ -195,9 +195,10 @@ function Challenge({
   }, [qi, pick]);
   // The result's action takes focus when it mounts (a Banner shows its actions a moment after the message,
   // so the live region is announced).
-  const action = (el: HTMLButtonElement | null) => {
+  // Stable: a new function each render would be re-attached, and re-focus, on every re-render.
+  const action = useCallback((el: HTMLButtonElement | null) => {
     if (el && moved.current) el.focus();
-  };
+  }, []);
   const go = (a: { qi: number; pick: number | null }) => {
     moved.current = true;
     onAt(a);
@@ -229,7 +230,6 @@ function Challenge({
               <button
                 ref={i === 0 ? first : undefined}
                 type="button"
-                aria-pressed={chosen}
                 aria-disabled={result?.pass ? true : undefined}
                 onClick={() => !result?.pass && go({ qi, pick: i })}
                 className={`sl-focus flex w-full items-center gap-3 rounded-lg border px-4 py-3 text-left text-[15px] text-ink ${tone}`}

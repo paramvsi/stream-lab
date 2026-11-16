@@ -236,3 +236,60 @@ test('LEARN-01 audit 2+3+6: a v1 chapter is "Page not found"; the logo has the r
   await page.getByRole('navigation', { name: 'Chapters' }).getByRole('link', { name: 'Windows' }).click();
   await expect(page.getByRole('heading', { level: 1, name: 'Windows' })).toBeFocused();
 });
+
+// ---- Audit of 47a87c7 / ac5d53f ----
+test('LEARN-02 audit: the sandbox fits every node, has no edit buttons, stops its worker on leaving, keeps the simulator speed, says a crash', async ({
+  page,
+}) => {
+  await page.addInitScript(() => {
+    const W = window.Worker;
+    const w = window as unknown as { __workers: { w: Worker; ended: boolean }[] };
+    w.__workers = [];
+    window.Worker = class extends W {
+      constructor(...a: ConstructorParameters<typeof Worker>) {
+        super(...a);
+        const rec = { w: this as Worker, ended: false };
+        w.__workers.push(rec);
+        const t = this.terminate.bind(this);
+        this.terminate = () => {
+          rec.ended = true;
+          t();
+        };
+      }
+    } as typeof Worker;
+  });
+  // The simulator's speed, set elsewhere (0.25×), before the sandbox opens.
+  await page.goto('/#/learn');
+  await page.evaluate(async () => (await import('/src/sim/run.ts')).useRun.setState({ speed: 0.25 }));
+  await page.getByRole('link', { name: 'Start chapter 1' }).waitFor();
+  await page.evaluate(() => (location.hash = '#/learn/windows'));
+  const box = page.getByRole('region', { name: 'Sandbox' });
+  const pane = await box.locator('.react-flow').boundingBox();
+  for (const n of await box.locator('.react-flow__node').all()) {
+    const b = (await n.boundingBox())!;
+    expect(b.x).toBeGreaterThanOrEqual(pane!.x - 1);
+    expect(b.x + b.width).toBeLessThanOrEqual(pane!.x + pane!.width + 1);
+  }
+  await expect(box.getByRole('button', { name: 'Insert a node on this edge' })).toHaveCount(0);
+  expect(await page.evaluate(async () => (await import('/src/sim/run.ts')).useRun.getState().speed)).toBe(1);
+  await box.getByRole('button', { name: 'Run', exact: true }).click();
+  await expect(box.getByText('Running')).toBeVisible();
+  // An engine crash is said here, with the catalog's words.
+  await page.evaluate(() => {
+    const ws = (window as unknown as { __workers: { w: Worker }[] }).__workers;
+    ws.at(-1)!.w.onmessage?.(
+      new MessageEvent('message', { data: { type: 'crash', n: 5, reason: 'a probe' } }),
+    );
+  });
+  await expect(
+    box.getByText('The simulator stopped at event 5: a probe. Your pipeline is safe.'),
+  ).toBeVisible();
+  await page.getByRole('navigation', { name: 'Main' }).getByRole('link', { name: 'Learn' }).click();
+  await expect(page.getByRole('heading', { level: 1, name: 'Apache Flink®, hands on' })).toBeVisible();
+  const after = await page.evaluate(async () => ({
+    ended: (window as unknown as { __workers: { ended: boolean }[] }).__workers.every((x) => x.ended),
+    speed: (await import('/src/sim/run.ts')).useRun.getState().speed,
+    crash: (await import('/src/sim/run.ts')).useRun.getState().crash,
+  }));
+  expect(after).toEqual({ ended: true, speed: 0.25, crash: null });
+});

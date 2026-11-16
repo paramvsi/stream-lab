@@ -52,3 +52,17 @@ test('EXPORT-UNSUPPORTED a node with no direct SQL is named in a banner; the run
   await expect(panel.getByRole('region', { name: 'Flink SQL' })).toContainText('TUMBLE(TABLE');
   await expect(panel).toContainText('Bursts per card has no direct Flink SQL');
 });
+
+test('EXP-01 audit: the dialog matches board W17 (720 wide, 240 px code area, a secondary Copy button)', async ({
+  page,
+}) => {
+  await scenario(page, 'Refunds matching');
+  await page.getByRole('button', { name: 'Export', exact: true }).click();
+  const d = page.getByRole('dialog', { name: /^Export "/ });
+  await d.evaluate((e) => Promise.all(e.getAnimations().map((x) => x.finished)));
+  expect((await d.boundingBox())!.width).toBe(720);
+  expect((await d.getByRole('region', { name: 'Flink SQL' }).boundingBox())!.height).toBe(240);
+  expect(
+    await d.getByRole('button', { name: 'Copy' }).evaluate((e) => getComputedStyle(e).borderTopColor),
+  ).not.toBe('rgba(0, 0, 0, 0)');
+});

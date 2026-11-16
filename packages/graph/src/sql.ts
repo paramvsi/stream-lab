@@ -312,14 +312,6 @@ export function toFlinkSql(
       taintOut(n);
       continue;
     }
-    const upd = ins.some((i) => updating.has(i.from));
-    if (upd && ['Window', 'Join', 'Deduplicate', 'Lookup'].includes(n.type)) {
-      todo(
-        n,
-        'its input is an updating result (Top-N, keep-last dedup or a regular LEFT join), which it can not read',
-      );
-      continue;
-    }
     if (n.disabled) {
       if (n.type === 'Source' || n.type === 'Generator' || !from) {
         parts.push(`-- Left out: ${labelOf(n)} is disabled and emits nothing.`);
@@ -330,11 +322,22 @@ export function toFlinkSql(
       const first = spec(n.type).outputs(c as never)[0]?.id ?? 'main';
       view(outName(n.id, first), `SELECT * FROM ${q(from)}`);
       rt.set(outName(n.id, first), time);
+      // Updating rows stay updating through a disabled node.
+      if (ins.some((i) => updating.has(i.from))) updating.add(outName(n.id, first));
+      if (ins.some((i) => firstRow.has(i.from))) firstRow.add(outName(n.id, first));
       for (const p of outPorts(n))
         if (p !== first) {
           parts.push(`-- Left out: ${labelOf(n)} is disabled; its ${p} output is empty.`);
           tainted.add(outName(n.id, p));
         }
+      continue;
+    }
+    const upd = ins.some((i) => updating.has(i.from));
+    if (upd && ['Window', 'Join', 'Deduplicate', 'Lookup'].includes(n.type)) {
+      todo(
+        n,
+        'its input is an updating result (Top-N, keep-last dedup or a regular LEFT join), which it can not read',
+      );
       continue;
     }
     switch (n.type) {
@@ -441,7 +444,8 @@ export function toFlinkSql(
         if (!ins.length) break;
         const label = (id: string) => labelOf(g.nodes.find((x) => x.id === id)!);
         const times = new Set(ins.map((i) => rt.get(i.from) ?? null));
-        const uTime = times.size === 1 ? [...times][0]! : null;
+        // A tag named like the time column replaces it: the column is a plain string then, not a time.
+        const uTime = times.size === 1 && [...times][0] !== tag ? [...times][0]! : null;
         view(
           me,
           ins
@@ -463,8 +467,13 @@ export function toFlinkSql(
         const schema = inSchema(n);
         if (ins.some((i) => updating.has(i.from) || firstRow.has(i.from))) {
           const key = String(c['key'] ?? '');
-          if (!key) {
-            todo(n, 'it receives updating results; set its key so it is written as an upsert table');
+          if (!key || !schema.some((f) => f.name === key)) {
+            todo(
+              n,
+              key
+                ? `its key "${key}" is not a column of its input (an upsert table needs it)`
+                : 'it receives updating results; set its key so it is written as an upsert table',
+            );
             break;
           }
           parts.push(
@@ -487,6 +496,14 @@ export function toFlinkSql(
             parts.push(`-- Left out: ${labelOf(n)} input ${i.from}, which has no SQL.`);
             continue;
           }
+          if (updating.has(i.from) || firstRow.has(i.from)) {
+            // A dead letter has no key to upsert by.
+            unsupported.push({ id: n.id, label: labelOf(n), type: n.type });
+            parts.push(
+              `-- TODO (EXPORT-UNSUPPORTED): ${labelOf(n)} — input ${i.from} carries updating results, which an append-only dead-letter table can not take.`,
+            );
+            continue;
+          }
           const t = unique(`${me}_${i.from}`);
           const schema = (s.out.get(i.e.source)?.[i.e.sourceHandle] ?? []).filter((f) => f.name !== rf);
           parts.push(
@@ -505,9 +522,13 @@ export function toFlinkSql(
         }
         const keys = (c['keyBy'] ?? []) as string[];
         const k = String(c['kind']);
-        if (k === 'hop' && Number(c['sizeMs']) % Number(c['slideMs']) !== 0) {
-          // FLINK: "HOP table function based aggregate requires size must be an integral multiple of slide".
-          todo(n, 'Flink needs the hop size to be a whole multiple of the slide');
+        if ((k === 'hop' || k === 'cumulate') && Number(c['sizeMs']) % Number(c['slideMs']) !== 0) {
+          // FLINK: HOP needs "size ... an integral multiple of slide"; CUMULATE's max size must be an integral
+          // multiple of its step (window-tvf docs).
+          todo(
+            n,
+            `Flink needs the ${k === 'hop' ? 'hop size' : 'size'} to be a whole multiple of the ${k === 'hop' ? 'slide' : 'step'}`,
+          );
           break;
         }
         let src = from;
@@ -606,8 +627,15 @@ export function toFlinkSql(
           break;
         }
         const tk = String(c['tableKey']);
-        const hasValid = cols.some((f) => f.name === 'valid_from');
-        const asOf = Boolean(c['asOf']) && (hasValid || versioned.has(table));
+        const vf = cols.find((f) => f.name === 'valid_from');
+        const hasValid = vf?.type === 'timestamp';
+        // Versioned as the caller says (the tables' own flag); without that list, a timestamp valid_from.
+        const isVersioned = opts.versioned ? versioned.has(table) : hasValid;
+        if (Boolean(c['asOf']) && isVersioned && vf && !hasValid) {
+          todo(n, `"${table}" is versioned but its valid_from is not a time`);
+          break;
+        }
+        const asOf = Boolean(c['asOf']) && isVersioned;
         const kind = asOf ? 'as-of' : 'lookup';
         if (refKind.has(table) && refKind.get(table) !== kind) {
           todo(n, `"${table}" is used both as-of and at processing time; Flink needs one kind of table`);
@@ -620,7 +648,7 @@ export function toFlinkSql(
         const tname = refName.get(table)!;
         // A versioned table's rows carry valid_from even when its schema does not list it (the built-in ones).
         const ddlCols: Schema =
-          asOf && !hasValid ? [...cols, { name: 'valid_from', type: 'timestamp', required: true }] : cols;
+          asOf && !vf ? [...cols, { name: 'valid_from', type: 'timestamp', required: true }] : cols;
         if (!refKind.has(table)) {
           refKind.set(table, kind);
           // FLINK: a temporal (versioned) table needs a primary key and an event-time attribute; a lookup
@@ -642,7 +670,7 @@ export function toFlinkSql(
         const ev = inSchema(n);
         const evNames = new Set(ev.map((f) => f.name));
         const extra = cols
-          .filter((f) => f.name !== tk && f.name !== 'valid_from')
+          .filter((f) => f.name !== tk) // valid_from too when the table lists it: the schema has it
           .map((f) => `T.${q(f.name)}${evNames.has(f.name) ? ` AS ${q(`right_${f.name}`)}` : ''}`);
         const join = (kind: string) =>
           `FROM ${q(probe)} AS E\n${kind} ${q(tname)} FOR SYSTEM_TIME AS OF ${at} AS T\nON E.${q(String(c['key']))} = T.${q(tk)}`;

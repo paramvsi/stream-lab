@@ -80,7 +80,7 @@ export function downloadJson(p: Pipeline) {
   a.href = url;
   a.download = `${p.name.replace(/[^\w-]+/g, '-').toLowerCase() || 'pipeline'}.json`;
   a.click();
-  URL.revokeObjectURL(url);
+  setTimeout(() => URL.revokeObjectURL(url), 1000); // after the browser has started the download
 }
 
 export const shareUrl = (base: string, data: string) => `${base.replace(/#.*$/, '')}#/s/${data}`;

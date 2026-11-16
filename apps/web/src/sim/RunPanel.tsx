@@ -90,7 +90,7 @@ function LiveSql() {
   return (
     <div className="flex flex-col gap-2">
       <Unsupported nodes={unsupported} />
-      <SqlView sql={sql} />
+      <SqlView sql={sql} fill />
     </div>
   );
 }

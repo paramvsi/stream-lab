@@ -26,14 +26,20 @@ export function useFlinkSql() {
 }
 
 /** Board W17: numbered, read-only SQL. A scroll region the keyboard can reach. */
-export function SqlView({ sql }: { sql: string }) {
+export function SqlView({
+  sql,
+  fill = false,
+}: {
+  sql: string;
+  /** In the run panel: no box of its own. */ fill?: boolean;
+}) {
   const lines = sql.replace(/\n$/, '').split('\n');
   return (
     <div
       role="region"
       aria-label="Flink SQL"
       tabIndex={0}
-      className="sl-focus max-h-[360px] overflow-auto rounded-lg border border-line bg-subtle font-mono text-[12px] leading-5"
+      className={`sl-focus overflow-auto rounded-lg border border-line bg-subtle font-mono text-[12.5px] leading-[21px] ${fill ? '' : 'h-[240px]'}`}
     >
       <ol className="m-0 list-none py-2 pr-4 pl-0">
         {lines.map((l, i) => (
@@ -90,14 +96,14 @@ export function ExportButton() {
     a.href = url;
     a.download = `${slug(name)}.sql`;
     a.click();
-    URL.revokeObjectURL(url);
+    setTimeout(() => URL.revokeObjectURL(url), 1000); // after the browser has started the download
   };
   return (
     <Dialog
       open={open}
       onOpenChange={setOpen}
       title={`Export "${name}"`}
-      width={760}
+      width={720}
       trigger={
         <Button size="sm" variant="ghost" icon={<FileCode2 size={16} aria-hidden="true" />}>
           Export
@@ -105,7 +111,7 @@ export function ExportButton() {
       }
       footer={
         <>
-          <Button variant="ghost" icon={<Copy size={16} aria-hidden="true" />} onClick={copy}>
+          <Button icon={<Copy size={16} aria-hidden="true" />} onClick={copy}>
             Copy
           </Button>
           <Button variant="primary" icon={<Download size={16} aria-hidden="true" />} onClick={download}>

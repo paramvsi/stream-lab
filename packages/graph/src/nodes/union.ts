@@ -13,7 +13,15 @@ export const union = defineNode({
   // Mismatched inputs are SIM-UNION-SCHEMA (graph validation); the first input wins here.
   outputSchema: (i, c) => {
     const first = i['main']?.[0] ?? [];
-    return { main: c.tagField ? [...first, { name: c.tagField, type: 'string', required: true }] : first };
+    // A tag named like an existing field replaces it (one column of that name).
+    return {
+      main: c.tagField
+        ? [
+            ...first.filter((f) => f.name !== c.tagField),
+            { name: c.tagField, type: 'string', required: true },
+          ]
+        : first,
+    };
   },
   requires: () => [],
 });

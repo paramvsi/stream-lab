@@ -125,3 +125,4 @@ Overnight log. **Decisions** need your call; **Commands** need you to run them. 
   - A Map expression that can be NULL feeds a sink column; columns are now nullable, so nothing enforces a NOT NULL contract.
   - The union-tag test passes on the old code too: the old SQL used `SELECT *`, so the duplicate column was not visible in the text.
 - Escape with a toast showing closes the toast first; a second Escape closes the dialog under it. This is the shared Toast component's behaviour (Radix layers), seen after Export → Copy and Data → Copy seed. Should Escape skip toasts and close the dialog?
+- SQL export audit 3, not settled (needs a Flink 1.20 EXPLAIN, which I don't run): keep-first dedup into a kafka sink needs upsert on 1.20 (the earlier planner run). If 1.20 also treats it as updating for a following Window, interval Join or as-of Lookup, those should be flagged too; the export lets them through.

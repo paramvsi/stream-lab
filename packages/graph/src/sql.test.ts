@@ -604,3 +604,129 @@ describe('EXP-01 SQL export audit 2 (17324f5, checked by the auditor against the
     expect(unsupported.map((u) => u.id)).toEqual(['w']);
   });
 });
+
+describe('EXP-01 SQL export audit 3 (13fea6b)', () => {
+  const sink = (id: string, name: string, key = '') => node(id, 'Sink', { name, format: 'json', key });
+  const top = node('t', 'Top-N', {
+    partitionBy: ['merchant_id'],
+    orderBy: 'amount',
+    desc: true,
+    n: 3,
+    withinWindow: false,
+  });
+  const FX = [
+    { name: 'currency', type: 'string' as const, required: true },
+    { name: 'rate', type: 'number' as const, required: true },
+    { name: 'valid_from', type: 'timestamp' as const, required: true },
+  ];
+  it('#1 a lookup on a table that lists valid_from selects it (the schema and the sink have it)', () => {
+    const { sql } = toFlinkSql(
+      {
+        nodes: [
+          node('src', 'Source', SRC),
+          node('l', 'Lookup', {
+            table: 'fx',
+            key: 'currency',
+            tableKey: 'currency',
+            asOf: true,
+            onMiss: 'pass',
+          }),
+          sink('o', 'out'),
+        ],
+        edges: [edge('src', 'l'), edge('l', 'o')],
+      },
+      { refTables: { fx: FX } },
+      { versioned: ['fx'] },
+    );
+    expect(sql).toContain('T.`valid_from`');
+  });
+  it('#2 a Dead-letter fed by updating rows is flagged, not written append-only', () => {
+    const { sql, unsupported } = toFlinkSql({
+      nodes: [
+        node('src', 'Source', SRC),
+        top,
+        node('v', 'Validate', { rules: [{ name: 'p', expr: 'amount > 0.0', severity: 'error' }] }),
+        sink('o', 'o', 'merchant_id'),
+        node('d', 'Dead-letter', { reasonField: 'reason', retentionMs: 0 }),
+      ],
+      edges: [edge('src', 't'), edge('t', 'v'), edge('v', 'o'), edge('v', 'd', 'rejected')],
+    });
+    expect(unsupported.map((u) => u.id)).toContain('d');
+    expect(sql).not.toContain('CREATE TABLE `d_v_rejected`');
+  });
+  it('#3 a disabled node passes on that its input is updating', () => {
+    const { unsupported } = toFlinkSql({
+      nodes: [
+        node('src', 'Source', SRC),
+        top,
+        { ...node('f', 'Filter', { expr: 'amount > 1.0' }), disabled: true },
+        sink('o', 'o'),
+      ],
+      edges: [edge('src', 't'), edge('t', 'f'), edge('f', 'o')],
+    });
+    expect(unsupported.map((u) => u.id)).toEqual(['o']);
+  });
+  it('#4 a union tag named like the time column is one column, in the view and in the sink', () => {
+    const { sql } = toFlinkSql({
+      nodes: [
+        node('a', 'Source', SRC),
+        node('b', 'Source', { ...SRC, name: 'more' }),
+        node('u', 'Union', { tagField: 'event_time' }),
+        sink('o', 'x'),
+      ],
+      edges: [edge('a', 'u'), edge('b', 'u'), edge('u', 'o')],
+    });
+    for (const line of sql
+      .split('\n')
+      .filter((l) => l.startsWith('SELECT') || l.startsWith('  `event_time`')))
+      expect(line.match(/`event_time`/g)?.length ?? 0).toBeLessThanOrEqual(1);
+    const ddl = sql.slice(sql.indexOf('CREATE TABLE `x`'));
+    expect(ddl.slice(0, ddl.indexOf(') WITH')).match(/`event_time`/g)).toHaveLength(1);
+  });
+  it('#5 a valid_from that is not a timestamp does not make a table versioned', () => {
+    const { sql } = toFlinkSql(
+      {
+        nodes: [
+          node('src', 'Source', SRC),
+          node('l', 'Lookup', {
+            table: 'fx',
+            key: 'currency',
+            tableKey: 'currency',
+            asOf: true,
+            onMiss: 'pass',
+          }),
+          sink('o', 'out'),
+        ],
+        edges: [edge('src', 'l'), edge('l', 'o')],
+      },
+      { refTables: { fx: [FX[0]!, FX[1]!, { name: 'valid_from', type: 'string', required: true }] } },
+      { versioned: [] },
+    );
+    expect(sql).not.toContain('WATERMARK FOR `valid_from`');
+  });
+  it('#7 a CUMULATE whose size is not a multiple of its step is flagged', () => {
+    const { unsupported } = toFlinkSql({
+      nodes: [
+        node('src', 'Source', SRC),
+        node('w', 'Window', {
+          kind: 'cumulate',
+          sizeMs: 10000,
+          slideMs: 3000,
+          keyBy: [],
+          aggregates: [],
+          allowedLatenessMs: 0,
+        }),
+        sink('o', 'a'),
+      ],
+      edges: [edge('src', 'w'), edge('w', 'o')],
+    });
+    expect(unsupported.map((u) => u.id)).toEqual(['w']);
+  });
+  it('#9 an upsert sink whose key is not a column of its input is flagged', () => {
+    const { unsupported } = toFlinkSql({
+      nodes: [node('src', 'Source', SRC), top, sink('o', 'o', 'no_such_col')],
+      edges: [edge('src', 't'), edge('t', 'o')],
+    });
+    expect(unsupported.map((u) => u.id)).toEqual(['o']);
+  });
+});

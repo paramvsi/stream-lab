@@ -68,7 +68,8 @@ describe('CONN-01 → CONN-02 the flow', () => {
     await userEvent.type(screen.getByLabelText(/JobManager REST URL/), 'http://localhost:8081');
     await userEvent.click(screen.getByRole('button', { name: 'Save' }));
     expect(await screen.findByText('Saved dev-local.')).toBeTruthy();
-    expect(screen.getByRole('heading', { level: 1, name: 'Welcome to Stream Lab' })).toBeTruthy();
+    // With a connection, home is the connection list (D03), not Welcome.
+    expect(screen.getByRole('heading', { level: 1, name: 'Connections' })).toBeTruthy();
   });
 });
 

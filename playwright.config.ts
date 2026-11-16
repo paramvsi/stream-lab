@@ -12,6 +12,11 @@ export default defineConfig({
     // ponytail: the installed Google Chrome, so no browser download. CI installs it with `npx playwright install chrome`.
     channel: 'chrome',
     trace: 'retain-on-failure',
+    // The guided tour (EXPL-01) starts on a first visit; tests start as returning visitors (tour.spec clears it).
+    storageState: {
+      cookies: [],
+      origins: [{ origin: `http://localhost:${PORT}`, localStorage: [{ name: 'sl.tour.done', value: '1' }] }],
+    },
   },
   // CLAUDE.md: check every screen at 1440×900 and 1280×800.
   projects: [

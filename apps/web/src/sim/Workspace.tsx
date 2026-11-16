@@ -73,6 +73,7 @@ import { QuickAdd, type QuickAddNeed } from './QuickAdd';
 import { DataButton } from './DataDrawer';
 import { ExportButton } from './ExportDialog';
 import { ShareButton } from './ShareDialog';
+import { Tour, TourButton } from './Tour';
 import { RefTablesButton } from './RefTablesPanel';
 import { RunPanel, useBottomDrawer } from './RunPanel';
 import { RunPill } from './RunPill';
@@ -646,6 +647,7 @@ function Header() {
       </div>
       {/* Board W09: Tour · Explain run · Data · Share · Export on the right; Data is the first built (DATA-01). */}
       <div className="ml-auto flex items-center gap-1">
+        <TourButton />
         <DataButton />
         <RefTablesButton />
         <ShareButton />
@@ -761,6 +763,7 @@ export function Workspace({ banners }: { banners?: ReactNode }) {
         {banners && <div className="flex flex-col gap-2 px-4 pt-3 empty:hidden">{banners}</div>}
         <Canvas />
         <RunPanel />
+        <Tour />
       </div>
     </ReactFlowProvider>
   );

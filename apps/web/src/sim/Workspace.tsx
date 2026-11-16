@@ -4,7 +4,6 @@ import {
   labelOf,
   propagate,
   inputsOf,
-  runBlocker,
   type Schema,
   spec,
   validate,
@@ -37,7 +36,6 @@ import {
   History,
   LayoutGrid,
   MonitorSmartphone,
-  Play,
   Redo2,
   Undo2,
   Workflow,
@@ -73,6 +71,7 @@ import { accent } from './look';
 import { NODE_H, NODE_W, NodeCard, type SlNode } from './NodeCard';
 import { DRAG_TYPE, Palette } from './Palette';
 import { QuickAdd, type QuickAddNeed } from './QuickAdd';
+import { RunPill } from './RunPill';
 import { historyEntries, useGraph, type ConnectFrom } from './store';
 import { ConnectionHint, EdgeActions, setHoveredEdge, StreamEdge, type SlEdge } from './StreamEdge';
 
@@ -588,25 +587,6 @@ function Canvas() {
         {keysOpen && <ShortcutsSheet onClose={() => setKeysOpen(false)} />}
       </EdgeActions.Provider>
     </NodeActions.Provider>
-  );
-}
-
-/** Run pill (board W09f). Running is M3: Run is explained-disabled until then. */
-function RunPill() {
-  const all = useIssues((s) => s.all);
-  const blocker = runBlocker(all);
-  return (
-    <div className="flex items-center gap-2 rounded-pill border border-line bg-surface py-1 pr-1 pl-3.5 shadow-card">
-      <span className="text-[13px] font-medium text-muted">{blocker ? 'Not ready' : 'Ready'}</span>
-      <Button
-        size="sm"
-        variant="primary"
-        icon={<Play size={14} aria-hidden="true" />}
-        disabledReason={blocker ? msg(blocker.code, blocker.params) : 'The engine arrives in the next build.'}
-      >
-        Run
-      </Button>
-    </div>
   );
 }
 

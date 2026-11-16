@@ -102,6 +102,11 @@ test('axe: 0 violations on the workspace (empty and with nodes)', async ({ page 
     [],
   );
   await page.getByRole('button', { name: /^Source/ }).press('Enter');
+  // Validation lands after a short debounce and enables Run (a colour transition): wait for it first.
+  await expect(page.getByRole('button', { name: 'Run', exact: true })).not.toHaveAttribute(
+    'aria-disabled',
+    'true',
+  );
   await settled(page);
   r = await new AxeBuilder({ page }).analyze();
   expect(r.violations.map((v) => `${v.id}: ${v.nodes.map((n) => n.target.join(' ')).join(' | ')}`)).toEqual(

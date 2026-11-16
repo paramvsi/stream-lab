@@ -21,7 +21,14 @@ type Screen =
   | { name: 'kind'; kind: KindChoice | null }
   | { name: 'form'; kind: Connection['kind'] };
 
-export function App({ transport }: { transport?: (c: Connection) => FlinkHttp } = {}) {
+export function App({
+  transport,
+  test,
+}: {
+  transport?: (c: Connection) => FlinkHttp;
+  /** Test connection before saving: the transport with the secret typed in the form (not yet in the keychain). */
+  test?: (c: Connection, secret: string) => FlinkHttp;
+} = {}) {
   const [screen, setScreen] = useState<Screen>({ name: 'home' });
   const [connections, setConnections] = useState<Connection[]>([]);
   const [importing, setImporting] = useState(false);
@@ -32,6 +39,7 @@ export function App({ transport }: { transport?: (c: Connection) => FlinkHttp } 
       <ConnectionForm
         kind={screen.kind}
         taken={connections.map((c) => c.name)}
+        {...(test ? { test } : {})}
         onCancel={() => setScreen({ name: 'kind', kind: screen.kind })}
         onSave={({ connection }) => {
           setConnections((cs) => [...cs, connection]);

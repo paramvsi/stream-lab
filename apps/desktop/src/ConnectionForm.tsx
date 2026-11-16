@@ -1,6 +1,11 @@
 import { AppError, ErrorBanner, present } from '@sl/errors';
 import {
   secretKey,
+  testConnection,
+  type FlinkHttp,
+  type StepId,
+  type StepResult,
+  type TestOutcome,
   splitSecrets,
   validateConnection,
   type Connection,
@@ -8,7 +13,8 @@ import {
 } from '@sl/flink';
 import { Button, Field, Input, Select } from '@sl/ui';
 import { Activity } from 'lucide-react';
-import { useEffect, useId, useState } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
+import { TestSteps } from './TestSteps';
 import { useScreenHeading } from './focus';
 
 type Env = Connection['env'];
@@ -92,11 +98,14 @@ export function ConnectionForm({
   taken,
   onCancel,
   onSave,
+  test,
 }: {
   kind: Connection['kind'];
   taken: string[];
   onCancel: () => void;
   onSave: (r: { connection: Connection; secrets: { key: string; value: string }[] }) => void;
+  /** How to reach a cluster before it is saved (the secret is the one typed here). None: Test says why. */
+  test?: (c: Connection, secret: string) => FlinkHttp;
 }) {
   useEffect(() => {
     document.title = 'New connection · Stream Lab';
@@ -128,9 +137,49 @@ export function ConnectionForm({
     const e = shown(f);
     return e ? present(e).message : undefined;
   };
-  const set = <K extends keyof Draft>(k: K, v: Draft[K]) => setD((x) => ({ ...x, [k]: v }));
+  const [results, setResults] = useState<Partial<Record<StepId, StepResult>> | null>(null);
+  const [outcome, setOutcome] = useState<TestOutcome | null>(null);
+  const run = useRef(0);
+  useEffect(
+    () => () => {
+      run.current++; // unmounted: a test still running reports to no one
+    },
+    [],
+  );
+  /** Any change makes a finished test say nothing about what is on screen: it is cleared. */
+  const changed = () => {
+    run.current++;
+    setResults(null);
+    setOutcome(null);
+  };
+  const set = <K extends keyof Draft>(k: K, v: Draft[K]) => {
+    changed();
+    setD((x) => ({ ...x, [k]: v }));
+  };
   // A new login method starts with an empty secret: a password typed for one is never sent as the other's token.
-  const setAuth = (a: AuthType) => setD((x) => ({ ...x, auth: a, secret: '' }));
+  const setAuth = (a: AuthType) => {
+    changed();
+    setD((x) => ({ ...x, auth: a, secret: '' }));
+  };
+  const testing = results !== null && outcome === null;
+  const startTest = async () => {
+    if (!test) return;
+    const mine = ++run.current;
+    setResults({});
+    setOutcome(null);
+    const steps = testConnection(test(c, d.secret), {
+      name: c.name || 'this cluster',
+      url: c.url,
+      readOnly: c.readOnly,
+      hasGateway: !!c.gateway,
+    });
+    for (;;) {
+      const n = await steps.next();
+      if (run.current !== mine) return; // edited or left while it ran
+      if (n.done) return setOutcome(n.value);
+      setResults((r) => ({ ...r, [n.value.id]: n.value }));
+    }
+  };
   const blur = (f: FieldKey) => () => setTouched((t) => new Set(t).add(f));
   const count = Object.keys(all).length;
   const save = () => {
@@ -335,6 +384,7 @@ export function ConnectionForm({
             onChange={(e) => set('readOnly', e.target.checked)}
           />
         </label>
+        {results && <TestSteps results={results} running={testing} outcome={outcome} />}
         {submitted && count > 0 && <ErrorBanner error={new AppError('CONN-FORM-INVALID', { n: count })} />}
         <div className="flex justify-end gap-3 border-t border-line pt-4">
           <Button type="button" onClick={onCancel}>
@@ -343,9 +393,16 @@ export function ConnectionForm({
           <Button
             type="button"
             icon={<Activity size={16} aria-hidden="true" />}
-            disabledReason="Testing needs the desktop transport, which is not built yet."
+            {...(!test
+              ? { disabledReason: 'Testing needs the desktop transport, which is not built yet.' }
+              : all.url
+                ? { disabledReason: 'Enter the JobManager REST URL first.' }
+                : testing
+                  ? { disabledReason: 'Testing now.' }
+                  : {})}
+            onClick={() => void startTest()}
           >
-            Test connection
+            {testing ? 'Testing…' : 'Test connection'}
           </Button>
           <Button type="submit" variant="primary">
             Save

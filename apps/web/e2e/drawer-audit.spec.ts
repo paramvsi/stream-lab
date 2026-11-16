@@ -245,3 +245,21 @@ test('audit3 8: after Run to here, the next edit goes back to the 5-event live p
   await d.getByRole('tab', { name: 'Output preview' }).click();
   await expect(d).toContainText('Sample of 5 events per source');
 });
+
+test('EXPL-06: the stage inspector shows the node in the run (in, out, failed, late) and its state per key', async ({
+  page,
+}) => {
+  await scenario(page, 'Card fraud bursts');
+  const step = page.locator('.react-flow__panel.top').getByRole('button', { name: 'Step', exact: true });
+  for (let i = 0; i < 40; i++) await step.click();
+  await expect(page.locator('.react-flow__panel.top [data-run-label]')).toHaveText(/^Paused/);
+  const d = await open(page, 'Bursts per card');
+  await d.getByRole('tab', { name: 'Output preview' }).click();
+  const sec = d.getByRole('region', { name: 'This node in the run' });
+  await expect(sec).toContainText(/In \d+/);
+  await expect(sec).toContainText(/Late \d+/);
+  await expect(sec.getByRole('table', { name: 'State per key in the run' })).toBeVisible();
+  await expect(
+    sec.getByRole('table', { name: 'State per key in the run' }).locator('tbody tr').first(),
+  ).toContainText('c_');
+});

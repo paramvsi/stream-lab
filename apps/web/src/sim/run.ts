@@ -27,6 +27,8 @@ export interface RunStore {
   stats: RunStats | null;
   /** EXPL-05: the run's length on the clock (the scrubber's range). */
   duration: number;
+  /** EXPL-06: open state per key of a node, as last asked for (stage inspector). */
+  snapshots: Record<string, Event[]>;
   crash: { n: number; reason: string } | null;
   /** SIM-SLOW: the speed that could not be kept up, until the toast is shown. */
   slow: number | null;
@@ -46,6 +48,7 @@ const initial: RunStore = {
   speed: 1,
   stats: null,
   duration: 0,
+  snapshots: {},
   crash: null,
   slow: null,
   stale: false,
@@ -92,6 +95,8 @@ function connect(): Worker {
     const m = e.data;
     if (m.type === 'beat') return;
     if (m.type === 'chaos') return void useRun.setState({ chaos: m.report });
+    if (m.type === 'snapshot')
+      return void useRun.setState((s) => ({ snapshots: { ...s.snapshots, [m.node]: m.rows } }));
     if (m.type === 'stats')
       useRun.setState({
         state: m.state,
@@ -253,6 +258,10 @@ export const runner = {
     connect().postMessage({ type: 'step' });
   },
   /** Back to Ready: the next Run or Step loads the pipeline as it is then. */
+  /** EXPL-06: ask for a node's open state per key (answered as a snapshot message). */
+  snapshot(node: string) {
+    if (loaded) worker?.postMessage({ type: 'snapshot', node });
+  },
   /** EXPL-05 time scrubber: the run as it was at clock `at` (replayed to there, then paused). */
   seek(at: number) {
     if (!loaded || useRun.getState().stale) return;

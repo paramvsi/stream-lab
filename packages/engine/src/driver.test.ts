@@ -114,3 +114,18 @@ describe('EXPL-05 · seek (the time scrubber moves the replay)', () => {
     expect(last().state).toBe('finished');
   });
 });
+
+describe('EXPL-06 · stage inspector state', () => {
+  it("snapshot(id) posts a node's open state per key (paused mid-run)", () => {
+    const { d, msgs } = setup();
+    for (let i = 0; i < 5; i++) d.step();
+    const id = g.nodes.find((n) => n.type === 'Window' || n.type === 'Deduplicate')?.id ?? g.nodes[1]!.id;
+    d.snapshot(id);
+    const m = msgs.filter((x) => x.type === 'snapshot').at(-1) as Extract<
+      DriverMessage,
+      { type: 'snapshot' }
+    >;
+    expect(m.node).toBe(id);
+    expect(Array.isArray(m.rows)).toBe(true);
+  });
+});

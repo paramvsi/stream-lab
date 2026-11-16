@@ -8,7 +8,8 @@ export type WorkerCommand =
   | { type: 'load'; graph: Graph; opts: RunOptions }
   | { type: 'play' | 'pause' | 'step' | 'reset' | 'chaos' }
   | { type: 'speed'; speed: number }
-  | { type: 'seek'; at: number };
+  | { type: 'seek'; at: number }
+  | { type: 'snapshot'; node: string };
 
 let driver: Driver | null = null;
 let timer: ReturnType<typeof setInterval> | null = null;
@@ -39,6 +40,7 @@ self.onmessage = (e: MessageEvent<WorkerCommand>) => {
   } else if (c.type === 'pause') driver.pause();
   else if (c.type === 'step') driver.step();
   else if (c.type === 'reset') driver.reset();
+  else if (c.type === 'snapshot') driver.snapshot(c.node);
   else if (c.type === 'seek') {
     stop(); // a seek pauses (or finishes) the run
     driver.seek(c.at);

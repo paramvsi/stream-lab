@@ -1,5 +1,6 @@
 import { createRun, type ChaosReport, type Run, type RunOptions, type RunStats } from './engine';
 import type { Graph } from '@sl/graph';
+import type { Event } from './random';
 
 export type RunState = 'ready' | 'running' | 'paused' | 'finished' | 'crashed';
 
@@ -7,6 +8,8 @@ export type DriverMessage =
   /** duration: the clock time of the last arrival (EXPL-05 scrubber's range). */
   | { type: 'stats'; state: RunState; speed: number; stats: RunStats; duration?: number }
   | { type: 'crash'; n: number; reason: string }
+  /** EXPL-06: a node's open state per key, on request (not every tick: it can be big). */
+  | { type: 'snapshot'; node: string; rows: Event[] }
   | { type: 'slow'; speed: number }
   /** SIM-16 Chaos: what was injected. */
   | { type: 'chaos'; report: ChaosReport }
@@ -104,6 +107,12 @@ export class Driver {
       this.clock = run.stats().now;
     });
     this.send();
+  }
+
+  /** EXPL-06 stage inspector: post `id`'s open state per key (empty for a node that keeps none). */
+  snapshot(id: string) {
+    if (!this.run) return;
+    this.guard(() => this.post({ type: 'snapshot', node: id, rows: this.run!.snapshot(id) ?? [] }));
   }
 
   /** SIM-16: inject chaos into a running or paused run. */

@@ -1,4 +1,5 @@
-import { render, screen } from '@testing-library/react';
+import { render, screen, within } from '@testing-library/react';
+import { exportConnections, type FlinkHttp } from '@sl/flink';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it } from 'vitest';
 import { ToastProvider, TooltipProvider } from '@sl/ui';
@@ -92,5 +93,74 @@ describe('FLEET-01 home', () => {
     // audit of 23b9f80 #8: and back
     await userEvent.click(screen.getByRole('button', { name: 'Fleet' }));
     expect(screen.getByRole('heading', { level: 1, name: 'Fleet' })).toBeTruthy();
+  });
+});
+
+describe('audit of 8671a2f', () => {
+  it('#1 Import → Replace: the fleet forgets what the old cluster said', async () => {
+    const answers: Record<string, unknown> = {
+      '/config': { 'flink-version': '2.3.0' },
+      '/overview': {
+        taskmanagers: 1,
+        'slots-total': 4,
+        'slots-available': 2,
+        'jobs-running': 42,
+        'jobs-finished': 0,
+        'jobs-cancelled': 0,
+        'jobs-failed': 0,
+      },
+      '/jobs/overview': { jobs: [{ jid: 'a', name: 'x', state: 'RUNNING' }] },
+    };
+    const transport =
+      (c: { url: string }): FlinkHttp =>
+      async (req) =>
+        c.url.includes('localhost')
+          ? { status: 200, headers: {}, body: JSON.stringify(answers[req.path]), url: '' }
+          : new Promise(() => {});
+    render(
+      <TooltipProvider>
+        <ToastProvider>
+          <App transport={transport} />
+        </ToastProvider>
+      </TooltipProvider>,
+    );
+    await userEvent.click(screen.getByRole('button', { name: 'Add a connection' }));
+    await userEvent.click(screen.getByRole('radio', { name: /Self-managed/ }));
+    await userEvent.click(screen.getByRole('button', { name: 'Continue' }));
+    await userEvent.type(screen.getByLabelText(/^Name/), 'a');
+    await userEvent.selectOptions(screen.getByLabelText(/^Environment/), 'dev');
+    await userEvent.type(screen.getByLabelText(/JobManager REST URL/), 'http://localhost:8081');
+    await userEvent.click(screen.getByRole('button', { name: 'Save' }));
+    const card = () => screen.getByRole('listitem', { name: 'a' });
+    expect(await within(card()).findByText('Healthy')).toBeTruthy();
+    await userEvent.click(screen.getByRole('button', { name: 'Connections' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Import' }));
+    const file = exportConnections([
+      {
+        id: 'x',
+        name: 'a',
+        url: 'https://other.example.com:8081',
+        kind: 'standalone',
+        env: 'dev',
+        readOnly: false,
+        basePath: '',
+        auth: { type: 'none' },
+        headers: [],
+        transport: { type: 'direct' },
+        timeoutMs: 10000,
+        pollMs: 5000,
+      },
+    ]);
+    const dialog = screen.getByRole('dialog', { name: 'Import connections' });
+    await userEvent.upload(
+      dialog.querySelector('input[type="file"]') as HTMLInputElement,
+      new File([file], 'c.json'),
+    );
+    await userEvent.selectOptions(within(dialog).getByLabelText('a already exists'), 'replace');
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Import 1' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Fleet' }));
+    expect(within(card()).getByText('Loading')).toBeTruthy();
+    expect(card().textContent).toContain('other.example.com:8081');
+    expect(card().textContent).not.toContain('Running');
   });
 });

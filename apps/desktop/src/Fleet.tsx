@@ -127,19 +127,27 @@ function FleetCard({
             next = { ...x, error, failures: x.failures + 1 };
           }
           cur.current = next;
+          // A Retry that failed is over: a much later recovery must not pull focus to this card.
+          if (!r.ok) retryFocused.current = false;
           setRetrying(false);
           setS(next);
         },
       },
     );
     // Back in view: ask now, not at the next tick (the poller only skips while hidden).
-    const shown = () => !document.hidden && setRound((n) => n + 1);
+    // Only a healthy card with an old answer and nothing in flight: a failing one keeps its back-off, and
+    // a restart would leave the stopped poller's requests queued ahead of the live one.
+    const shown = () => {
+      const x = cur.current;
+      const old = !x.at || Date.now() - x.at >= POLL.fleet.everyMs;
+      if (!document.hidden && gate.inFlight === 0 && x.failures === 0 && old) setRound((n) => n + 1);
+    };
     document.addEventListener('visibilitychange', shown);
     return () => {
       p.stop();
       document.removeEventListener('visibilitychange', shown);
     };
-  }, [http, online, round, c.name, c.timeoutMs, c.url, toast]);
+  }, [http, online, round, c.name, c.timeoutMs, c.url, toast, gate]);
   useEffect(() => onState(c.id, s), [c.id, s, onState]);
   const [tone, word] = badge(s, online);
   const errorShown = showsError(s);

@@ -263,7 +263,56 @@ describe('audit of ecae65a', () => {
     expect(within(card('a')).getByText('Healthy')).toBeTruthy();
     expect(screen.getByText('1 connection · 6 jobs')).toBeTruthy();
     await vi.waitFor(() => expect(http.mock.calls.length).toBe(6));
+    // A fresh answer: back in view asks nothing; an old one (15 s+): it asks at once.
     await act(async () => document.dispatchEvent(new Event('visibilitychange')));
-    await vi.waitFor(() => expect(http.mock.calls.length).toBe(9));
+    expect(http.mock.calls.length).toBe(6);
+    const t = Date.now() + 20_000;
+    const clock = vi.spyOn(Date, 'now').mockReturnValue(t);
+    try {
+      await act(async () => document.dispatchEvent(new Event('visibilitychange')));
+      await vi.waitFor(() => expect(http.mock.calls.length).toBe(9));
+    } finally {
+      clock.mockRestore();
+    }
+  });
+});
+
+describe('audit of 8671a2f', () => {
+  const refused = new TransportError({ kind: 'refused', host: 'h.example.com', port: 8081 });
+  it('#2 #4 back in view: a failing card keeps its back-off, a hidden event asks nothing', async () => {
+    const http = vi.fn(async () => {
+      throw refused;
+    });
+    show([conn('a')], () => http);
+    expect(await within(card('a')).findByText('Unreachable')).toBeTruthy();
+    const n = http.mock.calls.length;
+    const hidden = vi.spyOn(document, 'hidden', 'get').mockReturnValue(true);
+    await act(async () => document.dispatchEvent(new Event('visibilitychange')));
+    hidden.mockReturnValue(false);
+    await act(async () => document.dispatchEvent(new Event('visibilitychange')));
+    hidden.mockRestore();
+    expect(http.mock.calls.length).toBe(n);
+  });
+  it('#3 a failed keyboard Retry does not pull focus to the card when it recovers later', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      let fail = true;
+      show([conn('a')], () => async (req) => {
+        if (fail) throw refused;
+        return healthy(1)(req);
+      });
+      const c = card('a');
+      expect(await within(c).findByText('Unreachable')).toBeTruthy();
+      within(c).getByRole('button', { name: 'Retry a' }).focus();
+      await userEvent.keyboard('{Enter}');
+      await vi.waitFor(() => expect(within(c).queryByText('Retrying…')).toBeNull());
+      (document.activeElement as HTMLElement).blur();
+      fail = false;
+      await act(async () => vi.advanceTimersByTime(30_000));
+      expect(await within(c).findByText('Healthy')).toBeTruthy();
+      expect(document.activeElement).toBe(document.body);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

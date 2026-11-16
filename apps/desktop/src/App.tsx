@@ -60,6 +60,8 @@ export function App({ transport }: { transport?: (c: Connection) => FlinkHttp } 
       existing={connections}
       onImport={({ add: added, replace }) => {
         setConnections((cs) => [...cs.map((c) => replace.find((r) => r.id === c.id) ?? c), ...added]);
+        // A replaced connection keeps its id, not its cluster: the fleet forgets what the old one said.
+        for (const r of replace) fleetCache.delete(r.id);
         const n = added.length + replace.length;
         toast({ severity: 'success', message: `Imported ${n} connection${n === 1 ? '' : 's'}.` });
       }}
@@ -93,7 +95,10 @@ export function App({ transport }: { transport?: (c: Connection) => FlinkHttp } 
         onAdd={add}
         {...(transport ? { onFleet: () => setScreen({ name: 'home' }) } : {})}
         onImport={() => setImporting(true)}
-        onRemove={(id) => setConnections((cs) => cs.filter((c) => c.id !== id))}
+        onRemove={(id) => {
+          fleetCache.delete(id);
+          setConnections((cs) => cs.filter((c) => c.id !== id));
+        }}
       />
       {importDialog}
     </>

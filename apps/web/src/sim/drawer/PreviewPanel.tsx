@@ -20,12 +20,15 @@ export function Events({
   label,
   empty = 'No events.',
   arrive = false,
+  onSelect,
 }: {
   rows: Event[];
   label: string;
   empty?: string;
   /** WM01: new rows drop in (rows are keyed by position, so only appended rows mount and animate). */
   arrive?: boolean;
+  /** A row can be picked (EXPL-02: explain this output row). */
+  onSelect?: (row: number) => void;
 }) {
   const keys = [...new Set(rows.flatMap((r) => Object.keys(r)))];
   // WM01: rows there when the table mounted (tab switch, drawer closed) stay still; only later ones drop in.
@@ -40,6 +43,7 @@ export function Events({
       maxHeight={240}
       rows={rows.map((r, i) => ({ r, i }))}
       rowKey={(x) => x.i}
+      {...(onSelect ? { onSelect: (x: { i: number }) => onSelect(x.i) } : {})}
       {...(arrive ? { rowClassName: (x: { i: number }) => (x.i >= mounted ? 'sl-row-arrive' : '') } : {})}
       columns={keys.map((k): Column<{ r: Event; i: number }> => ({
         key: k,

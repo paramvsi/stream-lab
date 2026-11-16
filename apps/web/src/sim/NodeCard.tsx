@@ -1,3 +1,4 @@
+import { useExplainStep } from './ExplainCard';
 import { AppError, present } from '@sl/errors';
 import { configOf, labelOf, spec, type PipelineNode } from '@sl/graph';
 import { Button } from '@sl/ui';
@@ -44,6 +45,8 @@ export const NodeCard = memo(function NodeCard({ data, selected, dragging }: Nod
   const failed = useNodeFailed(n.id);
   const failReason = useNodeFailReason(n.id);
   const busiest = useIsBusiest(n.id);
+  // EXPL-02: while explaining, nodes off the path dim to 35% and path nodes carry their step number.
+  const explainStep = useExplainStep(n.id);
   const fires = useNodeFires(n.id);
   const late = useNodeLate(n.id);
   const single = useGraph((st) => st.selected.length === 1);
@@ -71,7 +74,7 @@ export const NodeCard = memo(function NodeCard({ data, selected, dragging }: Nod
       </NodeToolbar>
       <div
         className={`relative flex items-center gap-2.5 rounded-lg bg-surface px-3 ${look} ${busiest ? 'sl-glow' : ''}`}
-        style={{ width: NODE_W, height: NODE_H }}
+        style={{ width: NODE_W, height: NODE_H, ...(explainStep === null ? { opacity: 0.35 } : {}) }}
         title={shown.map((p) => p.message).join('\n') || undefined}
       >
         <span
@@ -138,6 +141,12 @@ export const NodeCard = memo(function NodeCard({ data, selected, dragging }: Nod
         {/* SIM-18: events whose expression failed in this run (SIM-RUNTIME-EXPR), as a count with words. */}
         {failed > 0 && <FailedBadge n={failed} node={labelOf(n)} reason={failReason} />}
         {busiest && <span className="sr-only">Busiest node right now.</span>}
+        {typeof explainStep === 'number' && (
+          <span className="absolute -top-2.5 -left-2.5 flex size-6 items-center justify-center rounded-full bg-rose-600 font-mono text-[12px] font-semibold text-white">
+            <span className="sr-only">Explain step </span>
+            {explainStep}
+          </span>
+        )}
         {/* WM01: a window flashes when it fires; WM02: a late event drops to the late port. Decorative (the counts
             say it in words); off under reduced motion via tokens.css. */}
         {n.type === 'Window' && !n.disabled && fires > 0 && (

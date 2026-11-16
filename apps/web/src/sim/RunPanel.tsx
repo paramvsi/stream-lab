@@ -3,6 +3,7 @@ import { AppError, toProblems } from '@sl/errors';
 import { labelOf, runBlocker } from '@sl/graph';
 import { EmptyState, ProblemsPanel, Tabs } from '@sl/ui';
 import { SqlView, Unsupported, useFlinkSql } from './ExportDialog';
+import { startExplain } from './ExplainCard';
 import { useReactFlow } from '@xyflow/react';
 import { Activity, Route as RouteIcon, Table2 } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
@@ -151,9 +152,13 @@ function Output({ stats }: { stats: RunStats | null }) {
           </select>
         </label>
       )}
+      {current.type === 'Sink' && (
+        <p className="m-0 text-[13px] text-muted">Pick a row to explain how it got here.</p>
+      )}
       <Events
         key={current.id}
         arrive
+        {...(current.type === 'Sink' ? { onSelect: (i: number) => void startExplain(current.id, i) } : {})}
         rows={rows}
         label={`Output of ${labelOf(current)}`}
         empty="Nothing reached this sink."

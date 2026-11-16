@@ -9,8 +9,9 @@ import {
   type PipelineNode,
   type Schema,
 } from '@sl/graph';
+import { BUILTIN_TABLES, refSchemas } from './fintech';
 import { subtaskOf } from './keygroups';
-import { rng, type Event } from './random';
+import { BASE_TIME, rng, type Event } from './random';
 
 /**
  * The run engine (M3): event-time simulation with Flink semantics (ARCHITECTURE.md "Engine semantics").
@@ -100,7 +101,7 @@ export interface RunStats {
 
 /* ---------------- generator (DATA-01, seeded chaos) ---------------- */
 
-export const BASE_TIME = Date.parse('2026-11-15T12:00:00Z');
+export { BASE_TIME };
 // FLINK: generated sources use bounded out-of-orderness; the Generator node has no setting, 5 s like Source.
 export const GENERATOR_OOO_MS = 5000;
 
@@ -802,8 +803,9 @@ export interface Run {
 export function createRun(g: Graph, opts: RunOptions = {}): Run {
   const parallelism = opts.parallelism ?? 2;
   const keep = opts.keep ?? 500;
-  const refTables = opts.refTables ?? {};
-  const s = propagate(g);
+  // DATA-05: the fintech pack's tables are always there; uploaded tables add to (or replace) them.
+  const refTables = { ...BUILTIN_TABLES, ...opts.refTables };
+  const s = propagate(g, { refTables: refSchemas(refTables) });
   const order = topoOrder(g).filter((n) => !(n.disabled && spec(n.type).category === 'Sources'));
   const labels = new Map(g.nodes.map((n) => [n.id, labelOf(n)]));
   const out = new Map<string, typeof g.edges>();

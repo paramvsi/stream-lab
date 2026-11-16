@@ -4,3 +4,4 @@ export * from './engine';
 export * from './keygroups';
 export * from './driver';
 export * from './upload';
+export * from './fintech';

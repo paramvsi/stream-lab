@@ -1,3 +1,6 @@
+/** Event time of the first generated event (fintech samples are around it). */
+export const BASE_TIME = Date.parse('2026-11-15T12:00:00Z');
+
 export type Event = Record<string, string | number | boolean | null>;
 
 /** Deterministic PRNG (mulberry32; SIM-24: same seed, same events). */

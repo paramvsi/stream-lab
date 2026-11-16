@@ -13,6 +13,7 @@ import { createContext, memo, useContext, useEffect, useState } from 'react';
 import { create } from 'zustand';
 import { fmt, useEdgeCount, useRun } from './run';
 import { useGraph } from './store';
+import { REF_CTX } from './refTables';
 
 /** Which edge the pointer is over (React Flow's edge and its label live in different DOM subtrees). */
 const useHover = create<{ id: string | null }>(() => ({ id: null }));
@@ -123,6 +124,7 @@ export function ConnectionHint() {
         target: to.nodeId,
         targetHandle: to.id ?? 'main',
       },
+      REF_CTX,
     );
   } catch {
     // Same-direction handle (output → output): React Flow refuses it; nothing to explain.

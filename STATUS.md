@@ -70,6 +70,5 @@ Gate (ROADMAP): NODE-01…07. The e2e files ran at 1440×900 and 1280×800.
 
 | Item                                   | Why                                                    | Where it lands |
 | -------------------------------------- | ------------------------------------------------------ | -------------- |
-| Lookup preview: every event misses     | No reference tables until DATA (MORNING D33)           | M3             |
 | Pattern and SQL node forms run nothing | v1 (NODE-08, Pattern)                                  | v1             |
 | Board pixel-match for W10*             | No approved visual baselines yet (TESTING.md "Visual") | M11            |

@@ -4,6 +4,7 @@ import { create } from 'zustand';
 import { effectiveGenerator, runBlocker, validate } from '@sl/graph';
 import { useGraph } from './store';
 import { loadRows } from './uploads';
+import { REF_CTX } from './refTables';
 
 /**
  * Run store (ARCHITECTURE: separate from the graph store, not in undo history) and the Worker client.
@@ -130,7 +131,7 @@ async function load() {
 /** SIM-RUN-BLOCKED: a pipeline with errors does not run, from any button (pill or toast). */
 const blocked = () => {
   const { nodes, edges } = useGraph.getState();
-  return runBlocker(validate({ nodes, edges })) !== null; // the graph now, not the debounced issues store
+  return runBlocker(validate({ nodes, edges }, REF_CTX)) !== null; // the graph now, not the debounced issues store
 };
 
 // A change to the pipeline during a run: pause, and start over on the next Run.

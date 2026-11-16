@@ -95,3 +95,4 @@ Overnight log. **Decisions** need your call; **Commands** need you to run them. 
   - "Keep a copy" more than 10 minutes after another tab deleted the pipeline: its uploads are already freed. The copy then says so only when it runs (DATA-UPLOAD-UNUSED), not at the moment of copying.
   - Board W13b's time-axis timeline is a row of nearby-version buttons plus a picker. 480 per-minute versions don't fit an axis.
 - Storage audit, not fixed: if a pipeline is open in another tab and you choose "Keep editing here" after its uploaded data was deleted, the next autosave writes the upload records back. Every later run then shows DATA-UPLOAD-UNUSED (the run still works on the generator).
+- Stack deviation: the run panel's Timeline is a small inline SVG, not uPlot (the stack table names uPlot for charts). It was kept small on purpose; switch to uPlot when the timeline needs zoom or scrubbing. OK?

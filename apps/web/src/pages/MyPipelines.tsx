@@ -104,7 +104,8 @@ export function MyPipelines() {
       return setStoreError(e);
     }
     await save({ ...p, id, name: `${p.name} copy`, updatedAt: new Date().toISOString() });
-    if (!(await getPipeline(id))) void deleteUploads(id); // the copy was not saved: free its rows
+    // The copy was not saved (or can't be read back): free its rows.
+    if (!(await getPipeline(id).catch(() => null))) void deleteUploads(id);
   };
 
   const remove = async (m: PipelineMeta) => {

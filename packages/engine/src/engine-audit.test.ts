@@ -408,3 +408,66 @@ describe('data audit · timeline and preview', () => {
     expect(new Set(p.out['main']!.map((e) => e['card_id']))).toEqual(new Set(['c_1000']));
   });
 });
+
+describe('chaos audit', () => {
+  const twoSources = (): Graph => ({
+    nodes: [
+      node('a', 'Source', { schema: SCHEMA, outOfOrdernessMs: 0 }),
+      node('b', 'Source', { schema: SCHEMA, outOfOrdernessMs: 0 }),
+      node('u', 'Union'),
+      node('w', 'Window', { sizeMs: 60000, keyBy: [] }),
+      node('out', 'Sink'),
+      node('dlq', 'Dead-letter'),
+    ],
+    edges: [edge('a', 'u'), edge('b', 'u'), edge('u', 'w'), edge('w', 'out'), edge('w', 'dlq', 'late')],
+  });
+  const data = () => ({
+    a: Array.from({ length: 200 }, (_, i) => row(i)),
+    b: Array.from({ length: 200 }, (_, i) => row(i, 'c_2')),
+  });
+
+  it('#1 chaos right after the first event never stalls window firing (no -Infinity timestamps)', () => {
+    const plain = createRun(twoSources(), { sourceData: data() });
+    plain.advance(Infinity);
+    const r = createRun(twoSources(), { sourceData: data() });
+    r.advance(1);
+    const rep = r.inject();
+    r.advance(Infinity);
+    expect(r.stats().outputs['out']!.length).toBeGreaterThanOrEqual(plain.stats().outputs['out']!.length);
+    expect(rep.late).toBe(0); // one input has not started: no watermark to be behind, so none injected
+  });
+
+  it('#2 duplicates and malformed rows do not push the watermark ahead (no extra late events)', () => {
+    const g: Graph = {
+      nodes: [
+        node('s', 'Source', { schema: SCHEMA, outOfOrdernessMs: 0 }),
+        node('w', 'Window', { sizeMs: 60000, keyBy: [] }),
+        node('out', 'Sink'),
+        node('dlq', 'Dead-letter'),
+      ],
+      edges: [edge('s', 'w'), edge('w', 'out'), edge('w', 'dlq', 'late')],
+    };
+    const rows = Array.from({ length: 200 }, (_, i) => row(i)); // 1 event per second of event time
+    const r = createRun(g, { sourceData: { s: rows } });
+    r.advance(55); // just before the first window's end (60 s): a watermark pushed ahead would close it early
+    const rep = r.inject({ late: 0, duplicates: 5, malformed: 5, stallMs: 0 });
+    r.advance(Infinity);
+    expect(rep.late).toBe(0);
+    expect(r.stats().nodes['w']!.late).toBe(0);
+  });
+
+  it('#6 late copies carry their new event time; malformed counts only rows really broken', () => {
+    const OPT = SCHEMA.map((f) => ({ ...f, required: f.name === 'event_time' }));
+    const g: Graph = {
+      nodes: [node('s', 'Source', { schema: OPT, outOfOrdernessMs: 0 }), node('out', 'Sink')],
+      edges: [edge('s', 'out')],
+    };
+    const r = createRun(g, { sourceData: { s: Array.from({ length: 100 }, (_, i) => row(i)) } });
+    r.advance(80);
+    const rep = r.inject({ late: 1, duplicates: 0, malformed: 3, stallMs: 0 });
+    expect(rep.malformed).toBe(0); // no required number to null
+    r.advance(1);
+    const late = r.stats().outputs['out']!.at(-1)!;
+    expect(Date.parse(String(late['event_time']))).toBeLessThan(BASE_TIME + 79_000 - 30_000);
+  });
+});

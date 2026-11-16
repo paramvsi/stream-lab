@@ -131,12 +131,21 @@ test('SIM-16 Chaos injects late, duplicate and malformed events and stalls a sou
   await page.getByText('0.25×', { exact: true }).click();
   await pill.getByRole('button', { name: 'Run', exact: true }).click();
   await expect(status(page)).toHaveText(/^Running/);
+  // Chaos copies events already emitted: let some flow first.
+  await expect
+    .poll(async () =>
+      Number((await status(page).textContent())!.match(/event ([\d,]+)/)![1]!.replace(/,/g, '')),
+    )
+    .toBeGreaterThan(30);
   const totalBefore = Number((await status(page).textContent())!.match(/of ([\d,]+)/)![1]!.replace(/,/g, ''));
   await pill.getByRole('button', { name: 'Chaos' }).click();
   await expect(
-    page.getByText('Chaos: 5 late, 5 duplicate and 5 malformed events; Payments stalls for 3 s.', {
-      exact: true,
-    }),
+    page.getByText(
+      'Chaos: 5 events a minute behind the watermark, 5 duplicates, 5 malformed rows; Payments stalls for 3 s.',
+      {
+        exact: true,
+      },
+    ),
   ).toBeVisible();
   await expect(status(page)).toHaveText(new RegExp(`of ${(totalBefore + 15).toLocaleString('en-US')}$`));
 });

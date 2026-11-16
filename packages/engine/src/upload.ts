@@ -142,7 +142,7 @@ export const lastCompleteLine = (text: string) => text.slice(0, text.lastIndexOf
  * A .json file: an array of objects (else JSON Lines). Items are scanned one by one, so each keeps its file line,
  * and an array cut at the size limit keeps its complete items.
  */
-export function parseJson(text: string): Parsed {
+export function parseJson(text: string, cut = false): Parsed {
   const start = text.search(/\S/);
   if (start < 0 || text[start] !== '[') return parseJsonl(text);
   const rows: Parsed['rows'] = [];
@@ -153,20 +153,21 @@ export function parseJson(text: string): Parsed {
   const nl = (k: number) => text[k] === '\n' || (text[k] === '\r' && text[k + 1] !== '\n');
   for (let k = 0; k < start; k++) if (nl(k)) line++;
   // Items are split at commas outside strings and brackets; a stray bracket only breaks its own item.
+  // Items are sliced by index (not built a character at a time): large files stay fast.
   let depth = 0;
   let inStr = false;
-  let item = '';
+  let from = -1; // first non-space character of the current item
   let itemLine = 0;
   let closed = -1;
-  const take = () => {
-    const t = item.trim();
-    item = '';
-    if (!t) return;
+  const take = (to: number) => {
+    if (from < 0) return;
+    const t = text.slice(from, to).trim();
+    from = -1;
     try {
       const v: unknown = JSON.parse(t);
       if (!v || typeof v !== 'object' || Array.isArray(v)) throw new Error('not an object');
       const row = v as Record<string, string | number | boolean | null>;
-      Object.keys(row).forEach((c) => columns.add(c));
+      for (const c of Object.keys(row)) columns.add(c);
       rows.push(row);
       lines.push(itemLine);
     } catch (e) {
@@ -178,26 +179,33 @@ export function parseJson(text: string): Parsed {
   };
   for (let k = start + 1; k < text.length; k++) {
     const ch = text[k]!;
-    if (!item.trim() && /\S/.test(ch) && !(ch === ',' && depth === 0)) itemLine = line;
-    if (nl(k)) line++;
     if (inStr) {
-      item += ch;
-      if (ch === '\\') item += text[++k] ?? '';
+      if (ch === '\\') k++;
       else if (ch === '"') inStr = false;
+      else if (nl(k)) line++;
       continue;
+    }
+    if (nl(k)) {
+      line++;
+      continue;
+    }
+    if (ch === ' ' || ch === '\t' || ch === '\n' || ch === '\r') continue;
+    if (ch === ',' && depth === 0) {
+      take(k);
+      continue;
+    }
+    if (ch === ']' && depth === 0) {
+      take(k);
+      closed = k;
+      break;
+    }
+    if (from < 0) {
+      from = k;
+      itemLine = line;
     }
     if (ch === '"') inStr = true;
     else if (ch === '{' || ch === '[') depth++;
     else if ((ch === '}' || ch === ']') && depth > 0) depth--;
-    else if (ch === ']' && depth === 0) {
-      take();
-      closed = k;
-      break;
-    } else if (ch === ',' && depth === 0) {
-      take();
-      continue;
-    }
-    item += ch;
   }
   if (closed >= 0) {
     // Anything but whitespace after the array is reported, not silently ignored.
@@ -207,8 +215,11 @@ export function parseJson(text: string): Parsed {
       for (let k = closed + 1; k < closed + 1 + after; k++) if (nl(k)) l++;
       bad.push({ line: l, reason: 'text after the array' });
     }
+  } else if (from >= 0 && !cut) {
+    // Not a cut file: the array (or a string in it) is broken — say so instead of dropping what follows.
+    bad.push({ line: itemLine, reason: inStr ? 'a string is never closed' : 'the array is never closed' });
   }
-  // No closing bracket: the file was cut (200 MB limit); its open last item is dropped, like a partial CSV line.
+  // A file cut at the size limit drops its open last item, like a partial CSV line.
   return { columns: [...columns], rows, lines, bad: bad.sort((a, b) => a.line - b.line) };
 }
 

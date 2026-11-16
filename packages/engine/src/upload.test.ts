@@ -160,3 +160,21 @@ describe('tables audit · JSON scanner', () => {
     expect(parseJson('[\r{"a":1},\r{"a":2}]').lines).toEqual([2, 3]);
   });
 });
+
+describe('chaos audit · JSON', () => {
+  it('#4 a broken (not cut) array says so; a cut one drops only its open item', async () => {
+    const { parseJson } = await import('./upload');
+    expect(parseJson('[{"a":1},\n{"a":"x},\n{"a":3},\n{"a":4}]').bad).toEqual([
+      { line: 2, reason: 'a string is never closed' },
+    ]);
+    expect(parseJson('[{"a":1},\n{"a":2}').bad).toEqual([{ line: 2, reason: 'the array is never closed' }]);
+    expect(parseJson('[{"a":1},\n{"a":2}', true)).toMatchObject({ rows: [{ a: 1 }], bad: [] });
+  });
+  it('#5 200,000 items parse in well under a second', async () => {
+    const { parseJson } = await import('./upload');
+    const text = `[${Array.from({ length: 200000 }, (_, i) => `{"payment_id":"p${i}","amount":${i}.5,"currency":"AED"}`).join(',\n')}]`;
+    const t = performance.now();
+    expect(parseJson(text).rows).toHaveLength(200000);
+    expect(performance.now() - t).toBeLessThan(800);
+  });
+});

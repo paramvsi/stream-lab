@@ -119,7 +119,8 @@ export async function deleteUploads(pipelineId: string): Promise<void> {
     await w.write(String(Date.now()));
     await w.close();
   } catch {
-    // no uploads stored for this pipeline: nothing to mark
+    // Can't write the marker (no uploads for it, or storage full): free them now instead.
+    await removeUploads(pipelineId).catch(() => undefined);
   }
 }
 

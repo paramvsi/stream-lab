@@ -129,15 +129,7 @@ export const useDataDrawer = create<{ open: boolean }>(() => ({ open: false }));
 export function DataButton() {
   const open = useDataDrawer((s) => s.open);
   const button = useRef<HTMLButtonElement>(null);
-  const setOpen = (o: boolean) => {
-    useDataDrawer.setState({ open: o });
-    // Opened from a toast, the opener is gone by now: focus returns to the Data button (DoD), not to <body>.
-    if (!o)
-      requestAnimationFrame(() => {
-        const a = document.activeElement;
-        if (!a || a === document.body || !a.isConnected || a.closest('ol')) button.current?.focus();
-      });
-  };
+  const setOpen = (o: boolean) => useDataDrawer.setState({ open: o });
   // The open state is shared (a toast can open it): a workspace never starts with it open, nor leaves it so.
   useEffect(() => {
     useDataDrawer.setState({ open: false });
@@ -154,7 +146,8 @@ export function DataButton() {
       >
         Data
       </Button>
-      <Drawer open={open} onOpenChange={setOpen} title="Data">
+      {/* Opened from a toast, the opener is gone by close time: focus returns to the Data button (DoD). */}
+      <Drawer open={open} onOpenChange={setOpen} title="Data" returnFocusTo={() => button.current}>
         {/* Remounted per open: Cancel discards edits. */}
         {open && (
           <Tabs

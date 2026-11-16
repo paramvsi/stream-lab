@@ -17,6 +17,8 @@ export interface DrawerProps {
   children: ReactNode;
   /** Category accent etc. for the bottom drawer's top border. */
   accent?: string;
+  /** Where focus goes on close, when not back to the opener (e.g. opened from a toast that is gone). */
+  returnFocusTo?: () => HTMLElement | null | undefined;
 }
 
 /** Right drawer slides 300 ms (sl-left), bottom 320 ms (sl-up); Esc closes; focus returns to the trigger. */
@@ -31,6 +33,7 @@ export function Drawer({
   headerExtra,
   children,
   accent,
+  returnFocusTo,
 }: DrawerProps) {
   const right = side === 'right';
   const style: CSSProperties = right
@@ -43,7 +46,12 @@ export function Drawer({
         {modal && <R.Overlay className="sl-scrim fixed inset-0 z-40 bg-scrim" />}
         <R.Content
           aria-describedby={undefined}
-          onCloseAutoFocus={returnFocus}
+          onCloseAutoFocus={(e) => {
+            const to = returnFocusTo?.();
+            if (!to) return returnFocus(e);
+            e.preventDefault();
+            to.focus();
+          }}
           style={style}
           onInteractOutside={modal ? undefined : (e) => e.preventDefault()}
           className={`fixed z-40 flex max-w-full flex-col bg-surface shadow-pop outline-none ${

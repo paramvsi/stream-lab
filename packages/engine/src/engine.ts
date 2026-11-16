@@ -878,7 +878,10 @@ export function createRun(g: Graph, opts: RunOptions = {}): Run {
 
   // Sources → arrivals, merged in (time, source, sequence) order (SIM-24).
   const arrivals: Arrival[] = [];
-  const srcWm = new Map<string, { max: number; ooo: number; idle: number; last: number; left: number }>();
+  const srcWm = new Map<
+    string,
+    { max: number; ooo: number; idle: number; last: number; left: number; field: string }
+  >();
   const sources = order.filter((n) => spec(n.type).category === 'Sources');
   sources.forEach((n, si) => {
     const c = cfg(n);
@@ -912,7 +915,14 @@ export function createRun(g: Graph, opts: RunOptions = {}): Run {
           ooo,
         );
     evs.forEach((a, seq) => arrivals.push({ at: a.at, src: si, seq, ev: a.ev }));
-    srcWm.set(n.id, { max: -Infinity, ooo, idle: Number(c.idleTimeoutMs ?? 0), last: 0, left: evs.length });
+    srcWm.set(n.id, {
+      max: -Infinity,
+      ooo,
+      idle: Number(c.idleTimeoutMs ?? 0),
+      last: 0,
+      left: evs.length,
+      field: timeField,
+    });
   });
   arrivals.sort((a, b) => a.at - b.at || a.src - b.src || a.seq - b.seq);
   stats.total = arrivals.length;
@@ -1065,45 +1075,51 @@ export function createRun(g: Graph, opts: RunOptions = {}): Run {
     step,
     next: () => arrivals[i]?.at,
     inject: (c = {}) => {
-      const late = c.late ?? 5;
-      const dups = c.duplicates ?? 5;
-      const bad = c.malformed ?? 5;
+      const lateN = c.late ?? 5;
+      const dupN = c.duplicates ?? 5;
+      const badN = c.malformed ?? 5;
       const stallMs = c.stallMs ?? 3000;
       const upcoming = arrivals.slice(i);
       const report: ChaosReport = { late: 0, duplicates: 0, malformed: 0, stalled: null, stallMs };
       if (!upcoming.length) return report;
       const at = stats.now;
+      // Copies of events already emitted (never of future ones): a copy of a future event would push its
+      // source's watermark ahead and make the real events in between late.
+      const past = arrivals.slice(Math.max(0, i - 200), i).reverse();
       const extra: Arrival[] = [];
-      const pick = (k: number) => upcoming[Math.min(upcoming.length - 1, k * 3)]!;
-      for (let k = 0; k < late; k++) {
-        const a = pick(k);
+      const add = (a: Arrival, ev: SimEvent) => {
+        extra.push({ ...a, at, seq: -1, ev });
+        srcWm.get(sources[a.src]!.id)!.left++;
+      };
+      let k = 0;
+      // A minute behind the pipeline's watermark (the slowest input's), so windows that already fired send them
+      // to the late output. With no watermark yet (an input has not started) there is nothing to be late against.
+      const pwm = pipelineWatermark(stats);
+      for (const a of past) {
+        if (report.late >= lateN || !Number.isFinite(pwm)) break;
         const w = srcWm.get(sources[a.src]!.id)!;
-        // Behind the watermark by a minute: windows that already fired send it to the late output.
-        extra.push({ ...a, at, seq: -1, ev: { ts: w.max - w.ooo - 60_000, data: { ...a.ev.data } } });
+        const ts = pwm - 60_000;
+        add(a, { ts, data: { ...a.ev.data, [w.field]: new Date(ts).toISOString() } });
         report.late++;
+        k++;
       }
-      for (let k = 0; k < dups; k++) {
-        const a = pick(k + late);
-        extra.push({ ...a, at, seq: -1, ev: { ...a.ev, data: { ...a.ev.data } } }); // a second copy of an upcoming one
+      for (const a of past.slice(k, k + dupN)) {
+        add(a, { ...a.ev, data: { ...a.ev.data } });
         report.duplicates++;
       }
-      for (let k = 0; k < bad; k++) {
-        const a = pick(k + late + dups);
+      for (const a of past.slice(k + dupN, k + dupN + badN)) {
         const schema = s.out.get(sources[a.src]!.id)?.['main'] ?? [];
-        const num = schema.find((f) => f.type === 'number' && f.required) ?? schema.find((f) => f.required);
-        extra.push({
-          ...a,
-          at,
-          seq: -1,
-          ev: { ...a.ev, data: { ...a.ev.data, ...(num ? { [num.name]: null } : {}) } },
-        });
+        const num = schema.find((f) => f.type === 'number' && f.required);
+        if (!num) continue; // nothing to break: not counted
+        add(a, { ...a.ev, data: { ...a.ev.data, [num.name]: null } });
         report.malformed++;
       }
       // Stall the first source that still has events: its remaining arrivals come `stallMs` later.
-      const stalled = upcoming[0]!.src;
-      for (const a of upcoming) if (a.src === stalled) a.at += stallMs;
-      report.stalled = sources[stalled]!.id;
-      for (const a of extra) srcWm.get(sources[a.src]!.id)!.left++;
+      if (stallMs > 0) {
+        const stalled = upcoming[0]!.src;
+        for (const a of upcoming) if (a.src === stalled) a.at += stallMs;
+        report.stalled = sources[stalled]!.id;
+      }
       const rest = [...extra, ...upcoming].sort((a, b) => a.at - b.at || a.src - b.src || a.seq - b.seq);
       arrivals.splice(i, arrivals.length - i, ...rest);
       stats.total = arrivals.length;

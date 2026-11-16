@@ -207,3 +207,37 @@ test('DATA-04 My pipelines shows storage used and each pipeline’s uploaded dat
   await page.getByRole('dialog', { name: 'Data' }).getByRole('tab', { name: 'Upload file' }).click();
   await expect(page.getByText(/reads cards\.csv|cards\.csv is not in this browser/)).toHaveCount(0);
 });
+
+// ---- Chaos audit (c90bf2f + b24facb) ----
+test('chaos audit 3: the Data drawer opened from a toast returns focus to the Data button', async ({
+  page,
+}) => {
+  await upload(page);
+  await page.evaluate(async () =>
+    (await navigator.storage.getDirectory()).removeEntry('uploads', { recursive: true }),
+  );
+  await page.getByText('10×', { exact: true }).click();
+  await page
+    .locator('.react-flow__panel.top')
+    .getByRole('button', { name: /^Run( again)?$/ })
+    .click();
+  await page.getByRole('button', { name: 'Open data' }).first().click();
+  await expect(page.getByRole('dialog', { name: 'Data' })).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(page.getByRole('button', { name: 'Data', exact: true })).toBeFocused();
+});
+
+test('chaos audit 7: Chaos is off on a run the pipeline has moved past', async ({ page }) => {
+  await page.goto('/#/new');
+  await page.getByRole('button', { name: /^Use this scenario.*Card fraud bursts/ }).click();
+  await page.getByText('0.25×', { exact: true }).click();
+  const pill = page.locator('.react-flow__panel.top');
+  await pill.getByRole('button', { name: 'Run', exact: true }).click();
+  // Edit only once the run has loaded (an edit before that is simply part of the run).
+  await expect(pill.locator('[data-run-label]')).toHaveText(/^Running/);
+  await page.evaluate(async () =>
+    (await import('/src/sim/store.ts')).useGraph.getState().toggleDisabled(['flt']),
+  );
+  await expect(pill.locator('[data-run-label]')).toHaveText(/^Paused/);
+  await expect(pill.getByRole('button', { name: 'Chaos' })).toHaveAttribute('aria-disabled', 'true');
+});

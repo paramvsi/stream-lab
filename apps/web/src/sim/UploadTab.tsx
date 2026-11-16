@@ -108,7 +108,7 @@ export function UploadTab({ onDone }: { onDone: () => void }) {
     const parsed = /\.csv$/i.test(name)
       ? parseCsv(text)
       : /\.json$/i.test(name)
-        ? parseJson(text)
+        ? parseJson(text, cut)
         : parseJsonl(text);
     setStep({ kind: 'parsed', name, parsed, mapping: autoMap(parsed.columns, schema) });
   };

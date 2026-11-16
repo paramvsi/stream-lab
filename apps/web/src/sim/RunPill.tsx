@@ -28,11 +28,16 @@ export function RunPill() {
   useEffect(() => {
     if (!chaosReport) return;
     const r = chaosReport;
+    // Only what was really injected (early in a run there may be nothing to copy yet).
+    const parts = [
+      r.late ? `${r.late} events a minute behind the watermark` : '',
+      r.duplicates ? `${r.duplicates} duplicates` : '',
+      r.malformed ? `${r.malformed} malformed rows` : '',
+    ].filter(Boolean);
+    const stall = chaosSource ? `${labelOf(chaosSource)} stalls for ${r.stallMs / 1000} s` : '';
     toast({
       severity: 'info',
-      message: `Chaos: ${r.late} late, ${r.duplicates} duplicate and ${r.malformed} malformed events${
-        chaosSource ? `; ${labelOf(chaosSource)} stalls for ${r.stallMs / 1000} s` : ''
-      }.`,
+      message: `Chaos: ${[parts.join(', '), stall].filter(Boolean).join('; ') || 'nothing to inject yet'}.`,
     });
     useRun.setState({ chaos: null });
   }, [chaosReport, chaosSource, toast]);
@@ -185,9 +190,11 @@ export function RunPill() {
         variant="ghost"
         icon={<Zap size={14} aria-hidden="true" />}
         onClick={runner.chaos}
-        {...(state !== 'running' && state !== 'paused'
-          ? { disabledReason: 'Chaos is injected into a run: start one first.' }
-          : {})}
+        {...(stale
+          ? { disabledReason: 'The pipeline changed: run it again before adding chaos.' }
+          : state !== 'running' && state !== 'paused'
+            ? { disabledReason: 'Chaos goes into a running or paused run.' }
+            : {})}
       >
         Chaos
       </Button>

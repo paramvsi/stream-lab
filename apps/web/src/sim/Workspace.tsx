@@ -71,6 +71,7 @@ import { NODE_H, NODE_W, NodeCard, type SlNode } from './NodeCard';
 import { DRAG_TYPE, Palette } from './Palette';
 import { QuickAdd, type QuickAddNeed } from './QuickAdd';
 import { DataButton } from './DataDrawer';
+import { RefTablesButton } from './RefTablesPanel';
 import { RunPanel, useBottomDrawer } from './RunPanel';
 import { RunPill } from './RunPill';
 import { historyEntries, useGraph, type ConnectFrom } from './store';
@@ -641,6 +642,7 @@ function Header() {
       {/* Board W09: Tour · Explain run · Data · Share · Export on the right; Data is the first built (DATA-01). */}
       <div className="ml-auto flex items-center gap-1">
         <DataButton />
+        <RefTablesButton />
       </div>
     </header>
   );

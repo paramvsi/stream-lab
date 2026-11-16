@@ -365,3 +365,46 @@ describe('run panel audit · engine', () => {
     expect(s.deadLetter).toHaveLength(1);
   });
 });
+
+describe('data audit · timeline and preview', () => {
+  it('#2 a node fed only by a disabled source does not erase the pipeline watermark', async () => {
+    const { pipelineWatermark } = await import('./engine');
+    const g: Graph = {
+      nodes: [
+        node('a', 'Source', { schema: SCHEMA, outOfOrdernessMs: 0 }),
+        node('out', 'Sink'),
+        node('b', 'Source', { schema: SCHEMA, outOfOrdernessMs: 0 }, true),
+        node('out2', 'Sink'),
+      ],
+      edges: [edge('a', 'out'), edge('b', 'out2')],
+    };
+    const r = createRun(g, { sourceData: { a: Array.from({ length: 50 }, (_, i) => row(i)) } });
+    r.advance(40);
+    expect(Number.isFinite(pipelineWatermark(r.stats()))).toBe(true);
+    expect(r.stats().timeline.filter((t) => t.kind === 'watermark').length).toBeGreaterThan(0);
+  });
+  it('#3 on a long multi-source run the watermark line reaches the end', () => {
+    const g: Graph = {
+      nodes: [
+        node('a', 'Generator', { count: 10000 }),
+        node('b', 'Generator', { count: 10000, seed: 9 }),
+        node('u', 'Union'),
+        node('out', 'Sink'),
+      ],
+      edges: [edge('a', 'u'), edge('b', 'u'), edge('u', 'out')],
+    };
+    const r = createRun(g);
+    r.advance(Infinity);
+    const wms = r.stats().timeline.filter((t) => t.kind === 'watermark');
+    expect(wms.at(-1)!.at).toBeGreaterThan(r.stats().now * 0.95);
+  });
+  it('#4 the preview uses the pipeline’s seed and generator settings', async () => {
+    const { runToHere } = await import('./preview');
+    const g: Graph = {
+      nodes: [node('s', 'Source', { schema: SCHEMA, outOfOrdernessMs: 0 })],
+      edges: [],
+    };
+    const p = runToHere(g, 's', 5, { seed: 7, generator: { keys: 1, seed: 7 } })!;
+    expect(new Set(p.out['main']!.map((e) => e['card_id']))).toEqual(new Set(['c_1000']));
+  });
+});

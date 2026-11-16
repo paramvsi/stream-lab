@@ -1,7 +1,7 @@
 import type { DriverMessage, Event, RunState, RunStats } from '@sl/engine';
 import RunWorker from '@sl/engine/worker?worker';
 import { create } from 'zustand';
-import { runBlocker, validate } from '@sl/graph';
+import { effectiveGenerator, runBlocker, validate } from '@sl/graph';
 import { useGraph } from './store';
 import { loadRows } from './uploads';
 
@@ -118,7 +118,8 @@ async function load() {
   connect().postMessage({
     type: 'load',
     graph: { nodes, edges },
-    opts: { seed, sourceData, ...(data.generator ? { generator: data.generator } : {}) },
+    // The same settings the Data drawer shows (invalid stored values fall back field by field).
+    opts: { seed, sourceData, generator: effectiveGenerator(data.generator, seed) },
   });
   connect().postMessage({ type: 'speed', speed: useRun.getState().speed });
   loaded = true;
@@ -141,11 +142,13 @@ useGraph.subscribe(() => {
 });
 
 export const runner = {
-  async play() {
-    if (blocked()) return;
+  /** False when the pipeline is blocked (SIM-RUN-BLOCKED): nothing runs, the caller says why. */
+  async play(): Promise<boolean> {
+    if (blocked()) return false;
     const { state, stale } = useRun.getState();
     if (!loaded || stale || state === 'finished') await load();
     connect().postMessage({ type: 'play' });
+    return true;
   },
   pause: () => worker?.postMessage({ type: 'pause' }),
   async step() {

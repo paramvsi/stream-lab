@@ -181,6 +181,8 @@ test('panel audit 9: when the pipeline stops being runnable, the Problems tab op
   await page.getByText('10×', { exact: true }).click();
   await pill(page).getByRole('button', { name: 'Run', exact: true }).click();
   await expect(label(page)).toHaveText(/^Finished/, { timeout: 15000 });
+  // Finishing selects Output, so a switch to Problems below is the blocker's doing, not the default tab.
+  await expect(panel(page).getByRole('tab', { name: /^Output/ })).toHaveAttribute('aria-selected', 'true');
   await page.locator('.react-flow__pane').click({ position: { x: 20, y: 20 } }); // focus out of the panel
   await store(page, "m.useGraph.getState().toggleDisabled(['gen'])");
   await expect(panel(page).getByRole('tab', { name: /^Problems/ })).toHaveAttribute('aria-selected', 'true');

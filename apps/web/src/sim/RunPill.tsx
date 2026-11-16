@@ -1,4 +1,5 @@
 import { AppError, ErrorDialog, present } from '@sl/errors';
+import { pipelineWatermark } from '@sl/engine';
 import { runBlocker, validate } from '@sl/graph';
 import { Button, useToast } from '@sl/ui';
 import { Pause, Play, RotateCcw, SkipForward } from 'lucide-react';
@@ -40,6 +41,15 @@ export function RunPill() {
   // SIM-RUN-CHANGED: an edit (or undo/redo) during a run paused it; the next Run starts over.
   useEffect(() => {
     if (!staleNotice) return;
+    // The toast's Run again can be pressed after a later edit broke the pipeline: say why nothing runs.
+    const runAgain = async () => {
+      if (await runner.play()) return;
+      const g = useGraph.getState();
+      const b = runBlocker(validate({ nodes: g.nodes, edges: g.edges }));
+      if (!b) return;
+      const p = present(new AppError(b.code, b.params));
+      toast({ severity: p.severity, message: p.message });
+    };
     // Run again only when the changed pipeline can run (SIM-RUN-BLOCKED otherwise). Checked on the graph now:
     // the issues store updates after a short debounce.
     const { nodes, edges } = useGraph.getState();
@@ -48,14 +58,14 @@ export function RunPill() {
     toast({
       severity: p.severity,
       message: p.message,
-      ...(canRun ? { action: { label: 'Run again', onClick: runner.play } } : {}),
+      ...(canRun ? { action: { label: 'Run again', onClick: () => void runAgain() } } : {}),
     });
     useRun.setState({ staleNotice: false });
   }, [staleNotice, toast]);
 
   const processed = stats?.processed ?? 0;
   const total = stats?.total ?? 0;
-  const wm = stats ? Math.min(...Object.values(stats.nodes).map((x) => x.watermark)) : -Infinity;
+  const wm = stats ? pipelineWatermark(stats) : -Infinity;
   const errors = stats ? Object.values(stats.nodes).reduce((s, x) => s + x.failed, 0) : 0;
   const label =
     state === 'running'

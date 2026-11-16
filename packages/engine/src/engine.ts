@@ -770,6 +770,21 @@ function operator(
 
 /* ---------------- run ---------------- */
 
+/**
+ * The pipeline's watermark: the slowest node's. Nodes that never receive anything (fed only by a disabled source)
+ * do not count — they would hold it at −∞ forever. −∞ until every active path has one.
+ */
+export function pipelineWatermark(stats: RunStats): number {
+  let wm = Infinity;
+  let any = false;
+  for (const x of Object.values(stats.nodes))
+    if (Number.isFinite(x.watermark) || x.in > 0 || x.watermark === Infinity) {
+      any = true;
+      wm = Math.min(wm, x.watermark);
+    }
+  return any ? wm : -Infinity;
+}
+
 export interface Run {
   /** Process the next arrival (one source event through the pipeline). False when there is none. */
   step(): boolean;
@@ -810,7 +825,7 @@ export function createRun(g: Graph, opts: RunOptions = {}): Run {
     done: false,
   };
   // Samples (event, watermark) have their own cap, so they never crowd out fires, late events and failures.
-  const SAMPLES_MAX = 1500;
+  const SAMPLES_MAX = 4000;
   const MARKS_MAX = 10000;
   let samples = 0;
   let marks = 0;
@@ -859,6 +874,8 @@ export function createRun(g: Graph, opts: RunOptions = {}): Run {
   });
   arrivals.sort((a, b) => a.at - b.at || a.src - b.src || a.seq - b.seq);
   stats.total = arrivals.length;
+  // Timeline sampling: every 250 ms of clock, or sparser on long runs so ~500 samples per series span the run.
+  const sampleEvery = Math.max(250, (arrivals.at(-1)?.at ?? 0) / 500);
 
   // Operators
   const ops = new Map<string, Operator>();
@@ -984,15 +1001,15 @@ export function createRun(g: Graph, opts: RunOptions = {}): Run {
     w.last = a.at;
     w.left--;
     // SIM-21 Timeline samples: per source, at most one event per 250 ms of clock.
-    if (stats.now - (lastSample.get(src.id) ?? -Infinity) >= 250) {
+    if (stats.now - (lastSample.get(src.id) ?? -Infinity) >= sampleEvery) {
       lastSample.set(src.id, stats.now);
       log({ kind: 'event', node: src.id, at: stats.now, ts: a.ev.ts, watermark: ns(src.id).watermark });
     }
     deliver(src.id, 'main', a.ev);
     propagateWm();
     // The pipeline's watermark: the slowest node's (what the pill shows), not one source's.
-    if (stats.now - lastWmSample >= 250) {
-      const wm = Math.min(...Object.values(stats.nodes).map((x) => x.watermark));
+    if (stats.now - lastWmSample >= sampleEvery) {
+      const wm = pipelineWatermark(stats);
       if (Number.isFinite(wm)) {
         lastWmSample = stats.now;
         log({ kind: 'watermark', node: '', at: stats.now, ts: wm, watermark: wm });

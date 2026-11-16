@@ -17,3 +17,37 @@ describe('DATA-01 · GEN-INVALID', () => {
     ).toEqual(['Events must be at most 1,000,000', 'Distinct cards must be a whole number']);
   });
 });
+
+describe('data audit · generator settings', () => {
+  it('#5 messages name the real limits; percentages may be fractions; % on both ends', async () => {
+    const { generatorIssues: gi } = await import('./index');
+    const reasons = (g: object) => gi({ ...DEFAULT_GENERATOR, ...g }).map((i) => i.reason);
+    expect(reasons({ keys: 1e20 })).toEqual(['Distinct cards must be at most 1,000,000']);
+    expect(reasons({ outOfOrderPct: NaN })).toEqual(['Enter a number for Out of order']);
+    expect(reasons({ outOfOrderPct: 0.5 })).toEqual([]);
+    expect(reasons({ duplicatePct: -1 })).toEqual(['Duplicates must be at least 0 %']);
+    expect(reasons({ rate: 2.5 })).toEqual(['Rate must be a whole number']);
+  });
+  it('#6 the seed is 0 to 4,294,967,295 (two seeds never give the same run)', async () => {
+    const { generatorIssues: gi } = await import('./index');
+    expect(gi({ ...DEFAULT_GENERATOR, seed: -1 }).map((i) => i.reason)).toEqual(['Seed must be at least 0']);
+    expect(gi({ ...DEFAULT_GENERATOR, seed: 2 ** 32 }).map((i) => i.reason)).toEqual([
+      'Seed must be at most 4,294,967,295',
+    ]);
+  });
+  it('#1 the drawer and the run read the same settings: invalid stored values fall back field by field', async () => {
+    const { effectiveGenerator } = await import('./index');
+    expect(effectiveGenerator({ count: 150, rate: 0, junk: true }, 7)).toEqual({
+      ...DEFAULT_GENERATOR,
+      count: 150,
+      seed: 7,
+    });
+  });
+  it('#1 importing a pipeline with a bad generator is refused with a reason', async () => {
+    const { newPipeline, parsePipeline } = await import('./index');
+    const p = { ...newPipeline('p_1', 'x'), data: { refTables: [], generator: { count: 1e9, rate: -5 } } };
+    const r = parsePipeline(JSON.stringify(p), 'x.json');
+    expect(r.ok).toBe(false);
+    expect(JSON.stringify(r)).toContain('generator');
+  });
+});

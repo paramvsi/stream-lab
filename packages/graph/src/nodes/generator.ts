@@ -15,7 +15,7 @@ export const generator = defineNode({
     outOfOrderPct: pct,
     duplicatePct: pct,
     badRowsPct: pct,
-    seed: z.number().int(),
+    seed: z.number().int().min(0).max(4_294_967_295),
   }),
   defaults: () => ({
     rate: 50,

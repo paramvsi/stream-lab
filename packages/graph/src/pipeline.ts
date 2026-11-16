@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { inputsOf, outputsOf, topoOrder } from './graph';
+import { generatorIssues } from './generator';
 import { NODES, spec } from './nodes';
 import type { Field, FieldType, Issue, NodeType, PipelineEdge, PipelineNode, Schema } from './types';
 
@@ -106,6 +107,10 @@ export function parsePipeline(input: unknown, file: string): Parsed {
   const r = PipelineV1.safeParse(migrated);
   if (!r.success) return fail(file, plainReason(r.error.issues[0]!.path, migrated));
   const p = r.data as Pipeline;
+  if (p.data.generator !== undefined) {
+    const bad = generatorIssues(p.data.generator as Record<string, unknown>)[0];
+    if (bad) return fail(file, `its data generator is invalid (${bad.reason})`);
+  }
 
   const ids = new Set<string>();
   for (const n of p.nodes) {

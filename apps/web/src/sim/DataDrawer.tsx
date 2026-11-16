@@ -1,21 +1,13 @@
 import { AppError, present } from '@sl/errors';
-import {
-  DEFAULT_GENERATOR,
-  generatorIssues,
-  GeneratorSettings,
-  type GeneratorSettings as Gen,
-} from '@sl/graph';
+import { effectiveGenerator, generatorIssues, type GeneratorSettings as Gen } from '@sl/graph';
 import { Button, Drawer, Field, Input, Tabs, useToast } from '@sl/ui';
 import { Copy, Database } from 'lucide-react';
 import { useState } from 'react';
 import { useGraph } from './store';
 import { UploadTab } from './UploadTab';
 
-const current = (): Gen => {
-  const { data, seed } = useGraph.getState();
-  const g = GeneratorSettings.safeParse({ ...DEFAULT_GENERATOR, seed, ...(data.generator as object) });
-  return g.success ? g.data : { ...DEFAULT_GENERATOR, seed };
-};
+// What a run uses — the same function as run.ts, so the drawer never shows other values than the run reads.
+const current = (): Gen => effectiveGenerator(useGraph.getState().data.generator, useGraph.getState().seed);
 
 /**
  * DATA-01 Data drawer, generator tab (board W12): events, rate, seed (copyable), distinct cards and disorder.
@@ -40,8 +32,18 @@ function DataForm({ onDone }: { onDone: () => void }) {
     const i = issues.find((x) => x.field === f);
     return i ? present(new AppError('GEN-INVALID', { reason: i.reason })).message : undefined;
   };
-  const field = (f: keyof Gen, label: string, suffix?: string) => (
-    <Field label={label} error={err(f)}>
+  // The unit is part of the field's name for screen readers (the visible suffix is decoration).
+  const field = (f: keyof Gen, label: string, suffix?: string, unit?: string, help?: string) => (
+    <Field
+      label={
+        <>
+          {label}
+          {unit && <span className="sr-only"> ({unit})</span>}
+        </>
+      }
+      error={err(f)}
+      {...(help ? { help } : {})}
+    >
       <span className="flex items-center gap-2">
         <Input
           type="number"
@@ -49,7 +51,11 @@ function DataForm({ onDone }: { onDone: () => void }) {
           value={text[f]}
           onChange={(e) => setText((t) => ({ ...t, [f]: e.target.value }))}
         />
-        {suffix && <span className="shrink-0 text-[13px] text-muted">{suffix}</span>}
+        {suffix && (
+          <span aria-hidden="true" className="shrink-0 text-[13px] text-muted">
+            {suffix}
+          </span>
+        )}
       </span>
     </Field>
   );
@@ -68,33 +74,35 @@ function DataForm({ onDone }: { onDone: () => void }) {
       onSubmit={(e) => {
         e.preventDefault();
         if (issues.length) return;
-        useGraph.getState().setGenerator(values);
+        // Unchanged settings change nothing (and do not restart a run).
+        if (JSON.stringify(values) !== JSON.stringify(current())) useGraph.getState().setGenerator(values);
         onDone();
       }}
     >
       {field('count', 'Events')}
-      {field('rate', 'Rate', '/ second')}
-      <div className="flex flex-col gap-1.5">
-        <div className="flex items-end gap-2">
-          <div className="min-w-0 flex-1">{field('seed', 'Seed')}</div>
-          <Button
-            type="button"
-            variant="ghost"
-            icon={<Copy size={16} aria-hidden="true" />}
-            onClick={copySeed}
-          >
-            Copy seed
-          </Button>
+      {field('rate', 'Rate', '/ second', 'events per second')}
+      <div className="flex items-start gap-2">
+        <div className="min-w-0 flex-1">
+          {field('seed', 'Seed', undefined, undefined, 'Same seed, same run.')}
         </div>
-        <p className="m-0 text-[13px] text-muted">Same seed, same run.</p>
+        <Button
+          type="button"
+          variant="ghost"
+          className="mt-[26px]"
+          icon={<Copy size={16} aria-hidden="true" />}
+          onClick={copySeed}
+          {...(err('seed') ? { disabledReason: 'Enter a valid seed first.' } : {})}
+        >
+          Copy seed
+        </Button>
       </div>
       {field('keys', 'Distinct cards')}
       <fieldset className="m-0 flex flex-col gap-3 border-0 p-0">
         <legend className="mb-1 p-0 text-[13px] font-semibold">Disorder</legend>
-        {field('outOfOrderPct', 'Out of order', '%')}
-        {field('latePct', 'Late (beyond the out-of-orderness)', '%')}
-        {field('duplicatePct', 'Duplicates', '%')}
-        {field('badRowsPct', 'Malformed', '%')}
+        {field('outOfOrderPct', 'Out of order', '%', 'percent')}
+        {field('latePct', 'Late (beyond the out-of-orderness)', '%', 'percent')}
+        {field('duplicatePct', 'Duplicates', '%', 'percent')}
+        {field('badRowsPct', 'Malformed', '%', 'percent')}
       </fieldset>
       <div className="flex justify-end gap-2 border-t border-line pt-4">
         <Button type="button" variant="ghost" onClick={onDone}>

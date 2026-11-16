@@ -1,5 +1,5 @@
 import { runToHere, type Event } from '@sl/engine';
-import { configOf, spec } from '@sl/graph';
+import { configOf, effectiveGenerator, spec } from '@sl/graph';
 import { EmptyState, Table, type Column } from '@sl/ui';
 import { Cable } from 'lucide-react';
 import { useGraph } from '../store';
@@ -67,7 +67,12 @@ export function PreviewPanel({
   const edges = useGraph((s) => s.edges);
   const node = nodes.find((n) => n.id === nodeId);
   // ponytail: recomputed per render (audit 3 measured 0.5–2 ms for a 20-node chain); memoize if it grows.
-  const p = runToHere({ nodes, edges }, nodeId, events);
+  const seed = useGraph((s) => s.seed);
+  const stored = useGraph((s) => s.data.generator);
+  const p = runToHere({ nodes, edges }, nodeId, events, {
+    seed,
+    generator: effectiveGenerator(stored, seed),
+  });
   if (!node || !p) return null;
   const s = spec(node.type);
   const ports = s.outputs(configOf(node));

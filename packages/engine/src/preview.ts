@@ -1,5 +1,5 @@
 import type { Graph } from '@sl/graph';
-import { createRun } from './engine';
+import { createRun, type RunOptions } from './engine';
 import type { Event } from './random';
 
 export interface Preview {
@@ -18,9 +18,15 @@ export interface Preview {
  * Sources keep their watermark at the end of the sample so open state can be read, then the final watermark
  * flushes what is left (as at the end of a bounded input).
  */
-export function runToHere(g: Graph, nodeId: string, n = 5, seed = 42): Preview | null {
+export function runToHere(
+  g: Graph,
+  nodeId: string,
+  n = 5,
+  // The pipeline's seed and Data-drawer generator, so the preview shows what a run would (DATA-01).
+  data: Pick<RunOptions, 'seed' | 'generator'> = {},
+): Preview | null {
   if (!g.nodes.some((x) => x.id === nodeId)) return null;
-  const run = createRun(g, { sample: n, tap: nodeId, holdFinalWatermark: true, seed });
+  const run = createRun(g, { sample: n, tap: nodeId, holdFinalWatermark: true, seed: 42, ...data });
   run.advance(run.stats().total);
   const state = run.snapshot(nodeId);
   run.step(); // final watermark

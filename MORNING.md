@@ -74,3 +74,7 @@ Overnight log. **Decisions** need your call; **Commands** need you to run them. 
   - Every keystroke in the drawer recomputes the whole canvas (`structKey` stringify + propagate). Not measured.
 - Engine audit (347216d…d5f75d3), not built yet: SIM-16's "source stall" chaos is missing from the generator, and the Timeline needs watermark entries (SIM-21). Both are in upcoming M3 slices. A Generator `count` has no upper limit, so a huge count could exhaust memory while the run is built; that now shows the crash dialog instead of failing silently.
 - Run audit (1d93888 + a3b04df): three fixes have no test yet, by reading only. These are the heartbeat watchdog (a worker that stops sending its 1 s heartbeat for 3 s now opens the crash dialog), "Lower speed" no longer being offered at 0.25×, and nodes no longer re-rendering on every stats message (selectors return strings and numbers). SIM-RUNTIME-EXPR's "Problems row" and "Timeline mark" placements are not built yet.
+- Data audit (f5f384a + a779898):
+  - The Generator node now caps its event count at 1,000,000 and its seed at 0 to 4,294,967,295. A pipeline saved before this that uses larger values is refused at import (IMPORT-INVALID names the setting). There is no migration, because nothing published used those values.
+  - Building a very large run has no loading state: the pill stays on "Ready" for about 3 s at 1M events per source.
+  - The watchdog's late-tick branch (wall-clock jump while running) is still untested.

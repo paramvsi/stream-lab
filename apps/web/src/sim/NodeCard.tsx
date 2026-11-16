@@ -140,7 +140,7 @@ export const NodeCard = memo(function NodeCard({ data, selected, dragging }: Nod
         {busiest && <span className="sr-only">Busiest node right now.</span>}
         {/* WM01: a window flashes when it fires; WM02: a late event drops to the late port. Decorative (the counts
             say it in words); off under reduced motion via tokens.css. */}
-        {n.type === 'Window' && fires > 0 && (
+        {n.type === 'Window' && !n.disabled && fires > 0 && (
           <span key={`f${fires}`} aria-hidden="true" className="sl-fire" />
         )}
         {late > 0 && (

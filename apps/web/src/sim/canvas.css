@@ -89,18 +89,19 @@
   }
 }
 
-/* WM01 window fire: a rose flash, 160 ms in, 400 ms settle (MOTION.md). Replayed by remounting (key = fires). */
+/* WM01 window fire (board WM01): a rose tint with a rose-600 border, 160 ms in, 400 ms settle. Replayed by
+   remounting (key = results so far). MOTION.md's one ease. */
 @keyframes sl-fire {
   0% {
-    box-shadow: 0 0 0 0 var(--sl-color-rose-100);
-    border-color: var(--sl-color-rose-600);
+    background: transparent;
+    border-color: transparent;
   }
   29% {
-    box-shadow: 0 0 0 6px var(--sl-color-rose-100);
+    background: rgb(230 82 111 / 0.35);
     border-color: var(--sl-color-rose-600);
   }
   100% {
-    box-shadow: 0 0 0 0 transparent;
+    background: transparent;
     border-color: transparent;
   }
 }
@@ -110,10 +111,11 @@
   border-radius: inherit;
   border: 1.5px solid transparent;
   pointer-events: none;
-  animation: sl-fire 560ms ease-out both;
+  animation: sl-fire 560ms cubic-bezier(0.2, 0, 0, 1) both;
 }
 
-/* WM02 late event: an orange dot with an ink outline lifts 18 px (160 ms) then drops to the late port (400 ms). */
+/* WM02 late event (board WM02): an orange-500 dot, 12 px, ink outline, lifts 18 px (160 ms) then drops to the
+   late port (400 ms). At rest it is hidden, so with motion off (reduced motion) nothing is left on the port. */
 @keyframes sl-late-drop {
   0% {
     transform: translate(-50%, 0);
@@ -121,6 +123,7 @@
   }
   29% {
     transform: translate(-50%, -18px);
+    opacity: 1;
   }
   100% {
     transform: translate(-50%, 10px);
@@ -130,13 +133,15 @@
 .sl-late-dot {
   position: absolute;
   bottom: -6px;
-  width: 10px;
-  height: 10px;
+  width: 12px;
+  height: 12px;
   border-radius: 9999px;
-  background: var(--sl-color-orange-700);
-  border: 1.5px solid var(--sl-color-ink);
+  background: var(--sl-color-orange-500);
+  border: 1.25px solid var(--sl-color-ink);
   pointer-events: none;
-  animation: sl-late-drop 560ms ease-out both;
+  opacity: 0;
+  transform: translate(-50%, 0);
+  animation: sl-late-drop 560ms cubic-bezier(0.2, 0, 0, 1) both;
 }
 
 /* WM01 output row: 240 ms ease-out, 6 px drop (board WM01). Off under reduced motion via tokens.css. */
@@ -147,5 +152,5 @@
   }
 }
 .sl-rows-arrive tbody tr {
-  animation: sl-row-in 240ms ease-out both;
+  animation: sl-row-in 240ms cubic-bezier(0.2, 0, 0, 1) both;
 }

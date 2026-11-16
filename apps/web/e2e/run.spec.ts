@@ -183,7 +183,30 @@ test('WM01/WM02 a window flashes when it fires and a late event drops to the lat
   await expect(win.locator('.sl-late-dot')).toHaveCount(1);
   expect(await win.locator('.sl-fire').evaluate((e) => getComputedStyle(e).animationName)).toBe('sl-fire');
   await page.emulateMedia({ reducedMotion: 'reduce' });
-  expect(await win.locator('.sl-late-dot').evaluate((e) => getComputedStyle(e).animationName)).toBe('none');
+  // Under reduced motion the dot is not left sitting on the port: it is simply not shown.
+  expect(
+    await win
+      .locator('.sl-late-dot')
+      .evaluate((e) => [getComputedStyle(e).animationName, getComputedStyle(e).opacity]),
+  ).toEqual(['none', '0']);
+});
+
+test('WM01 a disabled Window passes events through and never flashes as if it fired', async ({ page }) => {
+  await scenario(page, 'Card fraud bursts');
+  const win = page.locator('.react-flow__node').filter({ hasText: 'Bursts per card' });
+  // The Filter after it reads the window's payments column, so it is disabled too (or the run is blocked).
+  for (const label of ['Bursts per card', 'More than 3']) {
+    await page.locator('.react-flow__node').filter({ hasText: label }).click();
+    await page
+      .getByRole('toolbar', { name: /actions$/ })
+      .getByRole('button', { name: 'Disable' })
+      .click();
+  }
+  await expect(page.locator('.react-flow__node').filter({ hasText: 'disabled' })).toHaveCount(2);
+  await page.getByText('10×', { exact: true }).click();
+  await page.locator('.react-flow__panel.top').getByRole('button', { name: 'Run', exact: true }).click();
+  await expect(status(page)).toHaveText(/^Finished/, { timeout: 15000 });
+  await expect(win.locator('.sl-fire')).toHaveCount(0);
 });
 
 test('WM01 output rows drop in (240 ms ease-out); off under reduced motion', async ({ page }) => {

@@ -6,7 +6,14 @@ import { fileSize } from '@sl/engine';
 import { Copy, DatabaseZap, FileUp, Plus, Trash2, Workflow } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { newId } from '../sim/store';
-import { deletePipeline, getPipeline, listPipelines, savePipeline, type PipelineMeta } from '../storage';
+import {
+  deletePipeline,
+  getPipeline,
+  listPipelines,
+  savePipeline,
+  unsaved,
+  type PipelineMeta,
+} from '../storage';
 import { SiteShell } from './SiteShell';
 import {
   copyUploads,
@@ -70,9 +77,8 @@ export function MyPipelines() {
   // Free uploads of pipelines deleted longer ago than the grace period (and mark orphans), then measure.
   useEffect(() => {
     void listPipelines()
-      // (An unsaved pipeline in this tab's memory is not counted: the entry can be stale after another tab's
-      // delete. A fresh first save's rows are protected by the fresh-rows rule.)
-      .then((ps) => purgeDeletedUploads(new Set(ps.map((p) => p.id))))
+      // Pipelines held unsaved in this tab are never orphans, but may have been deleted in another tab.
+      .then((ps) => purgeDeletedUploads(new Set(ps.map((p) => p.id)), Date.now(), new Set(unsaved.keys())))
       .catch((e: unknown) => {
         if (!(e instanceof AppError)) throw e;
         setStoreError(e);

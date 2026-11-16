@@ -151,11 +151,14 @@ export function purgeDeletedUploads(
   /** Pipelines that exist now. */
   existing: Set<string>,
   now = Date.now(),
+  /** Pipelines only in this tab's memory (first save failed): never marked as orphans, but another tab's
+   *  delete marker on them is respected (the entry may be stale). */
+  inMemory: Set<string> = new Set(),
 ): Promise<void> {
   // One pass at a time; a caller during a pass gets its own pass after it (with its own list and time).
   const run: Promise<void> = (purging ?? Promise.resolve())
     .catch(() => undefined) // the earlier pass's error went to its own caller
-    .then(() => purgePass(existing, now))
+    .then(() => purgePass(existing, now, inMemory))
     .finally(() => {
       if (purging === run) purging = null;
     });
@@ -163,7 +166,7 @@ export function purgeDeletedUploads(
   return run;
 }
 
-async function purgePass(existing: Set<string>, now: number): Promise<void> {
+async function purgePass(existing: Set<string>, now: number, inMemory: Set<string>): Promise<void> {
   let root: FileSystemDirectoryHandle;
   try {
     root = await uploadsRoot();
@@ -190,6 +193,7 @@ async function purgePass(existing: Set<string>, now: number): Promise<void> {
         if (now - at >= UPLOAD_GRACE_MS) await root.removeEntry(name, { recursive: true });
         continue;
       }
+      if (inMemory.has(name)) continue; // unmarked and held unsaved in this tab: not an orphan
       // Unmarked rows of a pipeline that does not exist. Only rows untouched for the grace period are orphans:
       // a Duplicate or "Keep a copy" writes its rows before saving the pipeline, so fresh rows are left alone.
       let newest = 0;

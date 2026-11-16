@@ -262,3 +262,8 @@ export const useIsBusiest = (id: string) => useRun((s) => s.state === 'running' 
 
 /** SIM-17: events that crossed one edge, or null when idle. */
 export const useEdgeCount = (id: string) => useRun((s) => (live(s) ? (s.stats!.edges[id] ?? 0) : null));
+
+/** WM01/WM02: a Window's results and a node's late events so far (0 when idle) — the motion replays on change. */
+export const useNodeFires = (id: string) =>
+  useRun((s) => (live(s) ? (s.stats!.nodes[id]?.out['main'] ?? 0) : 0));
+export const useNodeLate = (id: string) => useRun((s) => (live(s) ? (s.stats!.nodes[id]?.late ?? 0) : 0));

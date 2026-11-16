@@ -170,3 +170,18 @@ test('ENG-03 the stage inspector shows events per subtask and each key’s key g
     expect(Number(sub)).toBe(Number(group) >= 64 ? 1 : 0);
   }
 });
+
+test('WM01/WM02 a window flashes when it fires and a late event drops to the late port; off under reduced motion', async ({
+  page,
+}) => {
+  await scenario(page, 'Card fraud bursts');
+  await page.getByText('10×', { exact: true }).click();
+  await page.locator('.react-flow__panel.top').getByRole('button', { name: 'Run', exact: true }).click();
+  await expect(status(page)).toHaveText(/^Finished/, { timeout: 15000 });
+  const win = page.locator('.react-flow__node').filter({ hasText: 'Bursts per card' });
+  await expect(win.locator('.sl-fire')).toHaveCount(1);
+  await expect(win.locator('.sl-late-dot')).toHaveCount(1);
+  expect(await win.locator('.sl-fire').evaluate((e) => getComputedStyle(e).animationName)).toBe('sl-fire');
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  expect(await win.locator('.sl-late-dot').evaluate((e) => getComputedStyle(e).animationName)).toBe('none');
+});

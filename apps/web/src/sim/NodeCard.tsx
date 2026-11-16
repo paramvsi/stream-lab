@@ -6,7 +6,15 @@ import { AlertTriangle, Cable, Copy, Play, Power, Settings2, Trash2 } from 'luci
 import { memo } from 'react';
 import { useNodeActions } from './CanvasExtras';
 import { useIssues } from './issues';
-import { fmt, useIsBusiest, useNodeCounts, useNodeFailed, useNodeFailReason } from './run';
+import {
+  fmt,
+  useIsBusiest,
+  useNodeFires,
+  useNodeLate,
+  useNodeCounts,
+  useNodeFailed,
+  useNodeFailReason,
+} from './run';
 import { useGraph } from './store';
 import { accent, ELLIPSIS, NodeIcon, tint } from './look';
 
@@ -36,6 +44,8 @@ export const NodeCard = memo(function NodeCard({ data, selected, dragging }: Nod
   const failed = useNodeFailed(n.id);
   const failReason = useNodeFailReason(n.id);
   const busiest = useIsBusiest(n.id);
+  const fires = useNodeFires(n.id);
+  const late = useNodeLate(n.id);
   const single = useGraph((st) => st.selected.length === 1);
   const shown = issues.map((i) => present(new AppError(i.code, i.params)));
   const errors = shown.filter((p) => p.severity === 'error');
@@ -128,6 +138,24 @@ export const NodeCard = memo(function NodeCard({ data, selected, dragging }: Nod
         {/* SIM-18: events whose expression failed in this run (SIM-RUNTIME-EXPR), as a count with words. */}
         {failed > 0 && <FailedBadge n={failed} node={labelOf(n)} reason={failReason} />}
         {busiest && <span className="sr-only">Busiest node right now.</span>}
+        {/* WM01: a window flashes when it fires; WM02: a late event drops to the late port. Decorative (the counts
+            say it in words); off under reduced motion via tokens.css. */}
+        {n.type === 'Window' && fires > 0 && (
+          <span key={`f${fires}`} aria-hidden="true" className="sl-fire" />
+        )}
+        {late > 0 && (
+          <span
+            key={`l${late}`}
+            aria-hidden="true"
+            className="sl-late-dot"
+            style={{
+              left: spread(
+                sideOuts.findIndex((p) => p.id === 'late'),
+                sideOuts.length,
+              ),
+            }}
+          />
+        )}
         {errors.length > 0 && (
           <span
             aria-hidden="true"

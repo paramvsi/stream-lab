@@ -88,3 +88,53 @@
       0 0 0 4.5px var(--sl-color-rose-600);
   }
 }
+
+/* WM01 window fire: a rose flash, 160 ms in, 400 ms settle (MOTION.md). Replayed by remounting (key = fires). */
+@keyframes sl-fire {
+  0% {
+    box-shadow: 0 0 0 0 var(--sl-color-rose-100);
+    border-color: var(--sl-color-rose-600);
+  }
+  29% {
+    box-shadow: 0 0 0 6px var(--sl-color-rose-100);
+    border-color: var(--sl-color-rose-600);
+  }
+  100% {
+    box-shadow: 0 0 0 0 transparent;
+    border-color: transparent;
+  }
+}
+.sl-fire {
+  position: absolute;
+  inset: -1px;
+  border-radius: inherit;
+  border: 1.5px solid transparent;
+  pointer-events: none;
+  animation: sl-fire 560ms ease-out both;
+}
+
+/* WM02 late event: an orange dot with an ink outline lifts 18 px (160 ms) then drops to the late port (400 ms). */
+@keyframes sl-late-drop {
+  0% {
+    transform: translate(-50%, 0);
+    opacity: 1;
+  }
+  29% {
+    transform: translate(-50%, -18px);
+  }
+  100% {
+    transform: translate(-50%, 10px);
+    opacity: 0;
+  }
+}
+.sl-late-dot {
+  position: absolute;
+  bottom: -6px;
+  width: 10px;
+  height: 10px;
+  border-radius: 9999px;
+  background: var(--sl-color-orange-700);
+  border: 1.5px solid var(--sl-color-ink);
+  pointer-events: none;
+  animation: sl-late-drop 560ms ease-out both;
+}

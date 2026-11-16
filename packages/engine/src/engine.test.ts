@@ -310,3 +310,17 @@ describe('Engine operators', () => {
     ]);
   });
 });
+
+describe('SIM-21 · timeline samples', () => {
+  it('logs sampled arrivals and source watermarks next to window fires and late events', () => {
+    const run = createRun(fraud(42, 2000));
+    run.advance(Infinity);
+    const kinds = new Set(run.stats().timeline.map((t) => t.kind));
+    expect([...kinds].sort()).toEqual(expect.arrayContaining(['event', 'fire', 'late', 'watermark']));
+    const wms = run
+      .stats()
+      .timeline.filter((t) => t.kind === 'watermark')
+      .map((t) => t.ts);
+    expect(wms).toEqual([...wms].sort((a, b) => a - b)); // watermarks never go back
+  });
+});

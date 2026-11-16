@@ -73,7 +73,8 @@ export interface NodeStats {
 }
 
 export interface TimelineEntry {
-  kind: 'fire' | 'late' | 'fail' | 'watermark';
+  /** event: a sampled arrival (event time vs clock); watermark: a source's watermark, sampled. */
+  kind: 'fire' | 'late' | 'fail' | 'watermark' | 'event';
   node: string;
   /** Simulation clock (ms since start). */
   at: number;
@@ -946,6 +947,8 @@ export function createRun(g: Graph, opts: RunOptions = {}): Run {
 
   let i = 0;
   let ended = false;
+  let lastSample = -Infinity;
+  let lastWmSample = -Infinity;
   const step = () => {
     const a = arrivals[i];
     if (!a) {
@@ -964,8 +967,18 @@ export function createRun(g: Graph, opts: RunOptions = {}): Run {
     w.max = Math.max(w.max, a.ev.ts);
     w.last = a.at;
     w.left--;
+    // SIM-21 Timeline samples, at most one of each per 250 ms of clock (the timeline is capped).
+    if (stats.now - lastSample >= 250 || i === 1) {
+      lastSample = stats.now;
+      log({ kind: 'event', node: src.id, at: stats.now, ts: a.ev.ts, watermark: ns(src.id).watermark });
+    }
     deliver(src.id, 'main', a.ev);
     propagateWm();
+    const swm = ns(src.id).watermark;
+    if (Number.isFinite(swm) && stats.now - lastWmSample >= 250) {
+      lastWmSample = stats.now;
+      log({ kind: 'watermark', node: src.id, at: stats.now, ts: swm, watermark: swm });
+    }
     if (i === arrivals.length && !opts.holdFinalWatermark) stats.done = true;
     return true;
   };

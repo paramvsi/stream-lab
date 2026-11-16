@@ -55,7 +55,7 @@ export function RunPill() {
 
   return (
     <div className="flex items-center gap-2 rounded-pill border border-line bg-surface py-1 pr-1 pl-3.5 shadow-card">
-      <span role="status" className="text-[13px] font-medium text-muted tabular-nums">
+      <span role="status" className="text-[13px] font-medium whitespace-nowrap text-muted tabular-nums">
         {label}
       </span>
       {state === 'running' ? (

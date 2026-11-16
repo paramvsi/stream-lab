@@ -12,7 +12,15 @@ const cell = (v: Event[string]) =>
       ? v.toLocaleString('en-US', { maximumFractionDigits: 2 })
       : String(v).replace(ISO, '$1');
 
-function Events({ rows, label, empty = 'No events.' }: { rows: Event[]; label: string; empty?: string }) {
+export function Events({
+  rows,
+  label,
+  empty = 'No events.',
+}: {
+  rows: Event[];
+  label: string;
+  empty?: string;
+}) {
   const keys = [...new Set(rows.flatMap((r) => Object.keys(r)))];
   if (!rows.length) return <p className="m-0 text-[13px] text-muted">{empty}</p>;
   return (

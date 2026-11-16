@@ -1,7 +1,6 @@
-import { AppError, ErrorPage, present, toProblems } from '@sl/errors';
+import { AppError, ErrorPage, present } from '@sl/errors';
 import {
   connectionIssue,
-  labelOf,
   propagate,
   inputsOf,
   type Schema,
@@ -10,7 +9,7 @@ import {
   type NodeType,
   type PipelineNode,
 } from '@sl/graph';
-import { Button, EmptyState, IconButton, ProblemsPanel, useToast } from '@sl/ui';
+import { Button, EmptyState, IconButton, useToast } from '@sl/ui';
 import {
   Background,
   BackgroundVariant,
@@ -65,12 +64,13 @@ import {
 import { snapGuides, type Guides } from './geometry';
 import { CommandPalette, ShortcutsSheet } from './Commands';
 import { NodeConfigDrawer } from './drawer/NodeConfigDrawer';
-import { setIssues, useIssues } from './issues';
+import { setIssues } from './issues';
 import { useSaveState } from './saveState';
 import { accent } from './look';
 import { NODE_H, NODE_W, NodeCard, type SlNode } from './NodeCard';
 import { DRAG_TYPE, Palette } from './Palette';
 import { QuickAdd, type QuickAddNeed } from './QuickAdd';
+import { RunPanel, useBottomDrawer } from './RunPanel';
 import { RunPill } from './RunPill';
 import { historyEntries, useGraph, type ConnectFrom } from './store';
 import { ConnectionHint, EdgeActions, setHoveredEdge, StreamEdge, type SlEdge } from './StreamEdge';
@@ -161,6 +161,9 @@ function Canvas() {
   // `run` > 0: opened by "Run to here" (NODE-05), on the Output preview; a new run remounts the drawer.
   const [drawer, setDrawer] = useState<{ id: string; run: number } | null>(null);
   const drawerFor = drawer?.id ?? null;
+  // The node drawer and the run panel share the bottom drawer slot (SIMULATOR.md).
+  useEffect(() => useBottomDrawer.setState({ node: drawerFor !== null }), [drawerFor]);
+  useEffect(() => () => useBottomDrawer.setState({ node: false }), []);
   const setDrawerFor = useCallback((id: string | null) => setDrawer(id ? { id, run: 0 } : null), []);
   const runToHere = useCallback((id: string) => setDrawer((d) => ({ id, run: (d?.run ?? 0) + 1 })), []);
   const [connectFor, setConnectFor] = useState<string | null>(null);
@@ -723,46 +726,6 @@ function HistoryPopover() {
   );
 }
 
-function ProblemsBar() {
-  const all = useIssues((s) => s.all);
-  const nodes = useGraph((s) => s.nodes);
-  const rf = useReactFlow();
-  const [filter, setFilter] = useState<'all' | 'error' | 'warning'>('all');
-  const byId = new Map(nodes.map((n) => [n.id, n]));
-  const problems = toProblems(
-    all.map((i, k) => ({
-      id: `${i.code}-${i.nodeId ?? 'graph'}-${k}`,
-      error: new AppError(i.code, i.params),
-      location:
-        i.nodeId && byId.get(i.nodeId)
-          ? `${byId.get(i.nodeId)!.type} · ${labelOf(byId.get(i.nodeId)!)}`
-          : 'Pipeline',
-    })),
-  );
-  return (
-    <section
-      aria-label="Run panel"
-      className="h-[200px] shrink-0 overflow-y-auto border-t border-line bg-surface"
-    >
-      <h2 className="m-0 border-b border-line px-4 py-2 text-[13px] font-semibold">
-        Problems <span className="font-mono text-muted">{all.length}</span>
-      </h2>
-      <ProblemsPanel
-        problems={problems}
-        filter={filter}
-        onFilterChange={setFilter}
-        onSelect={(p) => {
-          // Clicking a problem selects its node (SIM-14) and brings it into view.
-          const issue = all.find((i, k) => `${i.code}-${i.nodeId ?? 'graph'}-${k}` === p.id);
-          if (!issue?.nodeId) return;
-          useGraph.getState().select([issue.nodeId]);
-          void rf.fitView({ nodes: [{ id: issue.nodeId }], duration: 300, maxZoom: 1.2 });
-        }}
-      />
-    </section>
-  );
-}
-
 /** W09 workspace: header, palette, canvas, run pill, problems. */
 export function Workspace({ banners }: { banners?: ReactNode }) {
   const small = useSyncExternalStore(
@@ -781,7 +744,7 @@ export function Workspace({ banners }: { banners?: ReactNode }) {
         <Header />
         {banners && <div className="flex flex-col gap-2 px-4 pt-3 empty:hidden">{banners}</div>}
         <Canvas />
-        <ProblemsBar />
+        <RunPanel />
       </div>
     </ReactFlowProvider>
   );

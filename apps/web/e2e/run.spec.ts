@@ -91,3 +91,32 @@ test('SIM-18 runtime expression failures are counted on the node, in words', asy
       .getByText(/events failed in this node/),
   ).toHaveCount(1);
 });
+
+test('SIM-21 run panel: Timeline while running, Output opens when finished, Problems, Trace and Flink SQL explained', async ({
+  page,
+}) => {
+  const errors: string[] = [];
+  page.on('console', (m) => m.type() === 'error' && errors.push(m.text()));
+  page.on('pageerror', (e) => errors.push(e.message));
+  await scenario(page, 'Card fraud bursts');
+  const panel = page.getByRole('region', { name: 'Run panel' });
+  await expect(panel.getByRole('tab')).toHaveText(['Timeline', 'Output', 'Trace', 'Flink SQL', /^Problems/]);
+  await page.getByText('10×', { exact: true }).click();
+  await page.getByRole('button', { name: 'Run', exact: true }).click();
+  await expect(panel.getByRole('tab', { name: 'Timeline' })).toHaveAttribute('aria-selected', 'true');
+  await expect(panel.getByRole('img', { name: 'Timeline chart' })).toBeVisible();
+  await expect(status(page)).toHaveText(/^Finished/, { timeout: 15000 });
+  await expect(panel.getByRole('tab', { name: /^Output/ })).toHaveAttribute('aria-selected', 'true');
+  await expect(panel.getByRole('table', { name: /^Output of / })).toBeVisible();
+  await panel.getByRole('tab', { name: 'Timeline' }).click();
+  await expect(panel).toContainText(/\d+ window fires · \d+ late events/);
+  await panel.getByRole('tab', { name: 'Trace' }).click();
+  await expect(panel).toContainText('Tracing an event is not available yet');
+  await page.screenshot({ path: `test-results/shots/${test.info().project.name}-W09k-finished.png` });
+  expect(errors.filter((e) => /Maximum update depth|getSnapshot/.test(e))).toEqual([]);
+  await page.waitForFunction(() => document.getAnimations().every((a) => a.playState !== 'running'));
+  const r = await new AxeBuilder({ page }).include('[aria-label="Run panel"]').analyze();
+  expect(r.violations.map((v) => `${v.id}: ${v.nodes.map((n) => n.target.join(' ')).join(' | ')}`)).toEqual(
+    [],
+  );
+});

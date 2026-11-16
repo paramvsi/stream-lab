@@ -1,0 +1,81 @@
+/* LAND-01 hero: events flow along the pipeline, the window fires, output rows appear (8 s loop). Every element's
+   resting state is the still frame: under reduced motion (all animation off, tokens.css) that is what shows. */
+.sl-hero-dot {
+  animation: sl-hero-flow 2.4s linear infinite both;
+  animation-delay: var(--delay, 0s);
+}
+@keyframes sl-hero-flow {
+  from {
+    transform: translateX(-24px);
+    opacity: 0;
+  }
+  15% {
+    opacity: 1;
+  }
+  85% {
+    opacity: 1;
+  }
+  to {
+    transform: translateX(24px);
+    opacity: 0;
+  }
+}
+.sl-hero-wm {
+  animation: sl-hero-wm 8s linear infinite both;
+}
+@keyframes sl-hero-wm {
+  from {
+    transform: translateX(-120px);
+  }
+  to {
+    transform: none;
+  }
+}
+.sl-hero-fire {
+  animation: sl-hero-fire 8s ease-out infinite both;
+}
+@keyframes sl-hero-fire {
+  0%,
+  55% {
+    box-shadow: none;
+  }
+  60% {
+    box-shadow: 0 0 0 6px var(--sl-color-rose-100);
+  }
+  75%,
+  100% {
+    box-shadow: none;
+  }
+}
+.sl-hero-row {
+  animation: sl-hero-row 8s ease-out infinite both;
+  animation-delay: var(--delay, 0s);
+}
+@keyframes sl-hero-row {
+  0%,
+  58% {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  64%,
+  100% {
+    opacity: 1;
+    transform: none;
+  }
+}
+/* Off-screen, the hero pauses (IntersectionObserver). */
+.sl-hero[data-paused] * {
+  animation-play-state: paused !important;
+}
+
+/* LAND-04 sections rise in once, with the stagger token (50 ms per item, at most 5 steps). Hidden only when
+   motion is allowed and the section has not been seen yet: with reduced motion everything is simply there. */
+@media (prefers-reduced-motion: no-preference) {
+  .sl-reveal:not([data-in]) .sl-reveal-item {
+    opacity: 0;
+  }
+  .sl-reveal[data-in] .sl-reveal-item {
+    animation: sl-in 0.42s cubic-bezier(0.2, 0, 0, 1) both;
+    animation-delay: calc(min(var(--i, 0), 5) * var(--sl-motion-stagger));
+  }
+}

@@ -6,10 +6,10 @@ import {
   createRoute,
   createRouter,
   Outlet,
-  redirect,
 } from '@tanstack/react-router';
 import { ChapterPage } from './pages/Chapter';
 import { Course } from './pages/Course';
+import { Landing } from './pages/Landing';
 import { DownloadPage } from './pages/Download';
 import { ConceptDrawer, Glossary } from './pages/Glossary';
 import { Gallery } from './pages/Gallery';
@@ -28,14 +28,7 @@ const root = createRootRoute({
   notFoundComponent: NotFound,
 });
 
-// ponytail: "/" is the M5 landing; until then it opens the gallery.
-const index = createRoute({
-  getParentRoute: () => root,
-  path: '/',
-  beforeLoad: () => {
-    throw redirect({ to: '/new' });
-  },
-});
+const index = createRoute({ getParentRoute: () => root, path: '/', component: Landing });
 const gallery = createRoute({ getParentRoute: () => root, path: '/new', component: Gallery });
 const download = createRoute({ getParentRoute: () => root, path: '/download', component: DownloadPage });
 const glossary = createRoute({ getParentRoute: () => root, path: '/glossary', component: Glossary });

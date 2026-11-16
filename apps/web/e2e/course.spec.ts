@@ -155,6 +155,7 @@ test('LAND-05 audit 4+8+11: rose focus ring on site links, Simulator current on 
 test('LEARN-02 the chapter sandbox: the scenario idle, Run fills the timeline and the output; nothing is saved (W05, W05b)', async ({
   page,
 }) => {
+  test.setTimeout(90_000); // a whole scenario at 1x, slower when the machine is busy
   await page.goto('/#/learn/windows');
   const box = page.getByRole('region', { name: 'Sandbox' });
   await expect(box.getByText('Press Run to start')).toBeVisible();

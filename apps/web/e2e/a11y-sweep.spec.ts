@@ -36,7 +36,7 @@ for (const route of [
     await expect(page.getByRole('heading', { level: 1 }).first()).toBeAttached();
     // Every reveal section seen (one scroll to the bottom skips the middle ones).
     for (const el of await page.locator('.sl-reveal').all()) await el.scrollIntoViewIfNeeded();
-    await expect(page.getByRole('status', { name: 'Loading' })).toHaveCount(0);
+    await expect(page.getByRole('status', { name: 'Loading' })).toHaveCount(0, { timeout: 30_000 }); // a cold dev server compiles the simulator
     await check(page, route);
   });
 

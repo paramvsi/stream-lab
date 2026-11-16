@@ -126,13 +126,21 @@ export function SiteHeader() {
       d.open = false;
       if (refocus) d.querySelector('summary')?.focus();
     };
-    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && close(true);
+    // Only when the menu has focus: Escape elsewhere (a search field) belongs to that element.
+    const onKey = (e: KeyboardEvent) =>
+      e.key === 'Escape' && menu.current?.contains(document.activeElement) && close(true);
+    // Tabbing out of the menu closes it too.
+    const onFocus = (e: FocusEvent) => {
+      if (!menu.current?.contains(e.target as Node)) close(false);
+    };
     const onDown = (e: PointerEvent) => {
       if (!menu.current?.contains(e.target as Node)) close(false);
     };
     window.addEventListener('keydown', onKey);
     window.addEventListener('pointerdown', onDown);
+    window.addEventListener('focusin', onFocus);
     return () => {
+      window.removeEventListener('focusin', onFocus);
       window.removeEventListener('keydown', onKey);
       window.removeEventListener('pointerdown', onDown);
     };

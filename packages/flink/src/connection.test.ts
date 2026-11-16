@@ -106,3 +106,59 @@ describe('CONN-08 import / export', () => {
     });
   });
 });
+
+describe('audit of 77b0572', () => {
+  it('#1 a file that is JSON null is CONN-IMPORT-INVALID, not a crash', () => {
+    expect(importConnections('c.json', 'null', [])).toMatchObject({ error: { code: 'CONN-IMPORT-INVALID' } });
+  });
+  it('#2 a user and password in an address are refused (CONN-URL-SECRET), for REST, proxy and gateway', () => {
+    expect(
+      codes(validateConnection(conn({ url: 'https://alice:s3cret@flink.example.com:8081' }), [])),
+    ).toEqual({
+      url: 'CONN-URL-SECRET',
+    });
+    expect(
+      codes(validateConnection(conn({ transport: { type: 'proxy', url: 'http://u:pw@proxy:3128' } }), [])),
+    ).toEqual({
+      proxy: 'CONN-URL-SECRET',
+    });
+    expect(
+      codes(validateConnection(conn({ gateway: { url: 'https://u:p@gw:8083', sameLogin: true } }), [])),
+    ).toEqual({ gateway: 'CONN-URL-SECRET' });
+  });
+  it('#3 imported connections get fresh ids; names twice in the file (any case) are duplicates', () => {
+    const text = exportConnections([conn(), conn({ name: 'A' }), conn({ name: 'a' })]);
+    const r = importConnections('c.json', text, []);
+    if ('error' in r) throw r.error;
+    const ids = r.connections.map((c) => c.id);
+    expect(new Set(ids).size).toBe(3);
+    expect(ids).not.toContain('c1');
+    expect(r.duplicates).toEqual(['a']);
+  });
+  it('#8 a separate SQL Gateway login is required when not the same; #9 empty header names; credential headers are not exported', () => {
+    expect(
+      codes(validateConnection(conn({ gateway: { url: 'https://gw:8083', sameLogin: false } }), [])),
+    ).toEqual({
+      gatewayLogin: 'CONN-REQUIRED',
+    });
+    expect(
+      codes(validateConnection(conn({ headers: [{ name: ' ', value: 'x', secret: false }] }), [])),
+    ).toEqual({
+      headers: 'CONN-REQUIRED',
+    });
+    const text = exportConnections([
+      conn({ headers: [{ name: 'Cookie', value: 'session=abc', secret: false }] }),
+    ]);
+    expect(text).not.toContain('session=abc');
+  });
+  it('#10 a file that ends early names its last line; a bad connection names the line of its own "id"', () => {
+    expect(
+      importConnections('c.json', '{\n  "format": "streamlab.connections",\n  "version": 1,', []),
+    ).toMatchObject({
+      error: { params: { line: 3 } },
+    });
+    const bad = exportConnections([conn({ name: 'c9' }), conn({ id: 'c9', env: 'qa' as never })]);
+    const line = bad.split('\n').findIndex((l) => l.includes('"id": "c9"')) + 1;
+    expect(importConnections('c.json', bad, [])).toMatchObject({ error: { params: { line } } });
+  });
+});

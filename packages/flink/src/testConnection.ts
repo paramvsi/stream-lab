@@ -50,7 +50,24 @@ export async function* testConnection(
   http: FlinkHttp,
   t: TestTarget,
 ): AsyncGenerator<StepResult, TestOutcome> {
-  const host = new URL(t.url).host;
+  // An address that does not parse fails the first step (the form validates it first: CONN-URL-INVALID).
+  let host: string;
+  try {
+    host = new URL(t.url).hostname;
+  } catch {
+    const error = new AppError('CONN-URL-INVALID');
+    yield { id: 'resolve', status: 'fail', error };
+    for (const s of STEPS.slice(1)) yield { id: s.id, status: 'skip' };
+    return { result: 'fail', error };
+  }
+  /** The host that answered (no port: a TLS terminator or a tunnel may change it); unknown: the same. */
+  const answeredBy = (u: string) => {
+    try {
+      return new URL(u, t.url).hostname;
+    } catch {
+      return host;
+    }
+  };
   const send = async (at: StepId, req: FlinkRequest): Promise<FlinkResponse> => {
     try {
       return await http(req);
@@ -93,15 +110,22 @@ export async function* testConnection(
     yield { id: 'resolve', status: 'pass' };
     yield { id: 'connect', status: 'pass' };
     const html = /text\/html/i.test(r.headers['content-type'] ?? '') || r.body.trimStart().startsWith('<');
-    const elsewhere = new URL(r.url).host !== host;
-    if (elsewhere || (r.status < 300 && html) || (r.status >= 300 && r.status < 400))
+    // A sign-in page: an answer from another host, an HTML page, or a redirect to another host (FLINK_API.md).
+    const elsewhere = answeredBy(r.url) !== host;
+    const redirect = r.status >= 300 && r.status < 400;
+    const away = redirect && answeredBy(r.headers['location'] ?? '') !== host;
+    if (elsewhere || away || (r.status < 300 && html))
       throw new StepFailure('login', new AppError('CONN-SSO-REDIRECT', { host }));
+    if (redirect) throw new StepFailure('login', statusError(r, 'reading /config'));
     if (r.status === 404) throw new StepFailure('login', new AppError('CONN-BASEPATH', { url: t.url }));
     if (r.status >= 400) throw new StepFailure('login', statusError(r, 'reading /config'));
     yield { id: 'login', status: 'pass' };
     config = json('flink', r, ConfigSchema, () => new AppError('CONN-NOT-FLINK', { url: t.url }));
     const version = config['flink-version'];
     if (versionSupported(version)) yield { id: 'flink', status: 'pass', detail: `Flink ${version}` };
+    // A build without a version ("<unknown>"): Flink, but nothing to adapt the UI to.
+    else if (!/^\d+\.\d+/.test(version))
+      yield { id: 'flink', status: 'warn', detail: 'Flink (it does not report its version)' };
     else
       yield {
         id: 'flink',
@@ -151,12 +175,24 @@ export async function* testConnection(
     });
     if (open.status >= 400) throw new StepFailure('gateway', statusError(open, 'opening a SQL session'));
     const { sessionHandle } = json('gateway', open, OpenSessionSchema, () => new AppError('API-SHAPE'));
-    await send('gateway', {
+    // The test session is closed whatever happens; a close that fails is said (it lingers until the gateway's
+    // idle timeout) but does not fail a gateway that answered.
+    const closed = await http({
       method: 'DELETE',
       path: `/v1/sessions/${encodeURIComponent(sessionHandle)}`,
       gateway: true,
-    });
-    yield { id: 'gateway', status: 'pass', detail: `${gi.productName} ${gi.version}` };
+    }).then(
+      (c) => c.status < 400,
+      () => false,
+    );
+    const what = `${gi.productName} ${gi.version}`;
+    yield closed
+      ? { id: 'gateway', status: 'pass', detail: what }
+      : {
+          id: 'gateway',
+          status: 'warn',
+          detail: `${what}; the test session did not close (it expires on its own)`,
+        };
     return { result: 'pass', config };
   } catch (e) {
     if (!(e instanceof StepFailure)) throw e;

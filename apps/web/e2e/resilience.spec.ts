@@ -56,9 +56,9 @@ test.describe('320 CSS px (WCAG 1.4.10)', () => {
       await page.goto(route);
       await expect(page.getByRole('heading', { level: 1 }).first()).toBeVisible();
       // Whatever loads late (the chapter sandbox) is there before measuring.
-      await expect(page.getByRole('status', { name: 'Loading' })).toHaveCount(0);
+      await expect(page.getByRole('status', { name: 'Loading' })).toHaveCount(0, { timeout: 30_000 }); // a cold dev server compiles the simulator
       if (route.includes('/learn/'))
-        await expect(page.getByRole('region', { name: 'Sandbox' })).toBeVisible();
+        await expect(page.getByRole('region', { name: 'Sandbox' })).toBeVisible({ timeout: 30_000 });
       for (const el of await page.locator('.sl-reveal').all()) await el.scrollIntoViewIfNeeded();
       expect(await page.evaluate(() => document.documentElement.scrollWidth), route).toBeLessThanOrEqual(320);
     }
@@ -127,5 +127,22 @@ test.describe('phone menu', () => {
     await expect(menu).toBeVisible();
     await page.mouse.click(160, 500);
     await expect(menu).toBeHidden();
+  });
+});
+
+test.describe('phone menu focus', () => {
+  test.use({ viewport: { width: 320, height: 640 } });
+  test('audit 12: Escape in a field stays there; tabbing out of the menu closes it', async ({ page }) => {
+    await page.goto('/#/glossary');
+    const summary = page.getByText('Menu', { exact: true });
+    const menu = page.getByRole('navigation', { name: 'Main' });
+    await summary.click();
+    await expect(menu).toBeVisible();
+    for (let i = 0; i < 5; i++) await page.keyboard.press('Tab'); // four links, then out
+    await expect(menu).toBeHidden();
+    const search = page.getByLabel('Search the glossary');
+    await search.focus();
+    await page.keyboard.press('Escape');
+    await expect(search).toBeFocused();
   });
 });

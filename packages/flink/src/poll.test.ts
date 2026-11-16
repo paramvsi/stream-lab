@@ -72,3 +72,48 @@ describe('FLINK_API polling', () => {
     expect(calls).toBe(3);
   });
 });
+
+describe('audit of d5cc76c', () => {
+  it('#5 a function that throws at once still frees its slot', async () => {
+    const l = limiter(1);
+    await expect(
+      l.run(() => {
+        throw new Error('sync');
+      }),
+    ).rejects.toThrow('sync');
+    expect(l.inFlight).toBe(0);
+    expect(await l.run(() => Promise.resolve(1))).toBe(1);
+  });
+  it('#4 a handler that throws is not counted as a cluster failure and does not stop polling', async () => {
+    const timers: (() => void)[] = [];
+    const seen: string[] = [];
+    const rejections: unknown[] = [];
+    const onRej = (e: unknown) => rejections.push(e);
+    const proc = (
+      globalThis as unknown as {
+        process: {
+          on(e: string, f: (x: unknown) => void): void;
+          off(e: string, f: (x: unknown) => void): void;
+        };
+      }
+    ).process;
+    proc.on('unhandledRejection', onRej);
+    poll(() => Promise.resolve('v'), {
+      everyMs: 1000,
+      setTimer: (f) => timers.push(f),
+      clearTimer: () => {},
+      onResult: (r) => {
+        seen.push(r.ok ? 'ok' : `fail ${r.failures}`);
+        throw new Error('render bug');
+      },
+    });
+    await flush();
+    timers.shift()!();
+    await flush();
+    await flush();
+    proc.off('unhandledRejection', onRej);
+    expect(seen).toEqual(['ok', 'ok']);
+    expect(timers.length).toBe(1); // still polling
+    expect(rejections.length).toBeGreaterThan(0); // the bug still surfaces
+  });
+});

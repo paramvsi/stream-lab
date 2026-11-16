@@ -67,8 +67,10 @@ export function fromTransport(f: TransportFailure, cause?: unknown): AppError {
     case 'timeout':
       return new AppError('CONN-TIMEOUT', { host, timeout: f.timeoutS ?? '' }, cause);
     case 'tls_untrusted':
-    case 'tls_other':
       return new AppError('CONN-TLS-UNTRUSTED', { host, reason: f.reason ?? 'unknown issuer' }, cause);
+    case 'tls_other':
+      // A TLS protocol failure, not trust: "Add CA file" would not fix it.
+      return new AppError('CONN-IO', { host, reason: f.reason ?? 'TLS handshake failed' }, cause);
     case 'tls_changed':
       return new AppError('CONN-CERT-CHANGED', { host }, cause);
     case 'proxy':

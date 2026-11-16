@@ -6,7 +6,7 @@ const URL_ = 'https://flink.example.com:8081';
 const target = { name: 'prod-eu', url: URL_, readOnly: false, hasGateway: true };
 const ok = (body: unknown, extra: Partial<{ status: number; url: string; ct: string }> = {}) => ({
   status: extra.status ?? 200,
-  headers: { 'content-type': extra.ct ?? 'application/json' },
+  headers: { 'content-type': extra.ct ?? 'application/json' } as Record<string, string>,
   body: typeof body === 'string' ? body : JSON.stringify(body),
   url: extra.url ?? `${URL_}/x`,
 });
@@ -125,7 +125,7 @@ describe('fromTauriHttp: every transport kind has its catalog code', () => {
     ['refused', 'CONN-REFUSED'],
     ['timeout', 'CONN-TIMEOUT'],
     ['tls_untrusted', 'CONN-TLS-UNTRUSTED'],
-    ['tls_other', 'CONN-TLS-UNTRUSTED'],
+    ['tls_other', 'CONN-IO'],
     ['tls_changed', 'CONN-CERT-CHANGED'],
     ['proxy', 'CONN-PROXY'],
     ['ssh_auth', 'CONN-SSH-AUTH'],
@@ -134,5 +134,40 @@ describe('fromTauriHttp: every transport kind has its catalog code', () => {
     ['io', 'CONN-IO'],
   ] as const)('%s → %s', (kind, code) => {
     expect(fromTransport({ kind, host: 'h:1' }).code).toBe(code);
+  });
+});
+
+describe('audit of 66749d1', () => {
+  it('#6 a session that fails to close is a warning, not a pass and not a failure', async () => {
+    const { steps, outcome } = await run(cluster({ 'DELETE /v1/sessions/s-1': ok('boom', { status: 500 }) }));
+    expect(steps[6]).toMatchObject({ id: 'gateway', status: 'warn' });
+    expect(outcome.result).toBe('pass');
+    const t = await run(cluster({ 'DELETE /v1/sessions/s-1': transport('timeout') }));
+    expect(t.steps[6]).toMatchObject({ id: 'gateway', status: 'warn' });
+  });
+  it('#7 a redirect on the same host is not an SSO page; a different port is the same host; a bad address fails step 1', async () => {
+    const same = await run(
+      cluster({ 'GET /config': { ...ok('', { status: 302 }), headers: { location: `${URL_}/config/` } } }),
+    );
+    expect(statuses(same.steps)[2]).toBe('login:fail:API-4XX');
+    const away = await run(
+      cluster({
+        'GET /config': { ...ok('', { status: 302 }), headers: { location: 'https://sso.example.com/' } },
+      }),
+    );
+    expect(statuses(away.steps)[2]).toBe('login:fail:CONN-SSO-REDIRECT');
+    const port = await run(
+      cluster({ 'GET /config': ok(CONFIG, { url: 'https://flink.example.com/config' }) }),
+    );
+    expect(port.outcome.result).toBe('pass');
+    const bad = await run(cluster(), { ...target, url: 'not a url' });
+    expect(statuses(bad.steps)[0]).toBe('resolve:fail:CONN-URL-INVALID');
+    expect(bad.steps).toHaveLength(7);
+  });
+  it('#11 a version Flink does not report is a warning without "older than 1.20"; #12 a TLS protocol error is CONN-IO', async () => {
+    const { steps } = await run(cluster({ 'GET /config': ok({ 'flink-version': '<unknown>' }) }));
+    expect(steps[3]).toMatchObject({ id: 'flink', status: 'warn' });
+    expect(steps[3]!.error).toBeUndefined();
+    expect(fromTransport({ kind: 'tls_other', host: 'h' }).code).toBe('CONN-IO');
   });
 });

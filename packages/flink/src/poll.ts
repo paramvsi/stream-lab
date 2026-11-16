@@ -20,8 +20,10 @@ export function limiter(max = MAX_IN_FLIGHT) {
   return {
     run<T>(fn: () => Promise<T>): Promise<T> {
       return new Promise<T>((resolve, reject) => {
+        // Promise.resolve().then(fn): a function that throws at once still frees its slot.
         queue.push(() =>
-          fn()
+          Promise.resolve()
+            .then(fn)
             .then(resolve, reject)
             .finally(() => {
               running--;
@@ -75,17 +77,21 @@ export function poll<T>(
   let timer: unknown = null;
   const tick = async () => {
     if (stopped) return;
+    let result: Parameters<typeof opts.onResult>[0] | null = null;
     if (visible()) {
       try {
-        const value = await fn();
+        result = { ok: true, value: await fn() };
         failures = 0;
-        if (!stopped) opts.onResult({ ok: true, value });
       } catch (error) {
         failures++;
-        if (!stopped) opts.onResult({ ok: false, error, failures });
+        result = { ok: false, error, failures };
       }
     }
-    if (!stopped) timer = setTimer(() => void tick(), nextDelay(opts.everyMs, failures));
+    if (stopped) return;
+    // The next poll is set before the result is handed on: a bug in the handler is not a cluster failure,
+    // and does not stop polling (it still surfaces, as this tick's rejection).
+    timer = setTimer(() => void tick(), nextDelay(opts.everyMs, failures));
+    if (result) opts.onResult(result);
   };
   void tick();
   return {

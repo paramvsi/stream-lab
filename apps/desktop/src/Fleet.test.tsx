@@ -316,3 +316,38 @@ describe('audit of 8671a2f', () => {
     }
   });
 });
+
+describe('audit of 7a0933d', () => {
+  it('back in view: a card that never answered asks at once; no second ask while a request is still out', async () => {
+    let hang = false;
+    const http = vi.fn(async (req: Parameters<FlinkHttp>[0]) => {
+      if (hang) return new Promise<never>(() => {});
+      return healthy(1)(req);
+    });
+    const hidden = vi.spyOn(document, 'hidden', 'get').mockReturnValue(true);
+    try {
+      show([conn('a')], () => http);
+      // Mounted hidden: nothing asked, Loading.
+      expect(within(card('a')).getByText('Loading')).toBeTruthy();
+      expect(http).not.toHaveBeenCalled();
+      hidden.mockReturnValue(false);
+      await act(async () => document.dispatchEvent(new Event('visibilitychange')));
+      expect(await within(card('a')).findByText('Healthy')).toBeTruthy();
+      const n = http.mock.calls.length;
+      // The answer old: back in view asks (and that request hangs); again: nothing more while it is out.
+      hang = true;
+      const clock = vi.spyOn(Date, 'now').mockReturnValue(Date.now() + 20_000);
+      try {
+        await act(async () => document.dispatchEvent(new Event('visibilitychange')));
+        const asked = http.mock.calls.length;
+        expect(asked).toBeGreaterThan(n);
+        await act(async () => document.dispatchEvent(new Event('visibilitychange')));
+        expect(http.mock.calls.length).toBe(asked);
+      } finally {
+        clock.mockRestore();
+      }
+    } finally {
+      hidden.mockRestore();
+    }
+  });
+});

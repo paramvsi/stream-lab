@@ -1,4 +1,4 @@
-import { present } from '@sl/errors';
+import { ErrorBanner, present } from '@sl/errors';
 import { STEPS, type StepId, type StepResult, type TestOutcome } from '@sl/flink';
 import { CheckCircle2, Circle, Info, Loader2, MinusCircle, TriangleAlert, XCircle } from 'lucide-react';
 import type { ReactNode } from 'react';
@@ -32,10 +32,12 @@ export function TestSteps({
   results,
   running,
   outcome,
+  onAction,
 }: {
   results: Partial<Record<StepId, StepResult>>;
   running: boolean;
   outcome: TestOutcome | null;
+  onAction: (label: string) => void;
 }) {
   const current = running ? STEPS.find((s) => !results[s.id])?.id : undefined;
   return (
@@ -47,7 +49,8 @@ export function TestSteps({
         {STEPS.map((s) => {
           const r = results[s.id];
           const st = STATUS[r?.status ?? (s.id === current ? 'running' : 'waiting')];
-          const note = r?.error ? present(r.error).message : r?.detail;
+          // A failed step's message is in the banner below (with Copy details); other steps show theirs here.
+          const note = r?.error && r.status !== 'fail' ? present(r.error).message : r?.detail;
           return (
             <li key={s.id} className="flex items-start gap-3">
               <span className="mt-0.5">{st.icon}</span>
@@ -62,14 +65,10 @@ export function TestSteps({
         })}
       </ol>
       <p role="status" className="m-0 text-[14px] font-medium">
-        {outcome?.result === 'pass'
-          ? 'All checks passed. Ready to save.'
-          : outcome?.result === 'partial'
-            ? `Connected, with a problem: ${present(outcome.error).message}`
-            : outcome?.result === 'fail'
-              ? `The test failed: ${present(outcome.error).message}`
-              : ''}
+        {outcome?.result === 'pass' ? 'All checks passed. Ready to save.' : ''}
       </p>
+      {/* A failure or a partial pass: the catalog message with its actions (Copy details, Save as read-only…). */}
+      {outcome && outcome.result !== 'pass' && <ErrorBanner error={outcome.error} onAction={onAction} />}
     </section>
   );
 }

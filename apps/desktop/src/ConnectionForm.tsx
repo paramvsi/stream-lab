@@ -162,34 +162,66 @@ export function ConnectionForm({
     setD((x) => ({ ...x, auth: a, secret: '' }));
   };
   const testing = results !== null && outcome === null;
+  /** What must be right before a test is sent: the addresses (no login inside them) and the login itself. */
+  const testBlocked = (['url', 'gateway', 'user', 'secret', 'command', 'cert', 'key'] as const).some(
+    (f) => all[f],
+  );
   const startTest = async () => {
-    if (!test) return;
+    if (!test || testBlocked) return;
     const mine = ++run.current;
     setResults({});
     setOutcome(null);
-    const steps = testConnection(test(c, d.secret), {
-      name: c.name || 'this cluster',
-      url: c.url,
-      readOnly: c.readOnly,
-      hasGateway: !!c.gateway,
-    });
-    for (;;) {
-      const n = await steps.next();
-      if (run.current !== mine) return; // edited or left while it ran
-      if (n.done) return setOutcome(n.value);
-      setResults((r) => ({ ...r, [n.value.id]: n.value }));
+    let steps: ReturnType<typeof testConnection> | undefined;
+    try {
+      steps = testConnection(test(c, d.secret), {
+        name: c.name || 'this cluster',
+        url: c.url,
+        readOnly: c.readOnly,
+        hasGateway: !!c.gateway,
+      });
+      for (;;) {
+        const n = await steps.next();
+        if (run.current !== mine) {
+          void steps.return(undefined as never); // edited or left while it ran: stop it
+          return;
+        }
+        if (n.done) return setOutcome(n.value);
+        setResults((r) => ({ ...r, [n.value.id]: n.value }));
+      }
+    } catch (e) {
+      // Not a transport failure the test knows (a broken transport, a bug): still said, in catalog words.
+      if (run.current !== mine) return;
+      const host = (() => {
+        try {
+          return new URL(c.url).host;
+        } catch {
+          return c.url;
+        }
+      })();
+      setOutcome({
+        result: 'fail',
+        error:
+          e instanceof AppError ? e : new AppError('CONN-IO', { host, reason: 'the test could not run' }, e),
+      });
     }
+  };
+  const onTestAction = (label: string) => {
+    if (label === 'Save as read-only') save({ readOnly: true });
+    else if (label === 'Save anyway') save();
+    else if (label === 'Retry') void startTest();
+    else if (label === 'Edit') document.querySelector<HTMLElement>('form input')?.focus();
   };
   const blur = (f: FieldKey) => () => setTouched((t) => new Set(t).add(f));
   const count = Object.keys(all).length;
-  const save = () => {
+  const save = (over?: Partial<Draft>) => {
+    const conn = over ? toConnection({ ...d, ...over }, id, kind) : c;
     setSubmitted(true);
     if (count) {
       // Straight to the first field to fix (the summary is said once; pressing Save again says it again here).
       requestAnimationFrame(() => document.querySelector<HTMLElement>('form [aria-invalid="true"]')?.focus());
       return;
     }
-    const { connection, secrets } = splitSecrets(c);
+    const { connection, secrets } = splitSecrets(conn);
     const key = secretKey(id, 'login');
     onSave({
       connection,
@@ -384,7 +416,9 @@ export function ConnectionForm({
             onChange={(e) => set('readOnly', e.target.checked)}
           />
         </label>
-        {results && <TestSteps results={results} running={testing} outcome={outcome} />}
+        {results && (
+          <TestSteps results={results} running={testing} outcome={outcome} onAction={onTestAction} />
+        )}
         {submitted && count > 0 && <ErrorBanner error={new AppError('CONN-FORM-INVALID', { n: count })} />}
         <div className="flex justify-end gap-3 border-t border-line pt-4">
           <Button type="button" onClick={onCancel}>
@@ -395,8 +429,8 @@ export function ConnectionForm({
             icon={<Activity size={16} aria-hidden="true" />}
             {...(!test
               ? { disabledReason: 'Testing needs the desktop transport, which is not built yet.' }
-              : all.url
-                ? { disabledReason: 'Enter the JobManager REST URL first.' }
+              : testBlocked
+                ? { disabledReason: 'Fix the address and login fields first.' }
                 : testing
                   ? { disabledReason: 'Testing now.' }
                   : {})}

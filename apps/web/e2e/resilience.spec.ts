@@ -55,7 +55,11 @@ test.describe('320 CSS px (WCAG 1.4.10)', () => {
     for (const route of ['/#/', '/#/learn', '/#/learn/windows', '/#/glossary', '/#/download', '/#/new']) {
       await page.goto(route);
       await expect(page.getByRole('heading', { level: 1 }).first()).toBeVisible();
-      await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
+      // Whatever loads late (the chapter sandbox) is there before measuring.
+      await expect(page.getByRole('status', { name: 'Loading' })).toHaveCount(0);
+      if (route.includes('/learn/'))
+        await expect(page.getByRole('region', { name: 'Sandbox' })).toBeVisible();
+      for (const el of await page.locator('.sl-reveal').all()) await el.scrollIntoViewIfNeeded();
       expect(await page.evaluate(() => document.documentElement.scrollWidth), route).toBeLessThanOrEqual(320);
     }
     await page.goto('/#/learn/windows');
@@ -67,5 +71,61 @@ test.describe('320 CSS px (WCAG 1.4.10)', () => {
     await expect(
       page.getByRole('heading', { level: 1, name: 'Flink concepts, in plain words' }),
     ).toBeVisible();
+  });
+});
+
+// ---- Audit of 5ffc8f2 / fbb1f7f ----
+test('APP-LOAD-FAILED audit 2+3: the failed page has the site header, an h1 and a title; the next visit retries', async ({
+  page,
+}) => {
+  await page.route(/\/src\/pages\/Gallery\.tsx/, (r) => r.abort());
+  await page.goto('/#/new');
+  await expect(page.getByText('Part of Stream Lab could not load')).toBeVisible();
+  await expect(page.getByRole('heading', { level: 1 })).toHaveText('Could not load this page');
+  await expect(page).toHaveTitle('Could not load · Stream Lab');
+  await expect(page.locator('header')).toHaveCount(1);
+  await page.unroute(/\/src\/pages\/Gallery\.tsx/);
+  await page.evaluate(() => (location.hash = '#/learn'));
+  await expect(page.getByRole('heading', { level: 1, name: 'Apache Flink®, hands on' })).toBeVisible();
+  await page.evaluate(() => (location.hash = '#/new'));
+  await expect(page.getByRole('heading', { level: 1, name: 'Start a pipeline' })).toBeVisible();
+});
+
+test('audit 4: going to another page does not mount the page being left again', async ({ page }) => {
+  await page.goto('/#/learn/windows');
+  await expect(page.getByRole('heading', { level: 1, name: 'Windows' })).toBeVisible();
+  await page.evaluate(() => {
+    const w = window as unknown as { __h1: string[] };
+    w.__h1 = [];
+    new MutationObserver((ms) => {
+      for (const m of ms)
+        for (const n of m.addedNodes)
+          if (n instanceof HTMLElement)
+            for (const h of [n, ...n.querySelectorAll('h1')])
+              if (h.tagName === 'H1') w.__h1.push(h.textContent ?? '');
+    }).observe(document.body, { childList: true, subtree: true });
+  });
+  await page.evaluate(() => (location.hash = '#/glossary'));
+  await expect(page.getByRole('heading', { level: 1, name: 'Flink concepts, in plain words' })).toBeVisible();
+  expect(await page.evaluate(() => (window as unknown as { __h1: string[] }).__h1)).toEqual([
+    'Flink concepts, in plain words',
+  ]);
+});
+
+test.describe('phone menu', () => {
+  test.use({ viewport: { width: 320, height: 640 } });
+  test('audit 5: Escape closes it and returns to Menu; a click outside closes it', async ({ page }) => {
+    await page.goto('/#/glossary');
+    const summary = page.getByText('Menu', { exact: true });
+    const menu = page.getByRole('navigation', { name: 'Main' });
+    await summary.click();
+    await expect(menu).toBeVisible();
+    await page.keyboard.press('Escape');
+    await expect(menu).toBeHidden();
+    await expect(summary).toBeFocused();
+    await summary.click();
+    await expect(menu).toBeVisible();
+    await page.mouse.click(160, 500);
+    await expect(menu).toBeHidden();
   });
 });

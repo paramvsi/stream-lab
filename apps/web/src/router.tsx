@@ -25,10 +25,10 @@ const SharedRoute = lazyPage(() => import('./sim/SharedRoute').then((m) => m.Sha
 
 const root = createRootRoute({
   component: function Root() {
-    // Keyed by the page: an error on one page does not stay on the next (it used to need a full reload).
+    // Reset on another page: an error on one page does not stay on the next (it used to need a full reload).
     const path = useRouterState({ select: (r) => r.location.pathname });
     return (
-      <ErrorBoundary key={path}>
+      <ErrorBoundary resetKey={path}>
         <Suspense fallback={<PageLoading />}>
           <Outlet />
         </Suspense>

@@ -1,6 +1,6 @@
 import { Link, useRouterState } from '@tanstack/react-router';
 import { Star } from 'lucide-react';
-import { useEffect, type ReactNode } from 'react';
+import { useEffect, useRef, type ReactNode } from 'react';
 
 /** Each page names itself in the tab (WCAG 2.4.2). */
 export function useDocTitle(title?: string) {
@@ -117,6 +117,26 @@ export function SiteShell({
 /** The site header (every web board). */
 export function SiteHeader() {
   const path = useRouterState({ select: (r) => r.location.pathname });
+  // The phone menu behaves like an overlay (DoD): Escape and a click outside close it; so does choosing a link.
+  const menu = useRef<HTMLDetailsElement>(null);
+  useEffect(() => {
+    const close = (refocus: boolean) => {
+      const d = menu.current;
+      if (!d?.open) return;
+      d.open = false;
+      if (refocus) d.querySelector('summary')?.focus();
+    };
+    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && close(true);
+    const onDown = (e: PointerEvent) => {
+      if (!menu.current?.contains(e.target as Node)) close(false);
+    };
+    window.addEventListener('keydown', onKey);
+    window.addEventListener('pointerdown', onDown);
+    return () => {
+      window.removeEventListener('keydown', onKey);
+      window.removeEventListener('pointerdown', onDown);
+    };
+  }, []);
   const onSim = path === '/new' || path === '/pipelines';
   return (
     <header className="relative flex h-[72px] items-center gap-4 border-b border-line px-4 md:px-16">
@@ -156,7 +176,7 @@ export function SiteHeader() {
         <span className="sr-only md:not-sr-only">Star on GitHub</span>
       </a>
       {/* Below 768 px (phones, zoomed windows): the same links behind a native disclosure. */}
-      <details className="relative md:hidden">
+      <details ref={menu} className="relative md:hidden">
         <summary className="sl-focus flex h-10 cursor-pointer list-none items-center rounded-lg border border-line px-3 text-[14px] font-semibold">
           Menu
         </summary>
@@ -172,7 +192,12 @@ export function SiteHeader() {
               ['/glossary', 'Glossary'],
             ] as const
           ).map(([to, label]) => (
-            <Link key={to} to={to} className={`${navLink} rounded-md px-2 py-1.5`}>
+            <Link
+              key={to}
+              to={to}
+              className={`${navLink} rounded-md px-2 py-1.5`}
+              onClick={() => menu.current && (menu.current.open = false)}
+            >
               {label}
             </Link>
           ))}

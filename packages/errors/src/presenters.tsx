@@ -180,10 +180,17 @@ export function toProblems(errors: { id: string; error: AppError; location: Reac
 }
 
 /** One per route and per panel, so one broken widget does not blank the page (API-SHAPE). */
-export class ErrorBoundary extends Component<{ children: ReactNode }, { error: unknown }> {
+/**
+ * A crash in its children shows the catalog message instead. `resetKey`: when it changes (another page), the
+ * error is cleared and the children render again — without remounting them on every change.
+ */
+export class ErrorBoundary extends Component<{ children: ReactNode; resetKey?: string }, { error: unknown }> {
   override state = { error: null as unknown };
   static getDerivedStateFromError(error: unknown) {
     return { error };
+  }
+  override componentDidUpdate(prev: { resetKey?: string }) {
+    if (this.state.error && prev.resetKey !== this.props.resetKey) this.setState({ error: null });
   }
   override componentDidCatch(_e: unknown, _info: ErrorInfo) {
     // Nothing to log here: no telemetry by default (ARCHITECTURE.md § Security). Copy details carries the cause.

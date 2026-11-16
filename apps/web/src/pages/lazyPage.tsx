@@ -1,33 +1,22 @@
 import { AppError, ErrorBanner, ErrorPage } from '@sl/errors';
 import { Loading } from '@sl/ui';
 import { CloudOff } from 'lucide-react';
-import { lazy, type ComponentType } from 'react';
+import { useEffect, useState, type ComponentType } from 'react';
+import { SiteShell } from './SiteShell';
 
 const reload = (label: string) => label === 'Reload' && window.location.reload();
 
-/** APP-LOAD-FAILED, as a page (a route) or inline (the chapter sandbox: the reading stays). */
+/** APP-LOAD-FAILED, as a page (a route: site header, h1, title) or inline (the chapter sandbox: the reading stays). */
 function LoadFailed({ inline, cause }: { inline: boolean; cause: unknown }) {
   const e = new AppError('APP-LOAD-FAILED', {}, cause);
-  return inline ? (
-    <ErrorBanner error={e} onAction={reload} />
-  ) : (
-    <div className="py-16">
-      <ErrorPage icon={CloudOff} error={e} onAction={reload} />
-    </div>
-  );
-}
-
-/**
- * A page loaded on demand (LAND-06). If its code can not be downloaded (offline, or a new deploy replaced the
- * file), it becomes APP-LOAD-FAILED with Reload — not an error thrown into the site's root (which would leave a
- * dead end), and not a cached rejection (React.lazy keeps whatever the first load gave).
- */
-export function lazyPage<P extends object>(load: () => Promise<ComponentType<P>>, inline = false) {
-  return lazy<ComponentType<P>>(() =>
-    load().then(
-      (C) => ({ default: C }),
-      (cause: unknown) => ({ default: () => <LoadFailed inline={inline} cause={cause} /> }),
-    ),
+  if (inline) return <ErrorBanner error={e} onAction={reload} />;
+  return (
+    <SiteShell docTitle="Could not load">
+      <h1 className="sr-only">Could not load this page</h1>
+      <div className="py-16">
+        <ErrorPage icon={CloudOff} error={e} onAction={reload} />
+      </div>
+    </SiteShell>
   );
 }
 
@@ -40,4 +29,37 @@ export function PageLoading() {
       </Loading>
     </div>
   );
+}
+
+/**
+ * A page loaded on demand (LAND-06). Only a successful load is kept: a failed one (offline, or a new deploy
+ * replaced the file) shows APP-LOAD-FAILED with Reload, and the next visit tries again — once the connection is
+ * back, the page opens without a reload. Not React.lazy: it would keep a failure (or its fallback) for the session,
+ * and its Suspense boundary holds the loading state ~300 ms even when the code is already here.
+ */
+export function lazyPage<P extends object>(load: () => Promise<ComponentType<P>>, inline = false) {
+  let loaded: ComponentType<P> | null = null;
+  return function LazyPage(props: P) {
+    const [state, setState] = useState<{ C?: ComponentType<P>; failed?: { cause: unknown } }>(() =>
+      loaded ? { C: loaded } : {},
+    );
+    useEffect(() => {
+      if (state.C) return;
+      let live = true;
+      load().then(
+        (C) => {
+          loaded = C;
+          if (live) setState({ C });
+        },
+        (cause: unknown) => live && setState({ failed: { cause } }),
+      );
+      return () => {
+        live = false;
+      };
+      // eslint-disable-next-line react-hooks/exhaustive-deps -- one attempt per mount
+    }, []);
+    if (state.C) return <state.C {...props} />;
+    if (state.failed) return <LoadFailed inline={inline} cause={state.failed.cause} />;
+    return <PageLoading />;
+  };
 }

@@ -57,7 +57,7 @@ function SandboxBox({ chapter, scenario }: { chapter: string; scenario: string }
       aria-labelledby="sandbox-title"
       className="flex flex-col gap-4 rounded-2xl border border-line bg-surface p-5"
     >
-      <div className="flex items-center gap-3">
+      <div className="flex flex-wrap items-center gap-3">
         <h2 id="sandbox-title" className="m-0 text-[18px] font-semibold">
           Sandbox
         </h2>

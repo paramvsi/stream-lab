@@ -28,11 +28,15 @@ for (const route of [
   '/new',
   '/pipelines',
   '/no/such/page',
+  '/s/not-a-link', // SHARE-BROKEN
+  '/sim/p_missing', // PIPELINE-NOT-FOUND
 ])
   test(`M11 axe ${route}`, async ({ page }) => {
     await page.goto(`/#${route}`);
     await expect(page.getByRole('heading', { level: 1 }).first()).toBeAttached();
-    await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight)); // every section revealed
+    // Every reveal section seen (one scroll to the bottom skips the middle ones).
+    for (const el of await page.locator('.sl-reveal').all()) await el.scrollIntoViewIfNeeded();
+    await expect(page.getByRole('status', { name: 'Loading' })).toHaveCount(0);
     await check(page, route);
   });
 
@@ -48,4 +52,29 @@ test('M11 axe the workspace: a scenario, then after a run', async ({ page }) => 
     timeout: 30000,
   });
   await check(page, 'workspace finished');
+});
+
+test('M11 axe the share view, the page-load failure and the open phone menu', async ({ page }) => {
+  await page.goto('/#/new');
+  const link = await page.evaluate(async () => {
+    const { encodeShare } = await import('/src/share.ts');
+    const { SCENARIOS, fromScenario } = await import('/src/sim/scenarios.ts');
+    return encodeShare(
+      fromScenario(
+        SCENARIOS.find((x) => x.title === 'Late payments')!,
+        'p_s',
+      ),
+    );
+  });
+  await page.goto(`/#/s/${link}`);
+  await expect(page.locator('.react-flow__node').first()).toBeVisible();
+  await check(page, 'share view');
+  await page.route(/\/src\/pages\/MyPipelines\.tsx/, (r) => r.abort());
+  await page.goto('/#/pipelines');
+  await expect(page.getByText('Part of Stream Lab could not load')).toBeVisible();
+  await check(page, 'APP-LOAD-FAILED');
+  await page.setViewportSize({ width: 320, height: 640 });
+  await page.goto('/#/learn');
+  await page.getByText('Menu', { exact: true }).click();
+  await check(page, 'phone menu');
 });

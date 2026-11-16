@@ -113,3 +113,8 @@ Overnight log. **Decisions** need your call; **Commands** need you to run them. 
   - There is no handler for an abnormal close (site data cleared mid-session).
   - The key column may be `valid_from`.
   - Escape closes the drawer and drops a parsed-but-unsaved upload form. The file is still on disk, but this is borderline against "never lose work".
+- DATA-05 audit (36f645d/f7a6f96), not fixed:
+  - A Generator node (on the canvas) has no key skew or patterns; only Sources reading the Data drawer get them. Add them to the node too?
+  - A table key that is 7 in one row and 7.0 in another is the same text key "7".
+  - An uploaded table's bad-row list is not sorted by line, unlike the Source upload's.
+- Flaky test, named: `run.spec.ts` "SIM-16 at 10× a 1,000-event run finishes and says so" waits 15 s for "Finished". A run is about 2 s of wall-clock work at 10×. Under parallel gate load it failed once (toHaveText at 19.5 s). It passed 3/3 alone and in a full rerun (80/80). It is probably the unnamed toHaveText failure in the 971f5ed gate too. The run speed depends on wall-clock ticks; the test could use the Step button or a longer wait. Left as is until you decide whether slow-under-load should fail.

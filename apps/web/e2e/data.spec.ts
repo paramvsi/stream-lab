@@ -104,7 +104,11 @@ test('DATA-05 key skew and fraud patterns in the Data drawer (board W12): valida
   await d.getByLabel('Key skew (percent)').fill('120');
   await expect(d).toContainText('Key skew must be at most 100 %.');
   await d.getByLabel('Key skew (percent)').fill('30');
-  await d.getByRole('checkbox', { name: /Burst of small payments/ }).check();
+  await d.getByRole('checkbox', { name: 'Burst of small payments', exact: true }).check();
+  // The help is the description, not part of the name.
+  await expect(
+    d.getByRole('checkbox', { name: 'Blocklisted merchant', exact: true }),
+  ).toHaveAccessibleDescription('Every 25th payment goes to a merchant on the blocklist.');
   await d.getByRole('button', { name: 'Apply and regenerate' }).click();
   const gen = await page.evaluate(
     async () => (await import('/src/sim/store.ts')).useGraph.getState().data.generator,
@@ -112,5 +116,5 @@ test('DATA-05 key skew and fraud patterns in the Data drawer (board W12): valida
   expect(gen).toMatchObject({ skewPct: 30, patterns: { burst: true, blocklisted: false } });
   await page.getByRole('button', { name: 'Data', exact: true }).click();
   await expect(d.getByLabel('Key skew (percent)')).toHaveValue('30');
-  await expect(d.getByRole('checkbox', { name: /Burst of small payments/ })).toBeChecked();
+  await expect(d.getByRole('checkbox', { name: 'Burst of small payments', exact: true })).toBeChecked();
 });

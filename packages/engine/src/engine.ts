@@ -119,6 +119,8 @@ const POOLS: Record<string, string[]> = {
   status: ['approved', 'approved', 'approved', 'declined'],
 };
 
+const BLOCKLISTED = ['m_103', 'm_107', 'm_110']; // the built-in blocklist table's merchants
+
 /** Seeded payments with chaos: out-of-order, late, duplicate and bad rows (Generator settings). */
 export function generate(
   schema: Schema,
@@ -145,6 +147,7 @@ export function generate(
   // without skew is the same run as before the setting existed.
   const top = Math.max(1, Math.ceil(c.keys / 100));
   const card = () => (c.skewPct && r() * 100 < c.skewPct ? Math.floor(r() * top) : Math.floor(r() * c.keys));
+  const burstAt = Math.floor(c.count * 0.3);
   for (let i = 0; i < c.count; i++) {
     const at = i * gap;
     let ts = BASE_TIME + Math.round(at);
@@ -173,6 +176,17 @@ export function generate(
                         ? new Date(ts).toISOString()
                         : `${f.name}_${1000 + Math.floor(r() * 9000)}`;
     }
+    // DATA-05 built-in fraud patterns, applied to the payment itself (before its duplicate is copied and before
+    // the malformed step), by payment number: the draws above happen either way, so a run without them is unchanged.
+    if (c.patterns?.burst && i >= burstAt && i < burstAt + 8) {
+      // Card testing: one card makes 8 small payments in a row, 30% of the way in.
+      if ('card_id' in data) data['card_id'] = `c_${1000 + c.keys - 1}`;
+      if ('amount' in data) data['amount'] = 1 + (i - burstAt) * 0.5;
+      if ('status' in data) data['status'] = 'approved';
+    }
+    if (c.patterns?.blocklisted && i % 25 === 12 && 'merchant_id' in data)
+      // Every 25th payment goes to a merchant on the built-in blocklist.
+      data['merchant_id'] = BLOCKLISTED[Math.floor(i / 25) % 3]!;
     // A bad row: a required number is missing (expressions fail → SIM-RUNTIME-EXPR → dead letter).
     if (r() * 100 < c.badRowsPct) {
       const num = schema.find((f) => f.type === 'number');
@@ -180,24 +194,6 @@ export function generate(
     }
     out.push({ at, ev: { ts, data } });
     if (r() * 100 < c.duplicatePct) out.push({ at: at + gap / 2, ev: { ts, data: { ...data } } });
-  }
-  // DATA-05 built-in fraud patterns, written over generated payments (the count stays as set).
-  const has = (f: string) => schema.some((x) => x.name === f);
-  if (c.patterns?.burst && has('card_id') && out.length >= 8) {
-    // Card testing: one card makes 8 small payments in a row, 30% of the way in.
-    const at = Math.floor(out.length * 0.3);
-    const id = `c_${1000 + c.keys - 1}`;
-    out.slice(at, at + 8).forEach((e, k) => {
-      e.ev.data['card_id'] = id;
-      if (has('amount')) e.ev.data['amount'] = 1 + k * 0.5;
-      if (has('status')) e.ev.data['status'] = 'approved';
-    });
-  }
-  if (c.patterns?.blocklisted && has('merchant_id')) {
-    // Every 25th payment goes to a merchant on the built-in blocklist (m_103, m_107, m_110).
-    const listed = ['m_103', 'm_107', 'm_110'];
-    for (let k = 12; k < out.length; k += 25)
-      out[k]!.ev.data['merchant_id'] = listed[Math.floor(k / 25) % 3]!;
   }
   return out;
 }

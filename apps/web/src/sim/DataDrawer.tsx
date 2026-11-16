@@ -2,7 +2,7 @@ import { AppError, present } from '@sl/errors';
 import { effectiveGenerator, generatorIssues, type GeneratorSettings as Gen } from '@sl/graph';
 import { Button, Drawer, Field, Input, Tabs, useToast } from '@sl/ui';
 import { Copy, Database } from 'lucide-react';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
 import { create } from 'zustand';
 import { useGraph } from './store';
 import { UploadTab } from './UploadTab';
@@ -24,6 +24,7 @@ function DataForm({ onDone }: { onDone: () => void }) {
     return Object.fromEntries(nums.map(([k, v]) => [k, String(v)])) as Record<NumKey, string>;
   });
   const [patterns, setPatterns] = useState(() => current().patterns);
+  const patternId = useId();
   const values = {
     ...(Object.fromEntries(
       Object.entries(text).map(([k, v]) => [k, v.trim() === '' ? NaN : Number(v)]),
@@ -121,18 +122,25 @@ function DataForm({ onDone }: { onDone: () => void }) {
             ],
           ] as const
         ).map(([k, label, help]) => (
-          <label key={k} className="flex items-start gap-2 text-[14px]">
+          <div key={k} className="flex items-start gap-2">
             <input
+              id={`${patternId}-${k}`}
               type="checkbox"
               className="sl-focus mt-1"
               checked={patterns[k]}
+              aria-describedby={`${patternId}-${k}-d`}
               onChange={(e) => setPatterns((p) => ({ ...p, [k]: e.target.checked }))}
             />
-            <span>
-              {label}
-              <span className="block text-[13px] text-muted">{help}</span>
-            </span>
-          </label>
+            {/* The name is the label; the help is a description, not part of the name. */}
+            <div>
+              <label htmlFor={`${patternId}-${k}`} className="text-[14px]">
+                {label}
+              </label>
+              <p id={`${patternId}-${k}-d`} className="m-0 text-[13px] text-muted">
+                {help}
+              </p>
+            </div>
+          </div>
         ))}
       </fieldset>
       <div className="flex justify-end gap-2 border-t border-line pt-4">

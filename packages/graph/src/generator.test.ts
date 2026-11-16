@@ -53,6 +53,23 @@ describe('data audit · generator settings', () => {
 });
 
 describe('DATA-05 key skew and fraud patterns (board W12)', () => {
+  it('audit: a pipeline saved before key skew existed still imports (missing new fields take their defaults)', async () => {
+    const { newPipeline, parsePipeline } = await import('./index');
+    const old = {
+      count: 1000,
+      rate: 50,
+      seed: 42,
+      keys: 20,
+      outOfOrderPct: 10,
+      latePct: 5,
+      duplicatePct: 2,
+      badRowsPct: 1,
+    };
+    const p = { ...newPipeline('p_1', 'x'), data: { refTables: [], generator: old } };
+    expect(parsePipeline(JSON.stringify(p), 'old.json').ok).toBe(true);
+    const bad = { ...newPipeline('p_2', 'x'), data: { refTables: [], generator: { ...old, skewPct: 140 } } };
+    expect(parsePipeline(JSON.stringify(bad), 'bad.json').ok).toBe(false);
+  });
   it('defaults: no skew, no patterns (older pipelines run exactly as before)', () => {
     expect(effectiveGenerator({}, 42)).toMatchObject({
       skewPct: 0,

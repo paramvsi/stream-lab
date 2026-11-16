@@ -326,18 +326,30 @@ export function tableFromFile(
     if (blank(r[o.key])) return bad.push({ line, reason: `no ${o.key}` });
     // As-of lookups sort and search on valid_from: a time that can't be read would put rows in the wrong order.
     const at = versionedOk ? parseTime(r['valid_from']) : 0;
-    if (Number.isNaN(at)) return bad.push({ line, reason: 'valid_from is not a time' });
+    // Outside the date range (±8.64e15 ms) is not a time either: toISOString would throw.
+    if (!Number.isFinite(at) || Math.abs(at) > 8.64e15)
+      return bad.push({ line, reason: 'valid_from is not a time' });
     // A copy: the form calls this on every render, so the parsed file must stay as read.
     rows.push({ ...r, ...(versionedOk ? { valid_from: new Date(at).toISOString() } : {}) } as Event);
   });
   // An empty table would pass LOOKUP-NO-TABLE (checks see columns) and miss every event.
   if (!rows.length) issues.push({ field: 'file', code: 'LOOKUP-NO-TABLE', params: { t: o.name } });
-  // A number only when it reads back the same: plain decimals, no leading zeros (codes like 0742), no hex or
-  // Infinity, nothing past 15 digits (long ids would collapse into one value).
-  const num = (v: unknown) =>
-    typeof v === 'number'
-      ? Number.isFinite(v) && Math.abs(v) < 1e15
-      : typeof v === 'string' && /^-?(0|[1-9]\d{0,14})(\.\d+)?$/.test(v.trim());
+  // Numbers as the Source upload reads them (typedRows: .5, 1e3, +5 …), except codes with a leading zero (0742)
+  // and anything past 15 significant digits (long ids would collapse into one value; fractions would round).
+  const num = (v: unknown) => {
+    if (typeof v === 'number') return Number.isFinite(v) && Math.abs(v) < 1e15;
+    if (typeof v !== 'string') return false;
+    const t = v.trim();
+    return (
+      /^[-+]?(\d+\.?\d*|\.\d+)([eE][-+]?\d+)?$/.test(t) &&
+      !/^[-+]?0\d/.test(t) &&
+      t
+        .replace(/[eE].*$/, '')
+        .replace(/\D/g, '')
+        .replace(/^0+/, '').length <= 15 &&
+      Number.isFinite(Number(t))
+    );
+  };
   const bool = (v: unknown) => typeof v === 'boolean' || v === 'true' || v === 'false';
   const columns = p.columns
     .filter((c) => c !== '')

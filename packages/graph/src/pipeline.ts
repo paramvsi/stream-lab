@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { inputsOf, outputsOf, topoOrder } from './graph';
-import { generatorIssues } from './generator';
+import { DEFAULT_GENERATOR, generatorIssues } from './generator';
 import { NODES, spec } from './nodes';
 import type { Field, FieldType, Issue, NodeType, PipelineEdge, PipelineNode, Schema } from './types';
 
@@ -110,7 +110,11 @@ export function parsePipeline(input: unknown, file: string): Parsed {
   if (p.data.generator !== undefined) {
     if (p.data.generator === null || typeof p.data.generator !== 'object')
       return fail(file, 'its data generator is not a set of settings');
-    const bad = generatorIssues(p.data.generator as Record<string, unknown>)[0];
+    // Settings added later (DATA-05 key skew) take their default when an older file has none.
+    const bad = generatorIssues({
+      skewPct: DEFAULT_GENERATOR.skewPct,
+      ...(p.data.generator as Record<string, unknown>),
+    })[0];
     if (bad) return fail(file, `its data generator is invalid (${bad.reason})`);
   }
 

@@ -306,3 +306,24 @@ describe('DATA-03 upload audit (81fc521)', () => {
     expect(r.table!.rows[0]).toMatchObject({ meta: '{"x":1}', tags: '["a","b"]' });
   });
 });
+
+describe('DATA-03 upload audit 2 (f7a6f96)', () => {
+  const t = (csv: string, key: string, versioned = false) =>
+    tableFromFile(parseCsv(csv), { name: 'x', key, versioned });
+  it('#1 a valid_from outside the date range is a bad row, not a crash', () => {
+    const r = t('cur,rate,valid_from\nAED,1,99999999999999999\nAED,2,2026-01-01T00:00:00Z\n', 'cur', true);
+    expect(r.bad.map((b) => b.reason)).toEqual(['valid_from is not a time']);
+    expect(r.table!.rows).toHaveLength(1);
+  });
+  it('#5 numbers as the Source upload reads them (.5, 1e3, +5), but not codes with leading zeros or > 15 digits', () => {
+    const r = t('id,a,b,c,code,long\n1,.5,1e3,+5,0742,0.12345678901234567890\n', 'id');
+    const type = (n: string) => r.table!.columns.find((c) => c.name === n)!.type;
+    expect(['a', 'b', 'c', 'code', 'long'].map(type)).toEqual([
+      'number',
+      'number',
+      'number',
+      'string',
+      'string',
+    ]);
+  });
+});

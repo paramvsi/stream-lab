@@ -652,10 +652,55 @@ describe('DATA-05 generator: key skew and fraud patterns', () => {
     expect(share).toBeGreaterThan(0.27);
     expect(share).toBeLessThan(0.34);
   });
-  it('no skew and no patterns: the same events as before these settings existed', () => {
-    expect(
-      generate(PAYMENTS, { ...base, skewPct: 0, patterns: { burst: false, blocklisted: false } }),
-    ).toEqual(generate(PAYMENTS, base));
+  it('no skew and no patterns: the same events as before these settings existed (values from 36f645d^)', () => {
+    const evs = generate(PAYMENTS, {
+      ...base,
+      latePct: 5,
+      outOfOrderPct: 10,
+      duplicatePct: 2,
+      badRowsPct: 1,
+      skewPct: 0,
+      patterns: { burst: false, blocklisted: false },
+    });
+    expect({
+      n: evs.length,
+      cards: evs.slice(0, 8).map((e) => e.ev.data['card_id']),
+      last: evs.at(-1)!.ev.data,
+      ts: evs.slice(0, 5).map((e) => e.ev.ts),
+    }).toEqual({
+      n: 2035,
+      cards: ['c_1390', 'c_1103', 'c_1118', 'c_1219', 'c_1249', 'c_1307', 'c_1142', 'c_1017'],
+      last: {
+        amount: 94.77,
+        card_id: 'c_1119',
+        currency: 'EUR',
+        event_time: '2026-11-15T12:00:39.980Z',
+        merchant_id: 'm_107',
+        payment_id: 'p_101999',
+        status: 'declined',
+      },
+      ts: [1794743990283, 1794744000020, 1794744000040, 1794744000060, 1794744000080],
+    });
+  });
+  it('audit: with duplicates and bad rows, patterns keep copies identical and bad rows bad', () => {
+    const chaos = { ...base, duplicatePct: 10, badRowsPct: 10 };
+    const on = generate(PAYMENTS, { ...chaos, patterns: { burst: true, blocklisted: true } });
+    const off = generate(PAYMENTS, chaos);
+    const byId = new Map<string, string[]>();
+    for (const e of on) {
+      const id = String(e.ev.data['payment_id']);
+      byId.set(id, [...(byId.get(id) ?? []), JSON.stringify(e.ev.data)]);
+    }
+    expect([...byId.values()].filter((v) => new Set(v).size > 1)).toEqual([]); // no copy diverges
+    const bad = (evs: typeof on) => evs.filter((e) => e.ev.data['amount'] === null).length;
+    expect(bad(on)).toBe(bad(off)); // the malformed rows promised stay malformed
+    // The burst is 8 payments in a row (by payment, not by position): p_100600 … p_100607.
+    const burst = Array.from({ length: 8 }, (_, k) => `p_${100600 + k}`);
+    expect(burst.map((id) => JSON.parse(byId.get(id)![0]!).card_id)).toEqual(Array(8).fill('c_1399'));
+    // Every 25th payment (12, 37, …) goes to a blocklisted merchant.
+    const listed = new Set(['m_103', 'm_107', 'm_110']);
+    for (const k of [12, 37, 62, 987])
+      expect(listed.has(JSON.parse(byId.get(`p_${100000 + k}`)![0]!).merchant_id)).toBe(true);
   });
   it('burst: one card makes 8 small payments in a row', () => {
     const evs = generate(PAYMENTS, { ...base, patterns: { burst: true, blocklisted: false } });

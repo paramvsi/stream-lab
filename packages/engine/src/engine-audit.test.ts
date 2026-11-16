@@ -1,7 +1,8 @@
-import { spec, type Graph, type NodeType, type PipelineEdge, type PipelineNode } from '@sl/graph';
+import { PAYMENTS, spec, type Graph, type NodeType, type PipelineEdge, type PipelineNode } from '@sl/graph';
 import { describe, expect, it } from 'vitest';
 import { Driver, type DriverMessage } from './driver';
-import { BASE_TIME, createRun } from './engine';
+import { BASE_TIME, createRun, generate } from './engine';
+import { BUILTIN_TABLES } from './fintech';
 
 // Guards for the engine audit (347216d … d5f75d3), one per confirmed finding.
 const node = (id: string, type: NodeType, config: object = {}, disabled = false): PipelineNode => ({
@@ -628,5 +629,48 @@ describe('DATA-03 audit: the run keeps a built-in table over an imported one of 
     });
     r.advance(Infinity);
     expect(Object.keys(r.stats().outputs['out']![0]!)).toContain('risk_tier');
+  });
+});
+
+describe('DATA-05 generator: key skew and fraud patterns', () => {
+  const base = {
+    rate: 50,
+    count: 2000,
+    keys: 400,
+    latePct: 0,
+    outOfOrderPct: 0,
+    duplicatePct: 0,
+    badRowsPct: 0,
+    seed: 7,
+  };
+  const cards = (evs: { ev: { data: Record<string, unknown> } }[]) =>
+    evs.map((e) => String(e.ev.data['card_id']));
+  it('skew: the top 1% of cards get about the share asked for', () => {
+    const evs = generate(PAYMENTS, { ...base, skewPct: 30 });
+    const top = new Set(Array.from({ length: 4 }, (_, i) => `c_${1000 + i}`));
+    const share = cards(evs).filter((c) => top.has(c)).length / evs.length;
+    expect(share).toBeGreaterThan(0.27);
+    expect(share).toBeLessThan(0.34);
+  });
+  it('no skew and no patterns: the same events as before these settings existed', () => {
+    expect(
+      generate(PAYMENTS, { ...base, skewPct: 0, patterns: { burst: false, blocklisted: false } }),
+    ).toEqual(generate(PAYMENTS, base));
+  });
+  it('burst: one card makes 8 small payments in a row', () => {
+    const evs = generate(PAYMENTS, { ...base, patterns: { burst: true, blocklisted: false } });
+    const runs = evs.map((e, i) => evs.slice(i, i + 8)).filter((w) => w.length === 8);
+    const burst = runs.find(
+      (w) => new Set(cards(w)).size === 1 && w.every((e) => Number(e.ev.data['amount']) < 10),
+    );
+    expect(burst).toBeDefined();
+  });
+  it('blocklisted: some payments go to merchants on the built-in blocklist', () => {
+    const listed = new Set(BUILTIN_TABLES['blocklist']!.rows.map((r) => r['merchant_id']));
+    const off = generate(PAYMENTS, base).filter((e) => listed.has(e.ev.data['merchant_id'] as string)).length;
+    const on = generate(PAYMENTS, { ...base, patterns: { burst: false, blocklisted: true } }).filter((e) =>
+      listed.has(e.ev.data['merchant_id'] as string),
+    ).length;
+    expect(on).toBeGreaterThan(off + 20);
   });
 });

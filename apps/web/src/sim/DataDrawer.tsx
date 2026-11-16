@@ -8,6 +8,7 @@ import { useGraph } from './store';
 import { UploadTab } from './UploadTab';
 
 // What a run uses — the same function as run.ts, so the drawer never shows other values than the run reads.
+type NumKey = Exclude<keyof Gen, 'patterns'>;
 const current = (): Gen => effectiveGenerator(useGraph.getState().data.generator, useGraph.getState().seed);
 
 /**
@@ -17,24 +18,25 @@ const current = (): Gen => effectiveGenerator(useGraph.getState().data.generator
  */
 function DataForm({ onDone }: { onDone: () => void }) {
   const toast = useToast();
-  // Text per field so an empty or half-typed box is kept as typed, not coerced.
-  const [text, setText] = useState<Record<keyof Gen, string>>(
-    () =>
-      Object.fromEntries(Object.entries(current()).map(([k, v]) => [k, String(v)])) as Record<
-        keyof Gen,
-        string
-      >,
-  );
-  const values = Object.fromEntries(
-    Object.entries(text).map(([k, v]) => [k, v.trim() === '' ? NaN : Number(v)]),
-  ) as Record<keyof Gen, number>;
+  // Text per number field so an empty or half-typed box is kept as typed, not coerced.
+  const [text, setText] = useState<Record<NumKey, string>>(() => {
+    const nums = Object.entries(current()).filter(([k]) => k !== 'patterns');
+    return Object.fromEntries(nums.map(([k, v]) => [k, String(v)])) as Record<NumKey, string>;
+  });
+  const [patterns, setPatterns] = useState(() => current().patterns);
+  const values = {
+    ...(Object.fromEntries(
+      Object.entries(text).map(([k, v]) => [k, v.trim() === '' ? NaN : Number(v)]),
+    ) as Record<NumKey, number>),
+    patterns,
+  };
   const issues = generatorIssues(values);
-  const err = (f: keyof Gen) => {
+  const err = (f: NumKey) => {
     const i = issues.find((x) => x.field === f);
     return i ? present(new AppError('GEN-INVALID', { reason: i.reason })).message : undefined;
   };
   // The unit is part of the field's name for screen readers (the visible suffix is decoration).
-  const field = (f: keyof Gen, label: string, suffix?: string, unit?: string, help?: string) => (
+  const field = (f: NumKey, label: string, suffix?: string, unit?: string, help?: string) => (
     <Field
       label={
         <>
@@ -98,12 +100,40 @@ function DataForm({ onDone }: { onDone: () => void }) {
         </Button>
       </div>
       {field('keys', 'Distinct cards')}
+      {field('skewPct', 'Key skew', '%', 'percent', 'Share of events that go to the top 1% of cards.')}
       <fieldset className="m-0 flex flex-col gap-3 border-0 p-0">
         <legend className="mb-1 p-0 text-[13px] font-semibold">Disorder</legend>
         {field('outOfOrderPct', 'Out of order', '%', 'percent')}
         {field('latePct', 'Late (beyond the out-of-orderness)', '%', 'percent')}
         {field('duplicatePct', 'Duplicates', '%', 'percent')}
         {field('badRowsPct', 'Malformed', '%', 'percent')}
+      </fieldset>
+      {/* DATA-05, board W12. Impossible travel needs a location field (MORNING D49). */}
+      <fieldset className="m-0 flex flex-col gap-2 border-0 p-0">
+        <legend className="mb-1 p-0 text-[13px] font-semibold">Built-in fraud patterns</legend>
+        {(
+          [
+            ['burst', 'Burst of small payments', 'One card makes 8 small payments in a row (card testing).'],
+            [
+              'blocklisted',
+              'Blocklisted merchant',
+              'Every 25th payment goes to a merchant on the blocklist.',
+            ],
+          ] as const
+        ).map(([k, label, help]) => (
+          <label key={k} className="flex items-start gap-2 text-[14px]">
+            <input
+              type="checkbox"
+              className="sl-focus mt-1"
+              checked={patterns[k]}
+              onChange={(e) => setPatterns((p) => ({ ...p, [k]: e.target.checked }))}
+            />
+            <span>
+              {label}
+              <span className="block text-[13px] text-muted">{help}</span>
+            </span>
+          </label>
+        ))}
       </fieldset>
       <div className="flex justify-end gap-2 border-t border-line pt-4">
         <Button type="button" variant="ghost" onClick={onDone}>

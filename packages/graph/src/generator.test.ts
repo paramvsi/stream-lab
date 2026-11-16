@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { DEFAULT_GENERATOR, generatorIssues } from './index';
+import { DEFAULT_GENERATOR, effectiveGenerator, generatorIssues } from './index';
 
 describe('DATA-01 · GEN-INVALID', () => {
   it('the defaults are valid', () => {
@@ -49,5 +49,23 @@ describe('data audit · generator settings', () => {
     const r = parsePipeline(JSON.stringify(p), 'x.json');
     expect(r.ok).toBe(false);
     expect(JSON.stringify(r)).toContain('generator');
+  });
+});
+
+describe('DATA-05 key skew and fraud patterns (board W12)', () => {
+  it('defaults: no skew, no patterns (older pipelines run exactly as before)', () => {
+    expect(effectiveGenerator({}, 42)).toMatchObject({
+      skewPct: 0,
+      patterns: { burst: false, blocklisted: false },
+    });
+  });
+  it('key skew is a percentage (GEN-INVALID past 100); bad stored patterns fall back to off', () => {
+    expect(generatorIssues({ ...DEFAULT_GENERATOR, skewPct: 120 })).toEqual([
+      { field: 'skewPct', reason: 'Key skew must be at most 100 %' },
+    ]);
+    expect(effectiveGenerator({ patterns: { burst: 'yes', blocklisted: true } }, 1).patterns).toEqual({
+      burst: false,
+      blocklisted: true,
+    });
   });
 });

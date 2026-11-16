@@ -131,6 +131,9 @@ export function generate(
     duplicatePct: number;
     badRowsPct: number;
     seed: number;
+    /** DATA-05: % of events for the top 1% of cards (0 = uniform). */
+    skewPct?: number;
+    patterns?: { burst: boolean; blocklisted: boolean };
   },
   timeField = 'event_time',
   oooMs = GENERATOR_OOO_MS,
@@ -138,6 +141,10 @@ export function generate(
   const r = rng(c.seed);
   const gap = 1000 / Math.max(1, c.rate);
   const out: { at: number; ev: SimEvent }[] = [];
+  // Key skew: the top 1% of cards (at least one) get skewPct % of events. No extra draws when off, so a run
+  // without skew is the same run as before the setting existed.
+  const top = Math.max(1, Math.ceil(c.keys / 100));
+  const card = () => (c.skewPct && r() * 100 < c.skewPct ? Math.floor(r() * top) : Math.floor(r() * c.keys));
   for (let i = 0; i < c.count; i++) {
     const at = i * gap;
     let ts = BASE_TIME + Math.round(at);
@@ -153,7 +160,7 @@ export function generate(
           : f.name === 'payment_id'
             ? `p_${100000 + i}`
             : f.name === 'card_id'
-              ? `c_${1000 + Math.floor(r() * c.keys)}`
+              ? `c_${1000 + card()}`
               : f.name === 'merchant_id'
                 ? `m_${100 + Math.floor(r() * 12)}`
                 : pool
@@ -173,6 +180,24 @@ export function generate(
     }
     out.push({ at, ev: { ts, data } });
     if (r() * 100 < c.duplicatePct) out.push({ at: at + gap / 2, ev: { ts, data: { ...data } } });
+  }
+  // DATA-05 built-in fraud patterns, written over generated payments (the count stays as set).
+  const has = (f: string) => schema.some((x) => x.name === f);
+  if (c.patterns?.burst && has('card_id') && out.length >= 8) {
+    // Card testing: one card makes 8 small payments in a row, 30% of the way in.
+    const at = Math.floor(out.length * 0.3);
+    const id = `c_${1000 + c.keys - 1}`;
+    out.slice(at, at + 8).forEach((e, k) => {
+      e.ev.data['card_id'] = id;
+      if (has('amount')) e.ev.data['amount'] = 1 + k * 0.5;
+      if (has('status')) e.ev.data['status'] = 'approved';
+    });
+  }
+  if (c.patterns?.blocklisted && has('merchant_id')) {
+    // Every 25th payment goes to a merchant on the built-in blocklist (m_103, m_107, m_110).
+    const listed = ['m_103', 'm_107', 'm_110'];
+    for (let k = 12; k < out.length; k += 25)
+      out[k]!.ev.data['merchant_id'] = listed[Math.floor(k / 25) % 3]!;
   }
   return out;
 }

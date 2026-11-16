@@ -71,6 +71,9 @@ function urlError(u: string): AppError | null {
   if (x.username || x.password) return new AppError('CONN-URL-SECRET');
   return null;
 }
+/** An HTTP header name (RFC 9110 token). */
+const HEADER_NAME = /^[!#$%&'*+.^_`|~0-9A-Za-z-]+$/;
+
 /** Headers that carry credentials: their values go to the keychain even when not marked secret. */
 const SECRET_HEADERS = new Set([
   'authorization',
@@ -89,8 +92,23 @@ export const secretKey = (connId: string, part: 'login' | 'gateway' | 'proxy' | 
   `streamlab/${connId}/${part}`;
 
 /** An address without a user and password in it (they are never stored). */
-// Only the user and password are cut: the rest of the address stays exactly as written (no added "/", case or port).
-const withoutUserinfo = (u: string) => u.replace(/^([a-z][a-z0-9+.-]*:\/\/)[^/?#@]*@/i, '$1');
+/**
+ * Only the user and password are cut; the rest stays as written (no added "/", case or port). Up to the LAST "@"
+ * before the path (a password may contain "@"); then the URL parser confirms no login is left, and clears it
+ * itself for anything the pattern missed (leading spaces, "http:u:p@host"…).
+ */
+function withoutUserinfo(u: string): string {
+  const cut = u.replace(/^(\s*[a-z][a-z0-9+.-]*:\/\/)[^/?#]*@/i, '$1');
+  try {
+    const x = new URL(cut);
+    if (!x.username && !x.password) return cut;
+    x.username = '';
+    x.password = '';
+    return x.toString();
+  } catch {
+    return cut;
+  }
+}
 
 /**
  * What may be stored or written to a file, and what goes to the keychain instead: header values that are
@@ -106,7 +124,7 @@ export function splitSecrets(c: Connection): {
     if (h.value)
       // an empty value is no secret to keep
       secrets.push({ key: secretKey(c.id, `header:${h.name.trim().toLowerCase()}`), value: h.value });
-    return { name: h.name, secret: true };
+    return { name: h.name.trim(), secret: true };
   });
   const connection: Connection = {
     ...c,
@@ -167,9 +185,9 @@ export function validateConnection(
     const seen = new Set<string>();
     for (const h of c.headers) {
       const n = h.name.trim();
-      if (!/^[!#$%&'*+.^_`|~0-9A-Za-z-]+$/.test(n)) {
+      if (!HEADER_NAME.test(n)) {
         out.headers = new AppError('CONN-HEADER-INVALID', {
-          name: n,
+          name: JSON.stringify(n).slice(1, -1), // control characters shown escaped, not raw
           reason: 'has characters a header name can not have',
         });
         break;
@@ -197,8 +215,19 @@ export const EXPORT_FORMAT = 'streamlab.connections';
 export function exportConnections(cs: Connection[]): string {
   // An Authorization header (from before CONN-HEADER-AUTH) is left out: import would refuse the whole file for it.
   const clean = cs.map((c) => {
+    // Headers as import will check them (connections saved before a rule existed still export something that
+    // imports): names trimmed; Authorization, names that are not HTTP tokens and repeats (first kept) left out.
     const x = splitSecrets(c).connection;
-    return { ...x, headers: x.headers.filter((h) => h.name.trim().toLowerCase() !== 'authorization') };
+    const seen = new Set<string>();
+    const headers = x.headers
+      .map((h) => ({ ...h, name: h.name.trim() }))
+      .filter((h) => {
+        const k = h.name.toLowerCase();
+        if (k === 'authorization' || !HEADER_NAME.test(h.name) || seen.has(k)) return false;
+        seen.add(k);
+        return true;
+      });
+    return { ...x, headers };
   });
   return JSON.stringify({ format: EXPORT_FORMAT, version: 1, connections: clean }, null, 2);
 }
@@ -281,7 +310,7 @@ export function importConnections(
       const [field, e] = problems[0]!;
       return invalid(
         lineOf(i),
-        `${c.name || 'a connection'}, ${FIELD_LABEL[field as ConnectionField]}: ${present(e!).message}`,
+        `${c.name || 'a connection'}, ${FIELD_LABEL[field as ConnectionField]}: ${present(e!).message.replace(/\.$/, '')}`,
       );
     }
     const k = c.name.trim().toLowerCase();

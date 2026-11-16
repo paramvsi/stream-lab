@@ -305,3 +305,39 @@ describe('audit of 4b303d6', () => {
     expect(r).toMatchObject({ duplicates: [{ index: 0, existingId: 'e1' }] });
   });
 });
+
+describe('audit of 9f33c74', () => {
+  it('#1 a password containing "@", or an address with leading space, loses its whole login', () => {
+    const urlOf = (u: string) =>
+      JSON.parse(exportConnections([conn({ url: u })])).connections[0].url as string;
+    expect(urlOf('http://u:p@ss@host:8081/x')).toBe('http://host:8081/x');
+    for (const u of [' http://u:p@host/', '\thttp://u:p@host', 'http:u:p@host/']) {
+      const out = urlOf(u);
+      expect(out, u).not.toMatch(/u:p|p@/);
+      expect(new URL(out.trim()).username, u).toBe('');
+    }
+  });
+  it('#2 a connection saved with a repeated or bad header name still exports something that imports', () => {
+    const old = conn({
+      headers: [
+        { name: 'X-Team', value: 'a', secret: false },
+        { name: 'x-team', value: 'b', secret: false },
+        { name: 'X Team', value: 'c', secret: false },
+      ],
+    });
+    const r = importConnections('c.json', exportConnections([old]), []);
+    if ('error' in r) throw r.error;
+    expect(r.connections[0]!.headers).toEqual([{ name: 'X-Team', value: 'a', secret: false }]);
+  });
+  it('an embedded catalog message does not end in a doubled full stop', () => {
+    const bad = JSON.stringify({
+      format: 'streamlab.connections',
+      version: 1,
+      connections: [conn({ url: 'nope' })],
+    });
+    const r = importConnections('c.json', bad, []);
+    expect(
+      String((r as unknown as { error: { params: { reason: string } } }).error.params.reason),
+    ).not.toMatch(/\.$/);
+  });
+});

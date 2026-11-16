@@ -72,6 +72,7 @@ import { DRAG_TYPE, Palette } from './Palette';
 import { QuickAdd, type QuickAddNeed } from './QuickAdd';
 import { DataButton } from './DataDrawer';
 import { ExportButton } from './ExportDialog';
+import { ShareButton } from './ShareDialog';
 import { RefTablesButton } from './RefTablesPanel';
 import { RunPanel, useBottomDrawer } from './RunPanel';
 import { RunPill } from './RunPill';
@@ -647,6 +648,7 @@ function Header() {
       <div className="ml-auto flex items-center gap-1">
         <DataButton />
         <RefTablesButton />
+        <ShareButton />
         <ExportButton />
       </div>
     </header>

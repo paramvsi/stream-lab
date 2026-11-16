@@ -14,6 +14,7 @@ import {
   unsaved,
   writeRescue,
 } from '../storage';
+import { downloadJson } from '../share';
 import { useRefTables } from './refTables';
 import { useSaveState } from './saveState';
 import { newId, useGraph } from './store';
@@ -23,16 +24,6 @@ import { Workspace } from './Workspace';
 export const AUTOSAVE_MS = 500;
 
 type Stored = Pipeline & { scenario?: string };
-
-/** Download the open pipeline as JSON (STORE-BLOCKED "Export now"; the full export dialog is EXP-04, M4). */
-function exportJson(p: Stored) {
-  const url = URL.createObjectURL(new Blob([JSON.stringify(p, null, 2)], { type: 'application/json' }));
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = `${p.name.replace(/[^\w-]+/g, '-').toLowerCase() || 'pipeline'}.json`;
-  a.click();
-  URL.revokeObjectURL(url);
-}
 
 /**
  * /sim/:id (SIM-20). IndexedDB is the source of truth on open; memory is used only for a pipeline whose first
@@ -265,7 +256,7 @@ export function WorkspaceRoute({ id }: { id: string }) {
     };
   };
   const storeAction = (label: string) => {
-    if (label === 'Export now') exportJson(current());
+    if (label === 'Export now') downloadJson(current());
     // "Manage storage": a page can't open the browser's storage settings; My pipelines is where to free space.
     else if (label === 'Manage storage') void navigate({ to: '/pipelines' });
   };

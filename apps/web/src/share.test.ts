@@ -11,15 +11,27 @@ describe('EXP-04 share link', () => {
   it('round-trips a pipeline through the URL hash (compressed, versioned)', async () => {
     const data = await encodeShare(p);
     expect(data).toMatch(/^1\.[A-Za-z0-9_-]+$/); // URL-safe, no padding
-    const back = await decodeShare(data);
+    const { pipeline: back, rows } = await decodeShare(data);
     expect(back.name).toBe('Card fraud check');
     expect(back.nodes).toEqual(p.nodes);
+    expect(rows).toBeUndefined();
     expect(shareUrl('https://x.test/app/', data)).toBe(`https://x.test/app/#/s/${data}`);
   });
   it('SHARE-BROKEN: a damaged, cut or foreign link is refused with the catalog code', async () => {
     const data = await encodeShare(p);
     for (const bad of [data.slice(0, data.length - 6), '1.!!!', '2.' + data.slice(2), 'nonsense', ''])
       await expect(decodeShare(bad)).rejects.toMatchObject({ code: 'SHARE-BROKEN' });
+  });
+  it("uploaded rows travel too when asked, only for the pipeline's uploaded Sources", async () => {
+    const up = { ...p, data: { ...p.data, uploads: { g: { file: 'pay.csv', rows: 2 } } } };
+    const rows = { g: [{ a: 1 }, { a: 2 }] };
+    expect((await decodeShare(await encodeShare(up, rows))).rows).toEqual(rows);
+    await expect(decodeShare(await encodeShare(up, { other: [{ a: 1 }] }))).rejects.toMatchObject({
+      code: 'SHARE-BROKEN',
+    });
+    await expect(decodeShare(await encodeShare(up, { g: [1, 2] as never }))).rejects.toMatchObject({
+      code: 'SHARE-BROKEN',
+    });
   });
   it('SHARE-TOO-LONG is about 8,000 characters', () => {
     expect(SHARE_WARN_AT).toBe(8000);

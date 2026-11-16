@@ -95,6 +95,9 @@ export function SiteShell({
           </div>
           <div className="flex flex-col gap-2">
             <p className="m-0 mb-1 text-[14px] font-semibold text-ink">Resources</p>
+            <Link to="/glossary" className="sl-focus rounded-sm text-muted no-underline hover:text-ink">
+              Glossary
+            </Link>
             <a href={REPO} className="sl-focus rounded-sm text-muted no-underline hover:text-ink">
               GitHub
             </a>

@@ -10,6 +10,7 @@ import {
 } from '@tanstack/react-router';
 import { ChapterPage } from './pages/Chapter';
 import { Course } from './pages/Course';
+import { ConceptDrawer, Glossary } from './pages/Glossary';
 import { Gallery } from './pages/Gallery';
 import { MyPipelines } from './pages/MyPipelines';
 import { NotFound } from './pages/NotFound';
@@ -19,6 +20,8 @@ const root = createRootRoute({
   component: () => (
     <ErrorBoundary>
       <Outlet />
+      {/* LEARN-04: a concept opens over any page (a chapter, the glossary), without leaving it. */}
+      <ConceptDrawer />
     </ErrorBoundary>
   ),
   notFoundComponent: NotFound,
@@ -33,6 +36,7 @@ const index = createRoute({
   },
 });
 const gallery = createRoute({ getParentRoute: () => root, path: '/new', component: Gallery });
+const glossary = createRoute({ getParentRoute: () => root, path: '/glossary', component: Glossary });
 const learn = createRoute({ getParentRoute: () => root, path: '/learn', component: Course });
 const chapter = createRoute({
   getParentRoute: () => root,
@@ -65,7 +69,7 @@ const shared = createRoute({
 
 /** Hash history: the site is static files with no server rewrites (ARCHITECTURE.md). */
 export const router = createRouter({
-  routeTree: root.addChildren([index, gallery, pipelines, sim, shared, learn, chapter]),
+  routeTree: root.addChildren([index, gallery, pipelines, sim, shared, learn, chapter, glossary]),
   history: createHashHistory(),
 });
 

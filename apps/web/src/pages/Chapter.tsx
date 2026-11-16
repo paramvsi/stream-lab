@@ -5,6 +5,7 @@ import { Link, useNavigate } from '@tanstack/react-router';
 import { Check, ChevronRight, Flag, X } from 'lucide-react';
 import { useEffect, useId, useRef, useState } from 'react';
 import { getProgress, setChapterStatus } from '../storage';
+import { WithConcepts } from './Glossary';
 import { NotFound } from './NotFound';
 import { Sandbox } from './Sandbox';
 import { SiteHeader, useDocTitle } from './SiteShell';
@@ -130,7 +131,9 @@ export function ChapterPage({ id }: { id: string }) {
                     </Banner>
                     <ul className="m-0 flex flex-col gap-2 pl-5 text-[16px] leading-relaxed">
                       {s.points.map((pt) => (
-                        <li key={pt}>{pt}</li>
+                        <li key={pt}>
+                          <WithConcepts text={pt} />
+                        </li>
                       ))}
                     </ul>
                   </div>

@@ -7,7 +7,7 @@
 export interface Section {
   id: string;
   title: string;
-  /** The outline: what this section will say. */
+  /** The outline: what this section will say. `[[term-id|words]]` is a concept link (LEARN-04). */
   points: string[];
 }
 export interface Question {
@@ -39,7 +39,7 @@ export const CONTENT: Record<string, ChapterContent> = {
         id: 'two-clocks',
         title: 'Two clocks',
         points: [
-          'A payment carries the time it happened (event time); the pipeline sees it later (processing time).',
+          'A payment carries the time it happened ([[event-time|event time]]); the pipeline sees it later ([[processing-time|processing time]]).',
           'Networks, retries and offline card terminals make the gap vary from milliseconds to hours.',
         ],
       },
@@ -85,7 +85,7 @@ export const CONTENT: Record<string, ChapterContent> = {
         id: 'what',
         title: 'What a watermark is',
         points: [
-          'A watermark says "no event older than t is expected any more"; it only moves forward.',
+          'A [[watermark|watermark]] says "no event older than t is expected any more"; it only moves forward.',
           'Bounded out-of-orderness: watermark = highest event time seen − the allowed delay.',
         ],
       },
@@ -102,7 +102,7 @@ export const CONTENT: Record<string, ChapterContent> = {
         title: 'Choosing the delay',
         points: [
           'A longer delay means fewer late events but results that come later: the trade-off, in the sandbox.',
-          'Idle sources hold the watermark back; the idle timeout lets it move on.',
+          '[[idle-source|Idle sources]] hold the watermark back; the idle timeout lets it move on.',
         ],
       },
     ],
@@ -140,7 +140,7 @@ export const CONTENT: Record<string, ChapterContent> = {
         title: 'Tumbling',
         points: [
           'Fixed size, no overlap: every event lands in exactly one window (TUMBLE).',
-          'A window fires when the watermark passes its end, not when the wall clock does.',
+          'A window fires when the [[watermark|watermark]] passes its end, not when the wall clock does.',
         ],
       },
       {
@@ -155,7 +155,7 @@ export const CONTENT: Record<string, ChapterContent> = {
         id: 'session',
         title: 'Session',
         points: [
-          'A session closes after a gap with no events (SESSION); its length depends on the data.',
+          'A [[session-window|session]] closes after a gap with no events (SESSION); its length depends on the data.',
           'Each key has its own sessions: one card can be in a session while another is not.',
         ],
       },

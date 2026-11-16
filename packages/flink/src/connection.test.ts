@@ -462,7 +462,6 @@ describe('audit of 9e989a0', () => {
       '/a.b/c',
       '/v1.2',
       '/proxy/application_1_0001',
-      '/a%20b',
       '/a%C3%BC',
       '/...',
       '/..a',
@@ -498,6 +497,14 @@ describe('audit of 9e989a0', () => {
       '/a%c2%80',
       '/a%80',
       '/50%off',
+      '/a%20b',
+      '/%c2%a0',
+      '/%3f',
+      '/%23',
+      '/%40',
+      '/a%e2%80%a8',
+      '/a%e2%80%a9',
+      '/a%ef%bf%bf',
     ])
       expect([bad, v(bad)]).toEqual([bad, 'CONN-BASEPATH-FORMAT']);
   });

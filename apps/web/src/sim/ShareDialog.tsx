@@ -71,7 +71,7 @@ export function ShareButton() {
         (data) => live && setUrl(shareUrl(location.href, data)),
         (e: unknown) => {
           if (!(e instanceof AppError)) throw e;
-          if (live) setError(e);
+          if (live) setError(e); // DATA-READ-FAILED, or SHARE-TOO-LONG when no link can hold it
         },
       );
     return () => {
@@ -89,7 +89,8 @@ export function ShareButton() {
     if (!clip || !url) return failed();
     clip.writeText(url).then(() => toast({ severity: 'success', message: 'Link copied' }), failed);
   };
-  const long = url !== null && url.length > SHARE_WARN_AT;
+  const tooBig = error?.code === 'SHARE-TOO-LONG'; // too big to open again: no link, JSON only
+  const long = tooBig || (url !== null && url.length > SHARE_WARN_AT);
   return (
     <Dialog
       open={open}
@@ -113,9 +114,11 @@ export function ShareButton() {
             >
               Export JSON
             </Button>
-            <Button variant="primary" icon={<Link2 size={16} aria-hidden="true" />} onClick={copy}>
-              Copy anyway
-            </Button>
+            {!tooBig && (
+              <Button variant="primary" icon={<Link2 size={16} aria-hidden="true" />} onClick={copy}>
+                Copy anyway
+              </Button>
+            )}
           </>
         ) : (
           <Button
@@ -133,12 +136,12 @@ export function ShareButton() {
         <p className="m-0 text-[13px] text-muted">
           The whole pipeline travels in the link, after the #. Nothing is uploaded.
         </p>
-        {error && <ErrorBanner error={error} />}
+        {error && !tooBig && <ErrorBanner error={error} />}
         <Field
           label="Link"
           {...(long
             ? {
-                error: `${present(new AppError('SHARE-TOO-LONG', { n: url.length.toLocaleString('en-US') })).message}${withData ? ' Leave out uploaded data, or export a JSON file instead.' : ' Export a JSON file instead.'}`,
+                error: `${present(tooBig ? error : new AppError('SHARE-TOO-LONG', { n: (url ?? '').length.toLocaleString('en-US') })).message}${withData ? ' Leave out uploaded data, or export a JSON file instead.' : ' Export a JSON file instead.'}`,
               }
             : {})}
         >

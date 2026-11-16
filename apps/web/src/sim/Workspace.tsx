@@ -658,7 +658,9 @@ function Header() {
 }
 
 function SaveIndicator() {
-  const state = useSaveState((s) => s.state);
+  const real = useSaveState((s) => s.state);
+  const shared = useSaveState((s) => s.shared);
+  const state = shared ? 'shared' : real;
   const text = state === 'saved' ? 'Saved' : state === 'saving' ? 'Saving…' : 'Not saved';
   return (
     <span role="status" className="flex items-center gap-1.5 text-[12px] text-muted">

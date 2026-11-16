@@ -168,3 +168,29 @@ test('EXP-04 audit: an unticked link carries nothing about uploads; the switch i
   await expect(d).toContainText('customers_PII_march.csv could not be read: the browser could not read it.');
   void src;
 });
+
+test('EXP-04 audit: rows that can not be stored still open the pipeline (STORE banner); the header says Not saved', async ({
+  page,
+}) => {
+  await openBlank(page);
+  const data = await page.evaluate(async () => {
+    const m = await import('/src/sim/store.ts');
+    const s = await import('/src/share.ts');
+    const g = m.useGraph.getState();
+    const src = g.addNode('Source', { x: 0, y: 0 });
+    m.useGraph.getState().setUpload(src, { file: 'pay.csv', rows: 1 });
+    const d = (await import('/src/sim/ShareDialog.tsx')).currentPipeline();
+    return s.encodeShare(d, { [src]: [{ a: 1 }] });
+  });
+  // Private browsing: OPFS refuses. (A hash change keeps this page, so the patch is set in it, not at load.)
+  await page.evaluate(() => {
+    StorageManager.prototype.getDirectory = () => Promise.reject(new DOMException('no', 'SecurityError'));
+  });
+  await page.goto(`/#/s/${data}`);
+  await expect(page.locator('.react-flow__node')).toHaveCount(1);
+  await expect(page.getByText('This browser is not letting Stream Lab save.').first()).toBeVisible();
+  await expect(page.getByText('You are viewing a shared pipeline.')).toBeVisible();
+  await expect(page.getByRole('status').filter({ hasText: /^(Not saved|Saved|Saving…)$/ })).toHaveText(
+    'Not saved',
+  );
+});

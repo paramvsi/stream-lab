@@ -57,9 +57,20 @@ const unb64url = (s: string) => {
 /** Uploaded rows per Source id, when "Include uploaded data" is on. */
 export type SharedRows = Record<string, Event[]>;
 
+/** SHARE-TOO-LONG when the pipeline is bigger than a link can open again (SHARE_MAX_BYTES): no link at all. */
 export async function encodeShare(p: Pipeline, rows?: SharedRows): Promise<string> {
-  const json = new TextEncoder().encode(JSON.stringify(rows ? { pipeline: p, rows } : { pipeline: p }));
-  return `${VERSION}.${b64url(await pipe(json, new CompressionStream('deflate-raw')))}`;
+  let text: string;
+  try {
+    text = JSON.stringify(rows ? { pipeline: p, rows } : { pipeline: p });
+  } catch (e) {
+    // Past the engine's string limit (a very large upload): far too big for a link.
+    throw new AppError('SHARE-TOO-LONG', { n: 'more than 500,000,000' }, e);
+  }
+  const json = new TextEncoder().encode(text);
+  const link = `${VERSION}.${b64url(await pipe(json, new CompressionStream('deflate-raw')))}`;
+  if (json.length > SHARE_MAX_BYTES)
+    throw new AppError('SHARE-TOO-LONG', { n: link.length.toLocaleString('en-US') });
+  return link;
 }
 
 /** Throws AppError SHARE-BROKEN for anything that is not a whole, valid pipeline from this format. */
@@ -93,6 +104,9 @@ export async function decodeShare(data: string): Promise<{ pipeline: Pipeline; r
     !Array.isArray(rows) &&
     Object.entries(rows).every(
       ([id, list]) =>
+        // A plain node id of this pipeline (it becomes a file name when the rows are stored).
+        /^[A-Za-z0-9_-]+$/.test(id) &&
+        r.pipeline.nodes.some((n) => n.id === id) &&
         Object.hasOwn(uploads, id) &&
         Array.isArray(list) &&
         list.every((x) => x !== null && typeof x === 'object' && !Array.isArray(x)),

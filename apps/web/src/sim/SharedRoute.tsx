@@ -4,8 +4,11 @@ import { Banner, Button, Loading, Skeleton } from '@sl/ui';
 import { useNavigate } from '@tanstack/react-router';
 import { Copy, Link2Off } from 'lucide-react';
 import { useEffect, useState } from 'react';
-import { decodeShare } from '../share';
-import { savePipeline } from '../storage';
+import { decodeShare, downloadJson } from '../share';
+import { listRefTables, savePipeline } from '../storage';
+import { useRefTables } from './refTables';
+import { useSaveState } from './saveState';
+import { currentPipeline } from './ShareDialog';
 import { newId, useGraph } from './store';
 import { saveRows } from './uploads';
 import { Workspace } from './Workspace';
@@ -21,19 +24,42 @@ export function SharedRoute({ data }: { data: string }) {
   const [state, setState] = useState<'loading' | 'ready' | AppError>('loading');
   const [id] = useState(() => newId('p'));
   const [saveError, setSaveError] = useState<AppError | null>(null);
+  // The header says "Not saved" here, as the banner does (SIM-20), whatever another pipeline's autosave reports.
+  useEffect(() => {
+    useSaveState.setState({ shared: true });
+    return () => useSaveState.setState({ shared: false });
+  }, []);
+  // DATA-03: the imported tables of this browser, as a workspace loads them (Lookups on them check out).
+  useEffect(() => {
+    listRefTables().then(
+      (ts) => useRefTables.setState({ user: Object.fromEntries(ts.map((t) => [t.name, t])) }),
+      (e: unknown) => {
+        if (!(e instanceof AppError)) throw e;
+        setSaveError(e);
+      },
+    );
+  }, []);
   useEffect(() => {
     let live = true;
-    decodeShare(data)
-      .then(async ({ pipeline, rows }) => {
-        for (const [source, list] of Object.entries(rows ?? {})) await saveRows(id, source, list);
+    decodeShare(data).then(
+      async ({ pipeline, rows }) => {
+        // Rows that can not be stored (private browsing, full disk) do not cost the pipeline: it opens
+        // without them (its Sources use the generator, DATA-UPLOAD-UNUSED) and the storage banner says why.
+        try {
+          for (const [source, list] of Object.entries(rows ?? {})) await saveRows(id, source, list);
+        } catch (e) {
+          if (!(e instanceof AppError)) throw e;
+          if (live) setSaveError(e);
+        }
         if (!live) return;
         useGraph.getState().load({ ...pipeline, id });
         setState('ready');
-      })
-      .catch((e: unknown) => {
-        if (!(e instanceof AppError)) throw e;
-        if (live) setState(e); // SHARE-BROKEN, or STORE-* when the travelled rows can not be stored
-      });
+      },
+      (e: unknown) => {
+        // Anything that is not a whole link reads as SHARE-BROKEN, never a page stuck on "Opening".
+        if (live) setState(e instanceof AppError ? e : new AppError('SHARE-BROKEN', {}, e));
+      },
+    );
     return () => {
       live = false;
     };
@@ -82,7 +108,15 @@ export function SharedRoute({ data }: { data: string }) {
     <Workspace
       banners={
         <>
-          {saveError && <ErrorBanner error={saveError} />}
+          {saveError && (
+            <ErrorBanner
+              error={saveError}
+              onAction={(label) => {
+                if (label === 'Export now') downloadJson(currentPipeline());
+                else if (label === 'Manage storage') void navigate({ to: '/pipelines' });
+              }}
+            />
+          )}
           <Banner
             severity="info"
             actions={

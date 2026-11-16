@@ -40,8 +40,20 @@ describe('EXP-04 share link', () => {
 
 describe('EXP-04 share audit (ff0aa65)', () => {
   it('#4 a link that expands to more than the cap is SHARE-BROKEN, not decoded into memory', async () => {
-    const huge = { ...p, name: 'x'.repeat(40 * 1024 * 1024) };
-    await expect(decodeShare(await encodeShare(huge))).rejects.toMatchObject({ code: 'SHARE-BROKEN' });
+    // Built by hand: encodeShare itself refuses this size (SHARE-TOO-LONG).
+    const json = new TextEncoder().encode(
+      JSON.stringify({ pipeline: { ...p, name: 'x'.repeat(40 * 1024 * 1024) } }),
+    );
+    const cs = new CompressionStream('deflate-raw');
+    const w = cs.writable.getWriter();
+    void w.write(json);
+    void w.close();
+    const bytes = new Uint8Array(await new Response(cs.readable).arrayBuffer());
+    let bin = '';
+    for (let i = 0; i < bytes.length; i += 0x8000)
+      bin += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+    const link = `1.${btoa(bin).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')}`;
+    await expect(decodeShare(link)).rejects.toMatchObject({ code: 'SHARE-BROKEN' });
   });
   it("#10 rows must be an object keyed by the pipeline's own uploaded Sources", async () => {
     const up = { ...p, data: { ...p.data, uploads: { g: { file: 'pay.csv', rows: 1 } } } };
@@ -51,5 +63,18 @@ describe('EXP-04 share audit (ff0aa65)', () => {
     await expect(decodeShare(await encodeShare(up, { toString: [{}] } as never))).rejects.toMatchObject({
       code: 'SHARE-BROKEN',
     });
+  });
+});
+
+describe('EXP-04 shared view audit (be4ce5b)', () => {
+  it('#1 a rows key that is not a plain node id (x/y) is SHARE-BROKEN, not a storage error later', async () => {
+    const up = { ...p, data: { ...p.data, uploads: { 'x/y': { file: 'a.csv', rows: 1 } } } };
+    await expect(decodeShare(await encodeShare(up, { 'x/y': [{ a: 1 }] }))).rejects.toMatchObject({
+      code: 'SHARE-BROKEN',
+    });
+  });
+  it('#3 a pipeline too big to open as a link is SHARE-TOO-LONG when making it, not SHARE-BROKEN when opening it', async () => {
+    const huge = { ...p, name: 'x'.repeat(40 * 1024 * 1024) };
+    await expect(encodeShare(huge)).rejects.toMatchObject({ code: 'SHARE-TOO-LONG' });
   });
 });

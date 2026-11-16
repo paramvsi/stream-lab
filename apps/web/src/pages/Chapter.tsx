@@ -3,11 +3,13 @@ import { AppError, ErrorBanner, present } from '@sl/errors';
 import { Banner, Button, Dialog, Tabs } from '@sl/ui';
 import { Link, useNavigate } from '@tanstack/react-router';
 import { Check, ChevronRight, Flag, X } from 'lucide-react';
-import { useCallback, useEffect, useId, useRef, useState } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useId, useRef, useState } from 'react';
+
+// LAND-06: the sandbox brings the simulator; the reading does not wait for it.
+const Sandbox = lazy(() => import('./Sandbox').then((m) => ({ default: m.Sandbox })));
 import { getProgress, setChapterStatus } from '../storage';
 import { WithConcepts } from './Glossary';
 import { NotFound } from './NotFound';
-import { Sandbox } from './Sandbox';
 import { SiteHeader, useDocTitle } from './SiteShell';
 
 /**
@@ -156,7 +158,9 @@ export function ChapterPage({ id }: { id: string }) {
           />
         </main>
         <div className="min-w-0 flex-1 py-8 pr-8">
-          <Sandbox chapter={c.id} scenario={content.sandbox} />
+          <Suspense fallback={null}>
+            <Sandbox chapter={c.id} scenario={content.sandbox} />
+          </Suspense>
         </div>
       </div>
       <Complete open={complete} onOpenChange={setComplete} n={c.n} done={done} />

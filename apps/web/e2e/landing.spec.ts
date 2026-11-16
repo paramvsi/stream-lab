@@ -86,3 +86,17 @@ test('LAND-01 a returning learner gets Continue with their chapter (W01b)', asyn
   await page.getByRole('link', { name: /Continue.*Chapter 3: Windows/ }).click();
   await expect(page.getByRole('heading', { level: 1, name: 'Windows' })).toBeVisible();
 });
+
+test('LAND-06 the landing, the course and the glossary do not load the simulator', async ({ page }) => {
+  const loaded: string[] = [];
+  page.on('request', (r) => loaded.push(r.url()));
+  for (const route of ['/#/', '/#/learn', '/#/glossary']) {
+    await page.goto(route);
+    await expect(page.getByRole('heading', { level: 1 })).toBeVisible();
+  }
+  expect(loaded.filter((u) => /\/src\/sim\/Workspace\.tsx|@xyflow/.test(u))).toEqual([]);
+  // A chapter's reading comes first; its sandbox loads the simulator after.
+  await page.goto('/#/learn/windows');
+  await expect(page.getByRole('region', { name: 'Sandbox' })).toBeVisible();
+  expect(loaded.some((u) => /\/src\/sim\/Workspace\.tsx/.test(u))).toBe(true);
+});

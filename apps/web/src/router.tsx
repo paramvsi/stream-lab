@@ -1,4 +1,3 @@
-import { SharedRoute } from './sim/SharedRoute';
 import { ErrorBoundary } from '@sl/errors';
 import {
   createHashHistory,
@@ -12,16 +11,24 @@ import { Course } from './pages/Course';
 import { Landing } from './pages/Landing';
 import { DownloadPage } from './pages/Download';
 import { ConceptDrawer, Glossary } from './pages/Glossary';
-import { Gallery } from './pages/Gallery';
-import { MyPipelines } from './pages/MyPipelines';
 import { NotFound } from './pages/NotFound';
 import { needsSimulator } from './pages/Unsupported';
-import { WorkspaceRoute } from './sim/WorkspaceRoute';
+import { lazy, Suspense } from 'react';
+
+// LAND-06: the simulator (canvas, engine, CEL, React Flow) loads with its pages, not with the landing or the course.
+const Gallery = lazy(() => import('./pages/Gallery').then((m) => ({ default: m.Gallery })));
+const MyPipelines = lazy(() => import('./pages/MyPipelines').then((m) => ({ default: m.MyPipelines })));
+const WorkspaceRoute = lazy(() =>
+  import('./sim/WorkspaceRoute').then((m) => ({ default: m.WorkspaceRoute })),
+);
+const SharedRoute = lazy(() => import('./sim/SharedRoute').then((m) => ({ default: m.SharedRoute })));
 
 const root = createRootRoute({
   component: () => (
     <ErrorBoundary>
-      <Outlet />
+      <Suspense fallback={null}>
+        <Outlet />
+      </Suspense>
       {/* LEARN-04: a concept opens over any page (a chapter, the glossary), without leaving it. */}
       <ConceptDrawer />
     </ErrorBoundary>

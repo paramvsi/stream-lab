@@ -1,2 +1,5 @@
-// ponytail: empty until M6 (typed REST + SQL Gateway client). See docs/FLINK_API.md.
-export {};
+export * from './endpoints/config';
+export * from './endpoints/gateway';
+export * from './endpoints/overview';
+export * from './http';
+export * from './testConnection';

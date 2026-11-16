@@ -341,3 +341,24 @@ describe('audit of 9f33c74', () => {
     ).not.toMatch(/\.$/);
   });
 });
+
+describe('audit of acd5109', () => {
+  it('#1 a backslash ends the host: the address keeps its host, with or without a login', () => {
+    const urlOf = (u: string) =>
+      JSON.parse(exportConnections([conn({ url: u })])).connections[0].url as string;
+    for (const u of ['https://u:p@host\\a@b', 'https://host\\a@b']) {
+      const out = urlOf(u);
+      expect(new URL(out).host, u).toBe('host');
+      expect(new URL(out).username, u).toBe('');
+    }
+  });
+  it('#3 a bad header name shows backslashes and quotes as typed, invisible characters escaped', () => {
+    expect(
+      validateConnection(conn({ headers: [{ name: 'X\\"T', value: 'v', secret: false }] }), []).headers!
+        .params,
+    ).toMatchObject({ name: 'X\\"T' });
+    expect(
+      validateConnection(conn({ headers: [{ name: 'X‮T', value: 'v', secret: false }] }), []).headers!.params,
+    ).toMatchObject({ name: 'X\\u202eT' });
+  });
+});

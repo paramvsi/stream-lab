@@ -98,16 +98,24 @@ export const secretKey = (connId: string, part: 'login' | 'gateway' | 'proxy' | 
  * itself for anything the pattern missed (leading spaces, "http:u:p@host"…).
  */
 function withoutUserinfo(u: string): string {
-  const cut = u.replace(/^(\s*[a-z][a-z0-9+.-]*:\/\/)[^/?#]*@/i, '$1');
+  // "\\" ends the host too (the URL parser reads it as "/" for http and https).
+  const cut = u.replace(/^(\s*[a-z][a-z0-9+.-]*:\/\/)[^/?#\\]*@/i, '$1');
+  let before: URL;
   try {
-    const x = new URL(cut);
-    if (!x.username && !x.password) return cut;
-    x.username = '';
-    x.password = '';
-    return x.toString();
+    before = new URL(u);
   } catch {
-    return cut;
+    return cut; // not an address the parser reads: nothing it would send a login for
   }
+  try {
+    const after = new URL(cut);
+    // The cut kept the same host and left no login: keep it as written.
+    if (after.host === before.host && !after.username && !after.password) return cut;
+  } catch {
+    // fall through: let the parser clear it
+  }
+  before.username = '';
+  before.password = '';
+  return before.toString();
 }
 
 /**
@@ -187,7 +195,12 @@ export function validateConnection(
       const n = h.name.trim();
       if (!HEADER_NAME.test(n)) {
         out.headers = new AppError('CONN-HEADER-INVALID', {
-          name: JSON.stringify(n).slice(1, -1), // control characters shown escaped, not raw
+          // Invisible and direction-changing characters shown as \uXXXX; the rest as typed.
+          name: n.replace(
+            // eslint-disable-next-line no-control-regex -- control characters are exactly what is matched
+            /[\u0000-\u001f\u007f-\u009f\u200b-\u200f\u202a-\u202e\u2066-\u2069]/g,
+            (ch) => `\\u${ch.charCodeAt(0).toString(16).padStart(4, '0')}`,
+          ),
           reason: 'has characters a header name can not have',
         });
         break;

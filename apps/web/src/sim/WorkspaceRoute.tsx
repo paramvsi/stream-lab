@@ -123,8 +123,8 @@ export function WorkspaceRoute({ id }: { id: string }) {
         schemaVersion: 1,
         id,
         name: g.name,
-        seed: b?.seed ?? 42,
-        data: b?.data ?? { refTables: [] },
+        seed: g.seed,
+        data: g.data,
         viewport: b?.viewport ?? { x: 0, y: 0, zoom: 1 },
         ...(b?.scenario ? { scenario: b.scenario } : {}),
         nodes: g.nodes,
@@ -154,7 +154,14 @@ export function WorkspaceRoute({ id }: { id: string }) {
     };
     const unsub = useGraph.subscribe((s, prev) => {
       if (loading.current) return;
-      if (s.nodes === prev.nodes && s.edges === prev.edges && s.name === prev.name) return;
+      if (
+        s.nodes === prev.nodes &&
+        s.edges === prev.edges &&
+        s.name === prev.name &&
+        s.data === prev.data &&
+        s.seed === prev.seed
+      )
+        return;
       useSaveState.setState({ state: 'saving' });
       if (timer.current) clearTimeout(timer.current);
       timer.current = setTimeout(save, AUTOSAVE_MS);
@@ -233,7 +240,14 @@ export function WorkspaceRoute({ id }: { id: string }) {
 
   const current = (): Stored => {
     const g = useGraph.getState();
-    return { ...(base.current as Stored), nodes: g.nodes, edges: g.edges, name: g.name };
+    return {
+      ...(base.current as Stored),
+      nodes: g.nodes,
+      edges: g.edges,
+      name: g.name,
+      seed: g.seed,
+      data: g.data,
+    };
   };
   const storeAction = (label: string) => {
     if (label === 'Export now') exportJson(current());

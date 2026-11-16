@@ -20,12 +20,24 @@ interface Snapshot {
 export interface GraphState extends Snapshot {
   pipelineId: string;
   name: string;
+  /** Pipeline-level data settings (Data drawer, DATA-01). Not in undo history, like the name. */
+  seed: number;
+  data: { generator?: unknown; refTables: string[] };
   /** UI-only, never in history. */
   selected: string[];
   selectedEdges: string[];
   clipboard: { nodes: PipelineNode[]; edges: PipelineEdge[] } | null;
 
-  load(p: { id: string; name: string; nodes: PipelineNode[]; edges: PipelineEdge[] }): void;
+  load(p: {
+    id: string;
+    name: string;
+    nodes: PipelineNode[];
+    edges: PipelineEdge[];
+    seed?: number;
+    data?: { generator?: unknown; refTables: string[] };
+  }): void;
+  /** Data drawer "Apply and regenerate". */
+  setGenerator(g: { seed: number } & Record<string, unknown>): void;
   addNode(type: NodeType, position: { x: number; y: number }, connectFrom?: ConnectFrom): string;
   connect(e: Omit<PipelineEdge, 'id'>): void;
   /** Live drag: positions change without history; `endDrag` records one "Moved …" step. */
@@ -102,6 +114,8 @@ export const useGraph = create<GraphState>()(
     (set, get) => ({
       pipelineId: '',
       name: 'Untitled pipeline',
+      seed: 42,
+      data: { refTables: [] },
       nodes: [],
       edges: [],
       label: 'Opened',
@@ -113,6 +127,8 @@ export const useGraph = create<GraphState>()(
         set({
           pipelineId: p.id,
           name: p.name,
+          seed: p.seed ?? 42,
+          data: p.data ?? { refTables: [] },
           nodes: p.nodes,
           edges: p.edges,
           label: 'Opened',
@@ -381,6 +397,7 @@ export const useGraph = create<GraphState>()(
 
       select: (nodes, edges = []) => set({ selected: nodes, selectedEdges: edges }),
       setName: (name) => set({ name }),
+      setGenerator: (g) => set({ seed: g.seed, data: { ...get().data, generator: g } }),
     }),
     {
       limit: HISTORY_LIMIT,

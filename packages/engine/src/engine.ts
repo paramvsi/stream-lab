@@ -39,6 +39,8 @@ export interface RefTable {
 export interface RunOptions {
   /** Pipeline-level seed for sources that are not Generators. */
   seed?: number;
+  /** The pipeline's data generator (Data drawer, DATA-01) for Sources with no uploaded rows. */
+  generator?: Partial<typeof GEN_DEFAULTS> & { seed?: number };
   /** Simulated subtasks per keyed operator (ENG-03). */
   parallelism?: number;
   refTables?: Record<string, RefTable>;
@@ -839,7 +841,9 @@ export function createRun(g: Graph, opts: RunOptions = {}): Run {
               }
             : {
                 ...GEN_DEFAULTS,
-                seed: (opts.seed ?? 42) + si,
+                ...opts.generator,
+                // Each Source gets its own stream from the same seed.
+                seed: (opts.generator?.seed ?? opts.seed ?? 42) + si,
                 ...(opts.sample ? { count: opts.sample } : {}),
               },
           timeField,

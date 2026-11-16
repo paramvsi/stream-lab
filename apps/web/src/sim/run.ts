@@ -88,14 +88,18 @@ function connect(): Worker {
 
 /** What a run depends on: node types, settings, disabled flags and edges (not positions). */
 const signature = (): unknown[] => {
-  const { nodes, edges } = useGraph.getState();
-  return [edges, ...nodes.flatMap((n) => [n.id, n.type, n.config, n.disabled ?? false])];
+  const { nodes, edges, data, seed } = useGraph.getState();
+  return [edges, data, seed, ...nodes.flatMap((n) => [n.id, n.type, n.config, n.disabled ?? false])];
 };
 const sameSig = (a: unknown[], b: unknown[]) => a.length === b.length && a.every((x, i) => x === b[i]);
 
 function load() {
-  const { nodes, edges } = useGraph.getState();
-  connect().postMessage({ type: 'load', graph: { nodes, edges }, opts: {} });
+  const { nodes, edges, seed, data } = useGraph.getState();
+  connect().postMessage({
+    type: 'load',
+    graph: { nodes, edges },
+    opts: { seed, ...(data.generator ? { generator: data.generator } : {}) },
+  });
   connect().postMessage({ type: 'speed', speed: useRun.getState().speed });
   loaded = true;
   loadedSig = signature();

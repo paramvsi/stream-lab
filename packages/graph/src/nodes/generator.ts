@@ -9,7 +9,7 @@ export const generator = defineNode({
   description: 'Seeded synthetic events with chaos controls',
   config: z.object({
     rate: z.number().int().min(1).max(10000),
-    count: z.number().int().min(1),
+    count: z.number().int().min(1).max(1_000_000),
     keys: z.number().int().min(1),
     latePct: pct,
     outOfOrderPct: pct,

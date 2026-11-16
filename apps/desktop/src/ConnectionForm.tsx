@@ -1,6 +1,7 @@
 import { AppError, ErrorBanner, present } from '@sl/errors';
 import {
   secretKey,
+  STEPS,
   testConnection,
   type FlinkHttp,
   type StepId,
@@ -52,6 +53,15 @@ interface Draft {
   readOnly: boolean;
 }
 type FieldKey = ConnectionField | 'env' | 'secret';
+/** The catalog actions a test outcome can carry that this form carries out (the rest need screens not built). */
+const TEST_ACTIONS: ReadonlySet<string> = new Set([
+  'Retry',
+  'Save as read-only',
+  'Save anyway',
+  'Edit',
+  'Edit address',
+  'Raise timeout',
+]);
 
 const toConnection = (d: Draft, id: string, kind: Connection['kind']): Connection => ({
   id,
@@ -171,9 +181,8 @@ export function ConnectionForm({
     const mine = ++run.current;
     setResults({});
     setOutcome(null);
-    let steps: ReturnType<typeof testConnection> | undefined;
     try {
-      steps = testConnection(test(c, d.secret), {
+      const steps = testConnection(test(c, d.secret), {
         name: c.name || 'this cluster',
         url: c.url,
         readOnly: c.readOnly,
@@ -181,10 +190,7 @@ export function ConnectionForm({
       });
       for (;;) {
         const n = await steps.next();
-        if (run.current !== mine) {
-          void steps.return(undefined as never); // edited or left while it ran: stop it
-          return;
-        }
+        if (run.current !== mine) return; // edited or left while it ran: never pulled again
         if (n.done) return setOutcome(n.value);
         setResults((r) => ({ ...r, [n.value.id]: n.value }));
       }
@@ -193,11 +199,15 @@ export function ConnectionForm({
       if (run.current !== mine) return;
       const host = (() => {
         try {
-          return new URL(c.url).host;
+          return new URL(c.url).hostname;
         } catch {
           return c.url;
         }
       })();
+      // The checks that never ran say so (not "Waiting" after the test ended).
+      setResults((r) =>
+        Object.fromEntries(STEPS.map((x) => [x.id, r?.[x.id] ?? { id: x.id, status: 'skip' }])),
+      );
       setOutcome({
         result: 'fail',
         error:
@@ -205,11 +215,21 @@ export function ConnectionForm({
       });
     }
   };
+  const form = useRef<HTMLFormElement>(null);
+  const focusField = (f: string) => form.current?.querySelector<HTMLElement>(`[data-field="${f}"]`)?.focus();
   const onTestAction = (label: string) => {
-    if (label === 'Save as read-only') save({ readOnly: true });
-    else if (label === 'Save anyway') save();
-    else if (label === 'Retry') void startTest();
-    else if (label === 'Edit') document.querySelector<HTMLElement>('form input')?.focus();
+    if (label === 'Save as read-only') {
+      // The switch shows it too, so the choice stays if Save has to wait for a field to be fixed.
+      setD((x) => ({ ...x, readOnly: true }));
+      save({ readOnly: true });
+    } else if (label === 'Save anyway') save();
+    else if (label === 'Retry') {
+      void startTest();
+      // The banner (and its button) goes while the test runs: focus stays on the form's Test button.
+      requestAnimationFrame(() => focusField('test'));
+    } else if (label === 'Edit') focusField(outcome?.result === 'partial' ? 'gateway' : 'url');
+    else if (label === 'Edit address') focusField('url');
+    else if (label === 'Raise timeout') focusField('timeout');
   };
   const blur = (f: FieldKey) => () => setTouched((t) => new Set(t).add(f));
   const count = Object.keys(all).length;
@@ -240,6 +260,7 @@ export function ConnectionForm({
         <p className="m-0 text-[14px] text-muted">Step 2 of 3 · the connection</p>
       </div>
       <form
+        ref={form}
         noValidate
         className="flex max-w-[640px] flex-col gap-4"
         onSubmit={(e) => {
@@ -301,6 +322,7 @@ export function ConnectionForm({
             mono
             value={d.url}
             placeholder="https://host:8081"
+            data-field="url"
             onChange={(e) => set('url', e.target.value)}
             onBlur={blur('url')}
           />
@@ -310,6 +332,7 @@ export function ConnectionForm({
             mono
             value={d.gateway}
             placeholder="https://host:8083"
+            data-field="gateway"
             onChange={(e) => set('gateway', e.target.value)}
             onBlur={blur('gateway')}
           />
@@ -392,7 +415,11 @@ export function ConnectionForm({
             </Select>
           </Field>
           <Field label="Timeout">
-            <Select value={d.timeoutMs} onChange={(e) => set('timeoutMs', Number(e.target.value))}>
+            <Select
+              data-field="timeout"
+              value={d.timeoutMs}
+              onChange={(e) => set('timeoutMs', Number(e.target.value))}
+            >
               {[5000, 10000, 30000, 60000].map((ms) => (
                 <option key={ms} value={ms}>
                   {ms / 1000} seconds
@@ -417,7 +444,13 @@ export function ConnectionForm({
           />
         </label>
         {results && (
-          <TestSteps results={results} running={testing} outcome={outcome} onAction={onTestAction} />
+          <TestSteps
+            results={results}
+            running={testing}
+            outcome={outcome}
+            onAction={onTestAction}
+            handles={TEST_ACTIONS}
+          />
         )}
         {submitted && count > 0 && <ErrorBanner error={new AppError('CONN-FORM-INVALID', { n: count })} />}
         <div className="flex justify-end gap-3 border-t border-line pt-4">
@@ -426,6 +459,7 @@ export function ConnectionForm({
           </Button>
           <Button
             type="button"
+            data-field="test"
             icon={<Activity size={16} aria-hidden="true" />}
             {...(!test
               ? { disabledReason: 'Testing needs the desktop transport, which is not built yet.' }

@@ -35,15 +35,20 @@ function Actions({
   e,
   onAction,
   max,
+  handles,
 }: {
   p: Presented;
   e: AppError;
   onAction?: OnAction | undefined;
   max?: number;
+  handles?: ReadonlySet<string> | undefined;
 }) {
   const run = useRunAction(onAction);
-  // Only actions that do something: "Copy details" is built in; the rest need an onAction handler.
-  const labels = p.actions.filter((l) => l === 'Copy details' || onAction).slice(0, max);
+  // Only actions that do something: "Copy details" is built in; the rest need an onAction handler (and, when
+  // the caller says which labels it handles, one of those).
+  const labels = p.actions
+    .filter((l) => l === 'Copy details' || (onAction && (!handles || handles.has(l))))
+    .slice(0, max);
   return labels.map((l, i) => (
     <Button
       key={l}
@@ -66,17 +71,22 @@ export function ErrorBanner({
   error,
   onAction,
   onDismiss,
+  handles,
 }: {
   error: AppError;
   onAction?: OnAction;
   onDismiss?: () => void;
+  /** The action labels onAction does something for; others are not shown. Omitted: all of them. */
+  handles?: ReadonlySet<string>;
 }) {
   const p = present(error);
   return (
     <Banner
       severity={p.severity}
       {...(onDismiss ? { onDismiss } : {})}
-      actions={p.actions.length ? <Actions p={p} e={error} onAction={onAction} /> : undefined}
+      actions={
+        p.actions.length ? <Actions p={p} e={error} onAction={onAction} handles={handles} /> : undefined
+      }
     >
       {p.message}
     </Banner>

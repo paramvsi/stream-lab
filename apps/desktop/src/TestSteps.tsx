@@ -33,13 +33,17 @@ export function TestSteps({
   running,
   outcome,
   onAction,
+  handles,
 }: {
   results: Partial<Record<StepId, StepResult>>;
   running: boolean;
   outcome: TestOutcome | null;
   onAction: (label: string) => void;
+  /** The catalog action labels onAction carries out: no button that does nothing. */
+  handles: ReadonlySet<string>;
 }) {
   const current = running ? STEPS.find((s) => !results[s.id])?.id : undefined;
+  const outcomeError = outcome && outcome.result !== 'pass' ? outcome.error : undefined;
   return (
     <section aria-labelledby="test-heading" className="flex flex-col gap-3 rounded-lg border border-line p-4">
       <h2 id="test-heading" className="m-0 text-[14px] font-semibold">
@@ -49,8 +53,9 @@ export function TestSteps({
         {STEPS.map((s) => {
           const r = results[s.id];
           const st = STATUS[r?.status ?? (s.id === current ? 'running' : 'waiting')];
-          // A failed step's message is in the banner below (with Copy details); other steps show theirs here.
-          const note = r?.error && r.status !== 'fail' ? present(r.error).message : r?.detail;
+          // The outcome's own error is in the banner below (with its actions); any other step says its own here
+          // (a partial pass: the SQL Gateway's reason is on its row, as board C04 shows it).
+          const note = r?.error && r.error !== outcomeError ? present(r.error).message : r?.detail;
           return (
             <li key={s.id} className="flex items-start gap-3">
               <span className="mt-0.5">{st.icon}</span>
@@ -68,7 +73,9 @@ export function TestSteps({
         {outcome?.result === 'pass' ? 'All checks passed. Ready to save.' : ''}
       </p>
       {/* A failure or a partial pass: the catalog message with its actions (Copy details, Save as read-only…). */}
-      {outcome && outcome.result !== 'pass' && <ErrorBanner error={outcome.error} onAction={onAction} />}
+      {outcome && outcome.result !== 'pass' && (
+        <ErrorBanner error={outcome.error} onAction={onAction} handles={handles} />
+      )}
     </section>
   );
 }

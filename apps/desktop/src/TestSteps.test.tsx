@@ -1,8 +1,9 @@
+import { AppError } from '@sl/errors';
 import { TransportError, type Connection, type FlinkHttp, type FlinkRequest } from '@sl/flink';
 import { ToastProvider, TooltipProvider } from '@sl/ui';
 import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { App } from './App';
 
 const ok = (body: unknown) => ({
@@ -101,7 +102,7 @@ describe('audit of b001fa3', () => {
     await fill();
     await userEvent.click(screen.getByRole('button', { name: 'Test connection' }));
     expect(
-      await steps().findByText(/The connection to localhost:8081 failed \(the test could not run\)/),
+      await steps().findByText(/The connection to localhost failed \(the test could not run\)/),
     ).toBeTruthy();
     expect(screen.getByRole('button', { name: 'Test connection' }).getAttribute('aria-disabled')).toBeNull();
   });
@@ -158,5 +159,95 @@ describe('audit of b001fa3', () => {
     await new Promise((r) => setTimeout(r, 50));
     expect(screen.queryByRole('region', { name: 'Test connection' })).toBeNull();
     expect(screen.queryByText('All checks passed. Ready to save.')).toBeNull();
+  });
+});
+
+describe('audit of 882b42b', () => {
+  const fill = async (env = true) => {
+    await toForm();
+    await userEvent.type(screen.getByLabelText(/^Name/), 'local-docker');
+    if (env) await userEvent.selectOptions(screen.getByLabelText(/^Environment/), 'dev');
+    await userEvent.type(screen.getByLabelText(/JobManager REST URL/), 'http://localhost:8081');
+  };
+  const gatewayDown: FlinkHttp = async (r) => {
+    if (r.gateway) throw new TransportError({ kind: 'refused', host: 'localhost', port: 8083 });
+    return healthy(r);
+  };
+  it("#1 only buttons that do something: a 401 shows no Reconnect / Disconnect; a timeout's Raise timeout focuses Timeout", async () => {
+    let status = 401;
+    app(
+      () => async () =>
+        status === 401
+          ? { status: 401, headers: {}, body: '', url: 'http://localhost:8081/config' }
+          : (() => {
+              throw new TransportError({ kind: 'timeout', host: 'localhost', timeoutS: 10 });
+            })(),
+    );
+    await fill();
+    await userEvent.click(screen.getByRole('button', { name: 'Test connection' }));
+    await steps().findByText(/rejected the token/);
+    expect(steps().queryByRole('button', { name: 'Reconnect' })).toBeNull();
+    expect(steps().queryByRole('button', { name: 'Disconnect' })).toBeNull();
+    status = 0;
+    await userEvent.click(screen.getByRole('button', { name: 'Test connection' }));
+    await userEvent.click(await steps().findByRole('button', { name: 'Raise timeout' }));
+    expect(document.activeElement).toBe(screen.getByLabelText('Timeout'));
+  });
+  it('#2 a partial pass: the SQL Gateway row says why; Edit goes to the SQL Gateway address', async () => {
+    app(() => gatewayDown);
+    await fill();
+    await userEvent.type(screen.getByLabelText(/SQL Gateway URL/), 'http://localhost:8083');
+    await userEvent.click(screen.getByRole('button', { name: 'Test connection' }));
+    await steps().findByText(/^Connected, but /);
+    expect(
+      steps()
+        .getAllByRole('listitem')
+        .find((li) => li.textContent!.startsWith('SQL Gateway'))!.textContent,
+    ).toMatch(/Nothing is listening on localhost:8083/);
+    await userEvent.click(steps().getByRole('button', { name: 'Edit' }));
+    expect(document.activeElement).toBe(screen.getByLabelText(/SQL Gateway URL/));
+  });
+  it('#3 "Save as read-only" with a field to fix: the switch is on and stays on for the Save after', async () => {
+    app(() => gatewayDown);
+    await fill(false);
+    await userEvent.type(screen.getByLabelText(/SQL Gateway URL/), 'http://localhost:8083');
+    await userEvent.click(screen.getByRole('button', { name: 'Test connection' }));
+    await userEvent.click(await steps().findByRole('button', { name: 'Save as read-only' }));
+    expect((screen.getByRole('switch', { name: /Read-only connection/ }) as HTMLInputElement).checked).toBe(
+      true,
+    );
+    await userEvent.selectOptions(screen.getByLabelText(/^Environment/), 'dev');
+    await userEvent.click(screen.getByRole('button', { name: 'Save' }));
+    expect(screen.getByRole('row', { name: /local-docker/ }).textContent).toContain('Read-only');
+  });
+  it('#4 Retry keeps focus on the form; Save anyway saves; #5 a broken transport: no check left Waiting, an AppError keeps its words', async () => {
+    let calls = 0;
+    app(() => async (r) => {
+      calls++;
+      if (calls === 1) throw new AppError('API-5XX', { conn: 'local-docker', verb: 'starting the test' });
+      return gatewayDown(r);
+    });
+    await fill();
+    await userEvent.type(screen.getByLabelText(/SQL Gateway URL/), 'http://localhost:8083');
+    await userEvent.click(screen.getByRole('button', { name: 'Test connection' }));
+    expect(
+      await steps().findByText(/local-docker had an internal error while starting the test/),
+    ).toBeTruthy();
+    expect(steps().queryByText(/· Waiting/)).toBeNull();
+    await userEvent.click(steps().getByRole('button', { name: 'Retry' }));
+    await steps().findByText(/^Connected, but /);
+    await vi.waitFor(() =>
+      expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Test connection' })),
+    );
+    await userEvent.click(steps().getByRole('button', { name: 'Save anyway' }));
+    expect(await screen.findByText('Saved local-docker.')).toBeTruthy();
+  });
+  it('#6 the disabled reasons say what to do', async () => {
+    app(() => healthy);
+    await toForm();
+    const b = screen.getByRole('button', { name: 'Test connection' });
+    expect(document.getElementById(b.getAttribute('aria-describedby')!)!.textContent).toBe(
+      'Fix the address and login fields first.',
+    );
   });
 });

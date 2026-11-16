@@ -1,10 +1,10 @@
 import type { RunStats, TimelineEntry } from '@sl/engine';
 import { AppError, toProblems } from '@sl/errors';
-import { labelOf } from '@sl/graph';
+import { labelOf, runBlocker } from '@sl/graph';
 import { EmptyState, ProblemsPanel, Tabs } from '@sl/ui';
 import { useReactFlow } from '@xyflow/react';
 import { Activity, Code2, Route as RouteIcon, Table2 } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { create } from 'zustand';
 import { Events } from './drawer/PreviewPanel';
 import { useIssues } from './issues';
@@ -14,6 +14,7 @@ import { useGraph } from './store';
 /** SIMULATOR.md: one bottom drawer — node config or run panel. True while the node drawer is open. */
 export const useBottomDrawer = create<{ node: boolean }>(() => ({ node: false }));
 
+const RUN_DEAD = '__run_dead_letters';
 const W = 640;
 const H = 150;
 const hms = (ms: number) => new Date(ms).toISOString().slice(11, 19);
@@ -85,7 +86,24 @@ function Timeline({ stats }: { stats: RunStats | null }) {
 function Output({ stats }: { stats: RunStats | null }) {
   // Select the stable array, filter after (a filtering selector returns a new array each time and loops).
   const nodes = useGraph((s) => s.nodes);
-  const sinks = nodes.filter((n) => n.type === 'Sink' || n.type === 'Dead-letter');
+  // With no enabled Dead-letter node, the run's own dead letters (failed expressions) are listed here, so
+  // SIM-RUNTIME-EXPR's "They were sent to Dead-letter" stays true.
+  const hasDlq = nodes.some((n) => n.type === 'Dead-letter' && !n.disabled);
+  const runDead = !hasDlq && (stats?.deadLetter.length ?? 0) > 0;
+  const sinks = [
+    ...nodes.filter((n) => n.type === 'Sink' || n.type === 'Dead-letter'),
+    ...(runDead
+      ? [
+          {
+            id: RUN_DEAD,
+            type: 'Dead-letter' as const,
+            label: 'Dead letters (failed expressions)',
+            position: { x: 0, y: 0 },
+            config: {},
+          },
+        ]
+      : []),
+  ];
   const [pick, setPick] = useState<string | null>(null);
   const current = sinks.find((n) => n.id === pick) ?? sinks.find((n) => n.type === 'Sink') ?? sinks[0];
   if (!stats || !current)
@@ -98,7 +116,11 @@ function Output({ stats }: { stats: RunStats | null }) {
         {current ? 'What reaches each sink shows here.' : 'Add a Sink to collect results.'}
       </EmptyState>
     );
-  const rows = stats.outputs[current.id] ?? [];
+  const rowsOf = (id: string) =>
+    id === RUN_DEAD
+      ? stats.deadLetter.map((d) => ({ ...d.data, reason: d.reason }))
+      : (stats.outputs[id] ?? []);
+  const rows = rowsOf(current.id);
   return (
     <div className="flex flex-col gap-2">
       {sinks.length > 1 && (
@@ -111,7 +133,7 @@ function Output({ stats }: { stats: RunStats | null }) {
           >
             {sinks.map((n) => (
               <option key={n.id} value={n.id}>
-                {labelOf(n)} ({fmt(stats.outputs[n.id]?.length ?? 0)})
+                {labelOf(n)} ({fmt(rowsOf(n.id).length)})
               </option>
             ))}
           </select>
@@ -163,11 +185,29 @@ export function RunPanel() {
   const issues = useIssues((s) => s.all.length);
   const [tab, setTab] = useState('problems');
   const nodeDrawer = useBottomDrawer((s) => s.node);
+  const panel = useRef<HTMLElement>(null);
+  // Automatic switches never pull the keyboard out from under the user: if focus is in the panel, stay.
+  const switchTo = (t: string) => {
+    if (panel.current?.contains(document.activeElement)) return;
+    setTab(t);
+  };
+  const switchRef = useRef(switchTo);
+  useEffect(() => {
+    switchRef.current = switchTo;
+  });
   useEffect(
     () =>
       useRun.subscribe((s, prev) => {
-        if (s.state === 'finished' && prev.state !== 'finished') setTab('output');
-        else if (s.state === 'running' && prev.state === 'ready') setTab('timeline');
+        if (s.state === 'finished' && prev.state !== 'finished') switchRef.current('output');
+        else if (s.state === 'running' && prev.state === 'ready') switchRef.current('timeline');
+      }),
+    [],
+  );
+  // SIM-RUN-BLOCKED: "Problems tab opens" when the pipeline stops being runnable.
+  useEffect(
+    () =>
+      useIssues.subscribe((s, prev) => {
+        if (runBlocker(s.all) && !runBlocker(prev.all)) switchRef.current('problems');
       }),
     [],
   );
@@ -180,6 +220,7 @@ export function RunPanel() {
   if (nodeDrawer) return null;
   return (
     <section
+      ref={panel}
       aria-label="Run panel"
       className="h-[250px] shrink-0 overflow-y-auto border-t border-line bg-surface px-4"
     >

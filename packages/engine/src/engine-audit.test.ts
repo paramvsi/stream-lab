@@ -305,3 +305,63 @@ describe('run audit · dead letter', () => {
     expect(String(dl[0]!['reason'])).not.toBe('');
   });
 });
+
+describe('run panel audit · engine', () => {
+  it('#4 a long run keeps window fires and late events on the timeline to the end (samples have their own cap)', () => {
+    const g: Graph = {
+      nodes: [
+        node('gen', 'Generator', { count: 20000 }),
+        node('w', 'Window', { sizeMs: 60000, keyBy: ['card_id'] }),
+        node('out', 'Sink'),
+      ],
+      edges: [edge('gen', 'w'), edge('w', 'out')],
+    };
+    const r = createRun(g);
+    r.advance(Infinity);
+    const s = r.stats();
+    const fires = s.timeline.filter((t) => t.kind === 'fire');
+    expect(fires.at(-1)!.at).toBeGreaterThan(s.now * 0.9);
+    expect(s.timeline.filter((t) => t.kind === 'late').length).toBe(s.nodes['w']!.late);
+  });
+
+  it('#5 the timeline watermark is the pipeline’s (the slowest input), not the first source’s', () => {
+    const ahead = (i: number) => ({ ...row(600 + i), card_id: 'a' });
+    const g: Graph = {
+      nodes: [
+        node('a', 'Source', { schema: SCHEMA, outOfOrdernessMs: 0 }),
+        node('b', 'Source', { schema: SCHEMA, outOfOrdernessMs: 0 }),
+        node('u', 'Union'),
+        node('out', 'Sink'),
+      ],
+      edges: [edge('a', 'u'), edge('b', 'u'), edge('u', 'out')],
+    };
+    const r = createRun(g, {
+      sourceData: {
+        a: Array.from({ length: 100 }, (_, i) => ahead(i)),
+        b: Array.from({ length: 100 }, (_, i) => row(i)),
+      },
+    });
+    r.advance(150);
+    const wms = r.stats().timeline.filter((t) => t.kind === 'watermark');
+    expect(wms.at(-1)!.ts).toBeLessThanOrEqual(r.stats().nodes['u']!.watermark);
+  });
+
+  it('#8 a failed event goes to the Dead-letter connected to that node, once; never to a disabled one', () => {
+    const g: Graph = {
+      nodes: [
+        node('src', 'Source', { schema: SCHEMA, outOfOrdernessMs: 0 }),
+        node('f', 'Filter', { expr: 'amount > 5.0' }),
+        node('out', 'Sink'),
+        node('dlqA', 'Dead-letter'),
+        node('dlqB', 'Dead-letter', {}, true),
+        node('dlqC', 'Dead-letter'),
+      ],
+      edges: [edge('src', 'f'), edge('f', 'out'), edge('f', 'dlqC', 'rejected')],
+    };
+    const r = createRun(g, { sourceData: { src: [row(0, 'c_1', null)] } });
+    r.advance(Infinity);
+    const s = r.stats();
+    expect([s.nodes['dlqA']?.in ?? 0, s.nodes['dlqB']?.in ?? 0, s.nodes['dlqC']!.in]).toEqual([0, 0, 1]);
+    expect(s.deadLetter).toHaveLength(1);
+  });
+});

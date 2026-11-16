@@ -10,7 +10,7 @@ Rules for implementers:
 4. Every code needs a test that triggers it and asserts the message, placement and actions (`TESTING.md`).
 5. "Board" is the design artboard that shows it. `W…/WX…` are in the Website canvas, `D…/X…/G…` in the Desktop canvas.
 
-Total: **138 codes** (128 from the handover + `CONN-SSH-HOSTKEY`, `API-4XX`, `COPY-FAILED` added in M0, `SIM-DUP-EDGE`, `SIM-PORT-TAKEN`, `SIM-REDO-EMPTY`, `PIPELINE-NOT-FOUND`, `PIPELINE-DELETED-ELSEWHERE` added in M1; `NODE-DUP-FIELD`, `NODE-RANGE` added in M2).
+Total: **139 codes** (128 from the handover + `CONN-SSH-HOSTKEY`, `API-4XX`, `COPY-FAILED` added in M0, `SIM-DUP-EDGE`, `SIM-PORT-TAKEN`, `SIM-REDO-EMPTY`, `PIPELINE-NOT-FOUND`, `PIPELINE-DELETED-ELSEWHERE` added in M1; `NODE-DUP-FIELD`, `NODE-RANGE` added in M2; `SIM-RUN-CHANGED` added in M3).
 
 
 ## Desktop · Connections

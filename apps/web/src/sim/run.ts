@@ -1,6 +1,7 @@
 import type { DriverMessage, RunState, RunStats } from '@sl/engine';
 import RunWorker from '@sl/engine/worker?worker';
 import { create } from 'zustand';
+import { runBlocker, validate } from '@sl/graph';
 import { useGraph } from './store';
 
 /**
@@ -18,6 +19,8 @@ export interface RunStore {
   slow: number | null;
   /** The pipeline changed since this run started. */
   stale: boolean;
+  /** SIM-RUN-CHANGED is shown only when a running or paused run was interrupted, not after it finished. */
+  staleNotice: boolean;
   /** SIM-17: the node with most events in (computed once per stats message). */
   busiest: string | null;
 }
@@ -28,6 +31,7 @@ const initial: RunStore = {
   crash: null,
   slow: null,
   stale: false,
+  staleNotice: false,
   busiest: null,
 };
 export const useRun = create<RunStore>(() => initial);
@@ -78,9 +82,15 @@ function connect(): Worker {
     crash('the engine ran out of memory or hit an internal error');
   };
   w.onmessageerror = () => crash('a message from the engine could not be read');
-  // A worker stuck in a loop sends nothing: 3 s without its 1 s heartbeat is a crash.
+  // A worker stuck in a loop sends nothing: 3 s without its 1 s heartbeat while running is a crash. If this
+  // check itself ran late (the laptop slept, the tab was frozen), the silence is ours, not the engine's: start over.
+  let lastCheck = Date.now();
   watchdog = setInterval(() => {
-    if (Date.now() - lastSeen > HEARTBEAT_MISS_MS) crash('the engine stopped responding');
+    const now = Date.now();
+    const late = now - lastCheck > 2000;
+    lastCheck = now;
+    if (late || useRun.getState().state !== 'running') lastSeen = now;
+    else if (now - lastSeen > HEARTBEAT_MISS_MS) crash('the engine stopped responding');
   }, 1000);
   worker = w;
   return w;
@@ -89,7 +99,8 @@ function connect(): Worker {
 /** What a run depends on: node types, settings, disabled flags and edges (not positions). */
 const signature = (): unknown[] => {
   const { nodes, edges, data, seed } = useGraph.getState();
-  return [edges, data, seed, ...nodes.flatMap((n) => [n.id, n.type, n.config, n.disabled ?? false])];
+  // Labels too: a Union's tag field carries the input node's label.
+  return [edges, data, seed, ...nodes.flatMap((n) => [n.id, n.type, n.config, n.disabled ?? false, n.label])];
 };
 const sameSig = (a: unknown[], b: unknown[]) => a.length === b.length && a.every((x, i) => x === b[i]);
 
@@ -103,24 +114,33 @@ function load() {
   connect().postMessage({ type: 'speed', speed: useRun.getState().speed });
   loaded = true;
   loadedSig = signature();
-  useRun.setState({ stale: false });
+  useRun.setState({ stale: false, staleNotice: false });
 }
+
+/** SIM-RUN-BLOCKED: a pipeline with errors does not run, from any button (pill or toast). */
+const blocked = () => {
+  const { nodes, edges } = useGraph.getState();
+  return runBlocker(validate({ nodes, edges })) !== null; // the graph now, not the debounced issues store
+};
 
 // A change to the pipeline during a run: pause, and start over on the next Run.
 useGraph.subscribe(() => {
   if (!loaded || useRun.getState().stale || sameSig(signature(), loadedSig)) return;
-  if (useRun.getState().state === 'running') worker?.postMessage({ type: 'pause' });
-  useRun.setState({ stale: true });
+  const state = useRun.getState().state;
+  if (state === 'running') worker?.postMessage({ type: 'pause' });
+  useRun.setState({ stale: true, staleNotice: state === 'running' || state === 'paused' });
 });
 
 export const runner = {
   play() {
+    if (blocked()) return;
     const { state, stale } = useRun.getState();
     if (!loaded || stale || state === 'finished') load();
     connect().postMessage({ type: 'play' });
   },
   pause: () => worker?.postMessage({ type: 'pause' }),
   step() {
+    if (blocked()) return;
     if (!loaded || useRun.getState().stale) load();
     connect().postMessage({ type: 'step' });
   },
@@ -159,11 +179,12 @@ const live = (s: RunStore) => s.state !== 'ready' && s.stats !== null;
  * on their edges); a source shows in = out; a sink or dead letter shows what it wrote. A string, so nodes
  * re-render only when it changes.
  */
-export const useNodeCounts = (id: string, kind: 'source' | 'sink' | 'node') =>
+export const useNodeCounts = (id: string, kind: 'source' | 'sink' | 'node', mainPorts: string) =>
   useRun((s) => {
     const n = live(s) ? s.stats!.nodes[id] : undefined;
     if (!n) return null;
-    const main = n.out['main'] ?? Object.values(n.out)[0] ?? 0;
+    // Every main-kind output (a Route's branches and default), not side outputs.
+    const main = mainPorts.split(',').reduce((a, p) => a + (n.out[p] ?? 0), 0);
     const [i, o] = kind === 'source' ? [main, main] : kind === 'sink' ? [n.in, n.in] : [n.in, main];
     return `in ${fmt(i)} · out ${fmt(o)}`;
   });

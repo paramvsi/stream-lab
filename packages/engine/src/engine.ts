@@ -809,9 +809,14 @@ export function createRun(g: Graph, opts: RunOptions = {}): Run {
     timeline: [],
     done: false,
   };
-  const TIMELINE_MAX = 2000;
+  // Samples (event, watermark) have their own cap, so they never crowd out fires, late events and failures.
+  const SAMPLES_MAX = 1500;
+  const MARKS_MAX = 10000;
+  let samples = 0;
+  let marks = 0;
   const log = (t: TimelineEntry) => {
-    if (stats.timeline.length < TIMELINE_MAX) stats.timeline.push(t);
+    const sample = t.kind === 'event' || t.kind === 'watermark';
+    if (sample ? samples++ < SAMPLES_MAX : marks++ < MARKS_MAX) stats.timeline.push(t);
   };
   const ns = (id: string) =>
     (stats.nodes[id] ??= { in: 0, out: {}, failed: 0, late: 0, watermark: -Infinity });
@@ -874,7 +879,10 @@ export function createRun(g: Graph, opts: RunOptions = {}): Run {
     if (id === opts.tap) (tapped.input[port] ??= []).push(ev.data);
     ops.get(id)?.process(port, ev, from);
   };
-  const deadLetters = order.filter((n) => n.type === 'Dead-letter').map((n) => n.id);
+  // SIM-RUNTIME-EXPR dead letter: the enabled Dead-letter node this node feeds, else the first enabled one.
+  const dlqIds = new Set(order.filter((n) => n.type === 'Dead-letter' && !n.disabled).map((n) => n.id));
+  const deadLetterFor = (id: string) =>
+    (out.get(id) ?? []).find((e) => dlqIds.has(e.target))?.target ?? [...dlqIds][0];
   for (const n of order) {
     const st = ns(n.id);
     const t = n.type;
@@ -888,7 +896,8 @@ export function createRun(g: Graph, opts: RunOptions = {}): Run {
         if (stats.deadLetter.length < keep) stats.deadLetter.push({ node: n.id, reason, data: ev.data });
         log({ kind: 'fail', node: n.id, at: stats.now, ts: ev.ts, watermark: st.watermark, reason });
         // SIM-RUNTIME-EXPR: "They were sent to Dead-letter" — every Dead-letter node receives the event.
-        for (const d of deadLetters) receive(d, 'main', { ...ev, reason }, n.id);
+        const d = deadLetterFor(n.id);
+        if (d) receive(d, 'main', { ...ev, reason }, n.id);
       },
       late: (ev) => {
         st.late++;
@@ -954,7 +963,7 @@ export function createRun(g: Graph, opts: RunOptions = {}): Run {
 
   let i = 0;
   let ended = false;
-  let lastSample = -Infinity;
+  const lastSample = new Map<string, number>();
   let lastWmSample = -Infinity;
   const step = () => {
     const a = arrivals[i];
@@ -974,17 +983,20 @@ export function createRun(g: Graph, opts: RunOptions = {}): Run {
     w.max = Math.max(w.max, a.ev.ts);
     w.last = a.at;
     w.left--;
-    // SIM-21 Timeline samples, at most one of each per 250 ms of clock (the timeline is capped).
-    if (stats.now - lastSample >= 250 || i === 1) {
-      lastSample = stats.now;
+    // SIM-21 Timeline samples: per source, at most one event per 250 ms of clock.
+    if (stats.now - (lastSample.get(src.id) ?? -Infinity) >= 250) {
+      lastSample.set(src.id, stats.now);
       log({ kind: 'event', node: src.id, at: stats.now, ts: a.ev.ts, watermark: ns(src.id).watermark });
     }
     deliver(src.id, 'main', a.ev);
     propagateWm();
-    const swm = ns(src.id).watermark;
-    if (Number.isFinite(swm) && stats.now - lastWmSample >= 250) {
-      lastWmSample = stats.now;
-      log({ kind: 'watermark', node: src.id, at: stats.now, ts: swm, watermark: swm });
+    // The pipeline's watermark: the slowest node's (what the pill shows), not one source's.
+    if (stats.now - lastWmSample >= 250) {
+      const wm = Math.min(...Object.values(stats.nodes).map((x) => x.watermark));
+      if (Number.isFinite(wm)) {
+        lastWmSample = stats.now;
+        log({ kind: 'watermark', node: '', at: stats.now, ts: wm, watermark: wm });
+      }
     }
     if (i === arrivals.length && !opts.holdFinalWatermark) stats.done = true;
     return true;

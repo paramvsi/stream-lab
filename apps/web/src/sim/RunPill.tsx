@@ -1,10 +1,11 @@
 import { AppError, ErrorDialog, present } from '@sl/errors';
-import { runBlocker } from '@sl/graph';
+import { runBlocker, validate } from '@sl/graph';
 import { Button, useToast } from '@sl/ui';
 import { Pause, Play, RotateCcw, SkipForward } from 'lucide-react';
 import { useEffect, useId } from 'react';
 import { useIssues } from './issues';
 import { dispose, runner, SPEEDS, useRun } from './run';
+import { useGraph } from './store';
 
 const time = (ms: number) => new Date(ms).toISOString().slice(11, 19);
 const n = (x: number) => x.toLocaleString('en-US');
@@ -16,7 +17,7 @@ const n = (x: number) => x.toLocaleString('en-US');
 export function RunPill() {
   const all = useIssues((s) => s.all);
   const blocker = runBlocker(all);
-  const { state, speed, stats, crash, slow, stale } = useRun();
+  const { state, speed, stats, crash, slow, stale, staleNotice } = useRun();
   const toast = useToast();
   const speedId = useId();
 
@@ -38,10 +39,19 @@ export function RunPill() {
 
   // SIM-RUN-CHANGED: an edit (or undo/redo) during a run paused it; the next Run starts over.
   useEffect(() => {
-    if (!stale) return;
+    if (!staleNotice) return;
+    // Run again only when the changed pipeline can run (SIM-RUN-BLOCKED otherwise). Checked on the graph now:
+    // the issues store updates after a short debounce.
+    const { nodes, edges } = useGraph.getState();
+    const canRun = !runBlocker(validate({ nodes, edges }));
     const p = present(new AppError('SIM-RUN-CHANGED'));
-    toast({ severity: p.severity, message: p.message, action: { label: 'Run again', onClick: runner.play } });
-  }, [stale, toast]);
+    toast({
+      severity: p.severity,
+      message: p.message,
+      ...(canRun ? { action: { label: 'Run again', onClick: runner.play } } : {}),
+    });
+    useRun.setState({ staleNotice: false });
+  }, [staleNotice, toast]);
 
   const processed = stats?.processed ?? 0;
   const total = stats?.total ?? 0;

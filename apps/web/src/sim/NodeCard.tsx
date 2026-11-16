@@ -24,7 +24,15 @@ export const NodeCard = memo(function NodeCard({ data, selected, dragging }: Nod
   const cfg = configOf(n);
   const issues = useIssues((st) => st.byNode[n.id] ?? EMPTY);
   const kind = s.inputs(cfg).length === 0 ? 'source' : s.outputs(cfg).length === 0 ? 'sink' : 'node';
-  const counts = useNodeCounts(n.id, kind);
+  const counts = useNodeCounts(
+    n.id,
+    kind,
+    s
+      .outputs(cfg)
+      .filter((p) => p.kind === 'main')
+      .map((p) => p.id)
+      .join(','),
+  );
   const failed = useNodeFailed(n.id);
   const failReason = useNodeFailReason(n.id);
   const busiest = useIsBusiest(n.id);

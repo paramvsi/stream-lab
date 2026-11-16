@@ -97,3 +97,91 @@ test('run audit 8: the failure badge has an icon and the catalog words (SIM-RUNT
   await expect(badge.locator('svg')).toHaveCount(1);
   await expect(badge).toContainText('They were sent to Dead-letter.');
 });
+
+// ---- Run panel audit (4d80476 + b2ee3b2) ----
+const pill = (page: Page) => page.locator('.react-flow__panel.top');
+const panel = (page: Page) => page.getByRole('region', { name: 'Run panel' });
+
+test('panel audit 1: a change that blocks the run offers no "Run again" and nothing runs', async ({
+  page,
+}) => {
+  await scenario(page, 'Card fraud bursts');
+  await pill(page).getByRole('button', { name: 'Run', exact: true }).click();
+  await expect(label(page)).toHaveText(/^Running/);
+  await store(page, "m.useGraph.getState().toggleDisabled(['gen'])");
+  const toast = page.getByText('The pipeline changed, so the run paused. Run again to use your changes.', {
+    exact: true,
+  });
+  await expect(toast).toBeVisible();
+  // Count once, now (the toast closes by itself, so a retrying toHaveCount(0) would always pass).
+  expect(await page.locator('button:not(.react-flow__panel *)', { hasText: 'Run again' }).count()).toBe(0);
+  await page.evaluate(async () => (await import('/src/sim/run.ts')).runner.play());
+  await page.waitForTimeout(800);
+  await expect(label(page)).not.toHaveText(/^(Running|Finished)/);
+});
+
+test('panel audit 2: a wall-clock jump (sleep, frozen tab) is not an engine crash', async ({ page }) => {
+  await page.clock.install();
+  await scenario(page, 'Card fraud bursts');
+  await pill(page).getByRole('button', { name: 'Step' }).click();
+  await expect(label(page)).toHaveText('Paused at event 1');
+  await page.clock.fastForward(5000);
+  await page.waitForTimeout(300);
+  await expect(page.getByText('Your pipeline is safe.')).toHaveCount(0);
+});
+
+test('panel audit 3: a Route counts every branch as "out"', async ({ page }) => {
+  await scenario(page, 'Card velocity');
+  await page.getByText('10×', { exact: true }).click();
+  await pill(page).getByRole('button', { name: 'Run', exact: true }).click();
+  await expect(label(page)).toHaveText(/^Finished/, { timeout: 15000 });
+  await expect(page.locator('.react-flow__node').filter({ hasText: 'ROUTE' })).toContainText(
+    /in ([\d,]+) · out \1/,
+  );
+});
+
+test('panel audit 6: when a run finishes, focus in the panel stays in the panel', async ({ page }) => {
+  await scenario(page, 'Card fraud bursts');
+  await page.getByText('10×', { exact: true }).click();
+  await pill(page).getByRole('button', { name: 'Run', exact: true }).click();
+  await panel(page)
+    .getByRole('tab', { name: /^Problems/ })
+    .click();
+  // Focus inside the tab's content (its filter), which unmounts if the panel switches tabs.
+  await panel(page).getByRole('tabpanel').getByRole('button').first().focus();
+  await expect(label(page)).toHaveText(/^Finished/, { timeout: 15000 });
+  await page.waitForTimeout(200);
+  expect(await page.evaluate(() => !!document.activeElement?.closest('[aria-label="Run panel"]'))).toBe(true);
+});
+
+test('panel audit 7: an edit after a finished run does not say the run paused', async ({ page }) => {
+  await scenario(page, 'Card fraud bursts');
+  await page.getByText('10×', { exact: true }).click();
+  await pill(page).getByRole('button', { name: 'Run', exact: true }).click();
+  await expect(label(page)).toHaveText(/^Finished/, { timeout: 15000 });
+  await store(page, "m.useGraph.getState().toggleDisabled(['flt'])");
+  await page.waitForTimeout(800);
+  // Count once, now: toHaveCount(0) would retry until the toast closes by itself.
+  expect(await page.getByText(/The pipeline changed, so the run paused/).count()).toBe(0);
+});
+
+test('panel audit renames: renaming a node during a run pauses it (labels reach the output)', async ({
+  page,
+}) => {
+  await scenario(page, 'Card fraud bursts');
+  await page.getByText('0.25×', { exact: true }).click();
+  await pill(page).getByRole('button', { name: 'Run', exact: true }).click();
+  await expect(label(page)).toHaveText(/^Running/);
+  await store(page, "m.useGraph.getState().rename('gen', 'Card payments')");
+  await expect(label(page)).toHaveText(/^Paused/);
+});
+
+test('panel audit 9: when the pipeline stops being runnable, the Problems tab opens', async ({ page }) => {
+  await scenario(page, 'Card fraud bursts');
+  await page.getByText('10×', { exact: true }).click();
+  await pill(page).getByRole('button', { name: 'Run', exact: true }).click();
+  await expect(label(page)).toHaveText(/^Finished/, { timeout: 15000 });
+  await page.locator('.react-flow__pane').click({ position: { x: 20, y: 20 } }); // focus out of the panel
+  await store(page, "m.useGraph.getState().toggleDisabled(['gen'])");
+  await expect(panel(page).getByRole('tab', { name: /^Problems/ })).toHaveAttribute('aria-selected', 'true');
+});

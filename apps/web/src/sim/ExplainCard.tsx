@@ -28,7 +28,8 @@ export const useExplainStep = (id: string) =>
  * Explain `row` of `sink` (an Output tab row), or a random output row when none is given. Returns false when the
  * run has no output to explain.
  */
-export async function startExplain(sink?: string, row?: number): Promise<boolean> {
+/** The pipeline run again with lineage on (deterministic, SIM-24: the events of the run shown). */
+export async function tracedRun() {
   const { nodes, edges, seed, data, pipelineId } = useGraph.getState();
   const { sourceData } = await uploadedRows(pipelineId, nodes, data);
   const run = createRun(
@@ -42,7 +43,12 @@ export async function startExplain(sink?: string, row?: number): Promise<boolean
     },
   );
   run.advance(Infinity);
-  const trace = run.trace()!;
+  return run.trace()!;
+}
+
+export async function startExplain(sink?: string, row?: number): Promise<boolean> {
+  const { nodes, edges } = useGraph.getState();
+  const trace = await tracedRun();
   const sinks = nodes
     .filter((n) => n.type === 'Sink' && (trace.outputs[n.id]?.length ?? 0) > 0)
     .map((n) => n.id);

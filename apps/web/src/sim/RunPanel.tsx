@@ -3,9 +3,9 @@ import { AppError, toProblems } from '@sl/errors';
 import { labelOf, runBlocker } from '@sl/graph';
 import { EmptyState, ProblemsPanel, Tabs } from '@sl/ui';
 import { SqlView, Unsupported, useFlinkSql } from './ExportDialog';
-import { startExplain } from './ExplainCard';
+import { startTrace, TracePanel, useTrace } from './TracePanel';
 import { useReactFlow } from '@xyflow/react';
-import { Activity, Route as RouteIcon, Table2 } from 'lucide-react';
+import { Activity, Table2 } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { create } from 'zustand';
 import { Events } from './drawer/PreviewPanel';
@@ -153,12 +153,12 @@ function Output({ stats }: { stats: RunStats | null }) {
         </label>
       )}
       {current.type === 'Sink' && (
-        <p className="m-0 text-[13px] text-muted">Pick a row to explain how it got here.</p>
+        <p className="m-0 text-[13px] text-muted">Pick a row to trace how it got here.</p>
       )}
       <Events
         key={current.id}
         arrive
-        {...(current.type === 'Sink' ? { onSelect: (i: number) => void startExplain(current.id, i) } : {})}
+        {...(current.type === 'Sink' ? { onSelect: (i: number) => void startTrace(current.id, i) } : {})}
         rows={rows}
         label={`Output of ${labelOf(current)}`}
         empty="Nothing reached this sink."
@@ -214,6 +214,8 @@ export function RunPanel() {
     if (panel.current?.contains(document.activeElement)) return;
     setTab(t);
   };
+  // EXPL-03: picking a row to trace (a user action) shows its trace.
+  useEffect(() => useTrace.subscribe((t, prev) => t && t !== prev && setTab('trace')), []);
   const switchRef = useRef(switchTo);
   useEffect(() => {
     switchRef.current = switchTo;
@@ -262,11 +264,7 @@ export function RunPanel() {
           {
             value: 'trace',
             label: 'Trace',
-            content: (
-              <EmptyState icon={RouteIcon} title="Tracing an event is not available yet" level={3}>
-                It arrives with Explain this run, which follows one event through every node.
-              </EmptyState>
-            ),
+            content: <TracePanel />,
           },
           {
             value: 'sql',

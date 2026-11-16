@@ -1,4 +1,5 @@
 import { useExplainStep } from './ExplainCard';
+import { useTraceStep } from './TracePanel';
 import { AppError, present } from '@sl/errors';
 import { configOf, labelOf, spec, type PipelineNode } from '@sl/graph';
 import { Button } from '@sl/ui';
@@ -46,7 +47,9 @@ export const NodeCard = memo(function NodeCard({ data, selected, dragging }: Nod
   const failReason = useNodeFailReason(n.id);
   const busiest = useIsBusiest(n.id);
   // EXPL-02: while explaining, nodes off the path dim to 35% and path nodes carry their step number.
-  const explainStep = useExplainStep(n.id);
+  const explained = useExplainStep(n.id);
+  const traced = useTraceStep(n.id); // EXPL-03: the same marks for a traced row, when not explaining
+  const explainStep = explained !== undefined ? explained : traced;
   const fires = useNodeFires(n.id);
   const late = useNodeLate(n.id);
   const single = useGraph((st) => st.selected.length === 1);

@@ -23,6 +23,8 @@ test('EXPL-02 explain an output row: its path, step badges, dimmed nodes, narrat
     .locator('tbody tr')
     .first()
     .click();
+  // Picking a row traces it (EXPL-03); Explain step by step walks one path (EXPL-02).
+  await panel.getByRole('button', { name: 'Explain step by step' }).click();
   await expect(card(page)).toContainText('EXPLAIN THIS RUN · 1 OF');
   await expect(card(page)).toContainText('An event arrives');
   await expect(card(page)).toContainText(/Payment c_\d+ · [\d,]+\.\d\d enters from /);
@@ -41,6 +43,8 @@ test('EXPL-02 explain an output row: its path, step badges, dimmed nodes, narrat
   expect((await new AxeBuilder({ page }).include('[data-explain-card]').analyze()).violations).toEqual([]);
   await page.keyboard.press('Escape');
   await expect(card(page)).toHaveCount(0);
+  // The row stays traced (its marks stay) until the trace is cleared.
+  await panel.getByRole('button', { name: 'Clear trace' }).click();
   expect(await page.locator('.react-flow__node > div[style*="opacity: 0.35"]').count()).toBe(0);
 });
 
@@ -55,4 +59,28 @@ test('EXPL-02 the header Explain run picks an output row by itself; the last ste
   await expect(card(page)).toContainText('It reaches Fraud alerts');
   await card(page).getByRole('button', { name: 'Done' }).click();
   await expect(card(page)).toHaveCount(0);
+});
+
+test('EXPL-03 trace: picking an output row lists every node behind it (E06) and marks them on the canvas', async ({
+  page,
+}) => {
+  await finished(page, 'Card fraud bursts');
+  const panel = page.getByRole('region', { name: 'Run panel' });
+  await panel.getByRole('tab', { name: 'Output' }).click();
+  await panel
+    .getByRole('table', { name: /^Output of / })
+    .locator('tbody tr')
+    .first()
+    .click();
+  await expect(panel.getByRole('tab', { name: 'Trace' })).toHaveAttribute('aria-selected', 'true');
+  const list = panel.getByRole('list');
+  await expect(list).toContainText('Payments');
+  await expect(list).toContainText(/\d+ events?, \d\d:\d\d:\d\d|1 event at/);
+  await expect(list).toContainText('Bursts per card');
+  await expect(list).toContainText('Fired at watermark');
+  // On the canvas: contributors numbered, the rest dimmed (the Dead-letter did not contribute).
+  await expect(page.locator('.react-flow__node').filter({ hasText: 'Explain step 1' })).toHaveCount(1);
+  expect(await page.locator('.react-flow__node > div[style*="opacity: 0.35"]').count()).toBeGreaterThan(0);
+  await panel.getByRole('button', { name: 'Clear trace' }).click();
+  expect(await page.locator('.react-flow__node > div[style*="opacity: 0.35"]').count()).toBe(0);
 });

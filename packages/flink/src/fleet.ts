@@ -48,6 +48,7 @@ async function getJson<S extends z.ZodType>(
     r = await http(req);
   } catch (e) {
     if (e instanceof TransportError) throw fromTransport(e.failure, e);
+    if (e instanceof AppError) throw e; // already said in catalog words: keep them
     throw new AppError('CONN-IO', { host: conn, reason: 'the request failed' }, e);
   }
   if (r.status >= 400) throw httpStatusError(r, conn, verb);

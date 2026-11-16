@@ -201,3 +201,69 @@ describe('audit of 23b9f80', () => {
     }
   });
 });
+
+describe('audit of ecae65a', () => {
+  const refused = new TransportError({ kind: 'refused', host: 'h.example.com', port: 8081 });
+  it('#1 a Retry that fails again stays Unreachable (not Healthy), keeps Retry; recovery toasts once; #7 timeout sent', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      let fail = false;
+      const timeouts = new Set<number | undefined>();
+      show([conn('s')], () => async (req) => {
+        timeouts.add(req.timeoutMs);
+        if (fail) throw refused;
+        return healthy(2)(req);
+      });
+      const c = card('s');
+      expect(await within(c).findByText('Healthy')).toBeTruthy();
+      expect([...timeouts]).toEqual([10000]);
+      fail = true;
+      for (const ms of [15_000, 30_000, 30_000]) await act(async () => vi.advanceTimersByTime(ms));
+      expect(within(c).getByText('Unreachable')).toBeTruthy();
+      await userEvent.click(within(c).getByRole('button', { name: 'Retry s' }));
+      await vi.waitFor(() => expect(within(c).queryByText('Retrying…')).toBeNull());
+      expect(within(c).getByText('Unreachable')).toBeTruthy();
+      expect(within(c).getByRole('button', { name: 'Retry s' })).toBeTruthy();
+      fail = false;
+      await userEvent.click(within(c).getByRole('button', { name: 'Retry s' }));
+      expect(await within(c).findByText('Healthy')).toBeTruthy();
+      expect(await screen.findByText('Back in contact with s.')).toBeTruthy();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+  it('#2 the transport-throws message names the address and why', async () => {
+    show([conn('broken')], () => {
+      throw new Error('no transport for this kind');
+    });
+    expect(
+      await within(card('broken')).findByText(/broken\.example\.com:8081 failed \(no transport\)/),
+    ).toBeTruthy();
+  });
+  it('#3 back from the connection list, the cards keep their data; #4 back in view, it asks at once', async () => {
+    const cache = new Map();
+    const http = vi.fn(healthy(5));
+    const shown = (
+      <TooltipProvider>
+        <ToastProvider>
+          <Fleet
+            connections={[conn('a')]}
+            transport={() => http}
+            onAdd={() => {}}
+            onManage={() => {}}
+            cache={cache}
+          />
+        </ToastProvider>
+      </TooltipProvider>
+    );
+    const first = render(shown);
+    expect(await within(card('a')).findByText('Healthy')).toBeTruthy();
+    first.unmount();
+    render(shown);
+    expect(within(card('a')).getByText('Healthy')).toBeTruthy();
+    expect(screen.getByText('1 connection · 6 jobs')).toBeTruthy();
+    await vi.waitFor(() => expect(http.mock.calls.length).toBe(6));
+    await act(async () => document.dispatchEvent(new Event('visibilitychange')));
+    await vi.waitFor(() => expect(http.mock.calls.length).toBe(9));
+  });
+});

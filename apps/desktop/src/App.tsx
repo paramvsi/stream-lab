@@ -1,5 +1,5 @@
 import type { Connection, FlinkHttp, KindChoice } from '@sl/flink';
-import { Fleet } from './Fleet';
+import { Fleet, type CardState } from './Fleet';
 import { useToast } from '@sl/ui';
 import { useState } from 'react';
 import { ConnectionForm } from './ConnectionForm';
@@ -25,6 +25,7 @@ export function App({ transport }: { transport?: (c: Connection) => FlinkHttp } 
   const [screen, setScreen] = useState<Screen>({ name: 'home' });
   const [connections, setConnections] = useState<Connection[]>([]);
   const [importing, setImporting] = useState(false);
+  const [fleetCache] = useState(() => new Map<string, CardState>());
   const toast = useToast();
   if (screen.name === 'form')
     return (
@@ -73,6 +74,7 @@ export function App({ transport }: { transport?: (c: Connection) => FlinkHttp } 
           transport={transport}
           onAdd={add}
           onManage={() => setScreen({ name: 'list' })}
+          cache={fleetCache}
         />
         {importDialog}
       </>

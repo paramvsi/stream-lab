@@ -16,7 +16,7 @@ import { useScreenHeading } from './focus';
 
 type Up = Extract<FleetStatus, { state: 'up' }>;
 /** What a card knows: its last good answer (kept through failures) and the failures in a row since. */
-interface CardState {
+export interface CardState {
   last?: Up;
   at?: number;
   error?: AppError;
@@ -64,19 +64,23 @@ function FleetCard({
   online,
   now,
   onState,
+  initial,
 }: {
   c: Connection;
   transport: (c: Connection) => FlinkHttp;
   online: boolean;
   now: number;
   onState: (id: string, s: CardState) => void;
+  /** What this card knew last time the fleet was open (back from the connection list). */
+  initial?: CardState;
 }) {
   const toast = useToast();
-  const [s, setS] = useState<CardState>({ failures: 0 });
+  const [s, setS] = useState<CardState>(() => initial ?? { failures: 0 });
   const cur = useRef(s);
   const [round, setRound] = useState(0);
   const [retrying, setRetrying] = useState(false);
   const heading = useRef<HTMLHeadingElement>(null);
+  /** Retry was pressed and focus was on it: once the card answers, focus goes to its heading. */
   const retryFocused = useRef(false);
   // At most 6 requests in flight per connection (FLINK_API "Concurrency"), across Retries too.
   const gate = useMemo(() => limiter(), []);
@@ -119,7 +123,8 @@ function FleetCard({
                     { host: shortAddress(c.url), reason: 'the request failed' },
                     r.error,
                   );
-            next = { ...x, error, failures: r.failures };
+            // The card's own count: a Retry starts a new poller (its count at 0), but the cluster is still down.
+            next = { ...x, error, failures: x.failures + 1 };
           }
           cur.current = next;
           setRetrying(false);
@@ -127,7 +132,13 @@ function FleetCard({
         },
       },
     );
-    return () => p.stop();
+    // Back in view: ask now, not at the next tick (the poller only skips while hidden).
+    const shown = () => !document.hidden && setRound((n) => n + 1);
+    document.addEventListener('visibilitychange', shown);
+    return () => {
+      p.stop();
+      document.removeEventListener('visibilitychange', shown);
+    };
   }, [http, online, round, c.name, c.timeoutMs, c.url, toast]);
   useEffect(() => onState(c.id, s), [c.id, s, onState]);
   const [tone, word] = badge(s, online);
@@ -136,7 +147,8 @@ function FleetCard({
     // A Retry that worked removes its button: focus goes to the card, not the page.
     if (!errorShown && retryFocused.current) {
       retryFocused.current = false;
-      heading.current?.focus();
+      // Only if focus was lost with the button (a browser that fires no blur on removal leaves it on <body>).
+      if (!document.activeElement || document.activeElement === document.body) heading.current?.focus();
     }
   }, [errorShown]);
   return (
@@ -169,9 +181,8 @@ function FleetCard({
               : retrying
                 ? { disabledReason: 'Retrying now.' }
                 : {})}
-            onFocus={() => (retryFocused.current = true)}
-            onBlur={() => (retryFocused.current = false)}
-            onClick={() => {
+            onClick={(e) => {
+              retryFocused.current = document.activeElement === e.currentTarget;
               setRetrying(true);
               setRound((n) => n + 1);
             }}
@@ -232,11 +243,14 @@ export function Fleet({
   transport,
   onAdd,
   onManage,
+  cache,
 }: {
   connections: Connection[];
   transport: (c: Connection) => FlinkHttp;
   onAdd: () => void;
   onManage: () => void;
+  /** Kept by the app across visits to the connection list, so the cards keep their data. */
+  cache?: Map<string, CardState>;
 }) {
   const h1 = useScreenHeading();
   useEffect(() => {
@@ -249,8 +263,14 @@ export function Fleet({
     const t = setInterval(() => setNow(Date.now()), 30_000);
     return () => clearInterval(t);
   }, []);
-  const [cards, setCards] = useState<Record<string, CardState>>({});
-  const onState = useMemo(() => (id: string, s: CardState) => setCards((x) => ({ ...x, [id]: s })), []);
+  const [cards, setCards] = useState<Record<string, CardState>>(() => Object.fromEntries(cache ?? []));
+  const onState = useMemo(
+    () => (id: string, s: CardState) => {
+      cache?.set(id, s);
+      setCards((x) => ({ ...x, [id]: s }));
+    },
+    [cache],
+  );
   const known = connections.flatMap((c) => (cards[c.id]?.last ? [cards[c.id]!] : []));
   const jobs = known.reduce((n, s) => n + s.last!.jobs, 0);
   const oldest = Math.min(...known.map((s) => s.at!));
@@ -280,7 +300,15 @@ export function Fleet({
       </div>
       <ul className="m-0 grid list-none grid-cols-[repeat(auto-fill,minmax(300px,1fr))] gap-4 p-0">
         {connections.map((c) => (
-          <FleetCard key={c.id} c={c} transport={transport} online={online} now={now} onState={onState} />
+          <FleetCard
+            key={c.id}
+            c={c}
+            transport={transport}
+            online={online}
+            now={now}
+            onState={onState}
+            {...(cache?.get(c.id) ? { initial: cache.get(c.id)! } : {})}
+          />
         ))}
       </ul>
     </main>

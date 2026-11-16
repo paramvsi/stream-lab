@@ -71,3 +71,48 @@ describe('CONN-01 → CONN-02 the flow', () => {
     expect(screen.getByRole('heading', { level: 1, name: 'Welcome to Stream Lab' })).toBeTruthy();
   });
 });
+
+describe('audit of 70fc3e7', () => {
+  const fill = async () => {
+    await userEvent.type(screen.getByLabelText(/^Name/), 'p');
+    await userEvent.selectOptions(screen.getByLabelText(/^Environment/), 'prod');
+    await userEvent.type(screen.getByLabelText(/JobManager REST URL/), 'https://flink.example.com:8081');
+  };
+  it('#1 switching the login method does not carry the password over as the token', async () => {
+    const onSave = vi.fn();
+    form(onSave);
+    await fill();
+    await userEvent.selectOptions(screen.getByLabelText('Login method'), 'basic');
+    await userEvent.type(screen.getByLabelText(/^User/), 'admin');
+    await userEvent.type(screen.getByLabelText(/^Password/), 'pw-for-basic');
+    await userEvent.selectOptions(screen.getByLabelText('Login method'), 'bearer');
+    expect((screen.getByLabelText(/^Token/) as HTMLInputElement).value).toBe('');
+    await userEvent.click(screen.getByRole('button', { name: 'Save' }));
+    expect(onSave).not.toHaveBeenCalled();
+    expect(screen.getByText('Token is required.')).toBeTruthy();
+  });
+  it('#2 errors name the field as labelled; #3 values are trimmed and a blank password is missing; #4 focus goes to the first field to fix', async () => {
+    const onSave = vi.fn();
+    form(onSave);
+    await userEvent.click(screen.getByRole('button', { name: 'Save' }));
+    expect(screen.getByText('JobManager REST URL is required.')).toBeTruthy();
+    await new Promise((r) => requestAnimationFrame(r));
+    expect(document.activeElement).toBe(screen.getByLabelText(/^Name/));
+    await fill();
+    await userEvent.selectOptions(screen.getByLabelText('Login method'), 'basic');
+    await userEvent.type(screen.getByLabelText(/^User/), '  admin  ');
+    await userEvent.type(screen.getByLabelText(/^Password/), '   ');
+    await userEvent.click(screen.getByRole('button', { name: 'Save' }));
+    expect(screen.getByText('Password is required.')).toBeTruthy();
+    await userEvent.type(screen.getByLabelText(/^Password/), 'x');
+    await userEvent.click(screen.getByRole('button', { name: 'Save' }));
+    expect(onSave.mock.calls[0]![0].connection.auth).toEqual({ type: 'basic', user: 'admin' });
+  });
+  it('#7 the MVP login methods only (none, user and password, bearer token)', () => {
+    form();
+    const opts = [...(screen.getByLabelText('Login method') as HTMLSelectElement).options].map(
+      (o) => o.value,
+    );
+    expect(opts).toEqual(['none', 'basic', 'bearer']);
+  });
+});

@@ -1,4 +1,4 @@
-import { AppError, present } from '@sl/errors';
+import { AppError, ErrorBanner, present } from '@sl/errors';
 import {
   secretKey,
   splitSecrets,
@@ -6,9 +6,9 @@ import {
   type Connection,
   type ConnectionField,
 } from '@sl/flink';
-import { Banner, Button, Field, Input, Select } from '@sl/ui';
+import { Button, Field, Input, Select } from '@sl/ui';
 import { Activity } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { useEffect, useId, useState } from 'react';
 import { useScreenHeading } from './focus';
 
 type Env = Connection['env'];
@@ -25,8 +25,7 @@ const AUTH: { type: AuthType; label: string }[] = [
   { type: 'none', label: 'None' },
   { type: 'basic', label: 'User and password' },
   { type: 'bearer', label: 'Bearer token' },
-  { type: 'token-command', label: 'Token command' },
-  { type: 'mtls', label: 'Client certificate (mTLS)' },
+  // Token command and client certificates (mTLS) are v1 (TRACEABILITY C-04; D59): the model keeps them.
 ];
 
 interface Draft {
@@ -59,11 +58,11 @@ const toConnection = (d: Draft, id: string, kind: Connection['kind']): Connectio
   basePath: '',
   auth:
     d.auth === 'basic'
-      ? { type: 'basic', user: d.user }
+      ? { type: 'basic', user: d.user.trim() }
       : d.auth === 'token-command'
-        ? { type: 'token-command', command: d.command }
+        ? { type: 'token-command', command: d.command.trim() }
         : d.auth === 'mtls'
-          ? { type: 'mtls', cert: d.cert, key: d.key }
+          ? { type: 'mtls', cert: d.cert.trim(), key: d.key.trim() }
           : { type: d.auth },
   headers: [],
   transport: { type: 'direct' },
@@ -76,8 +75,9 @@ const toConnection = (d: Draft, id: string, kind: Connection['kind']): Connectio
 function problems(d: Draft, c: Connection, taken: string[]): Partial<Record<FieldKey, AppError>> {
   const out: Partial<Record<FieldKey, AppError>> = { ...validateConnection(c, taken) };
   if (!d.env) out.env = new AppError('CONN-REQUIRED', { field: 'Environment' });
-  if (d.auth === 'basic' && !d.secret) out.secret = new AppError('CONN-REQUIRED', { field: 'Password' });
-  if (d.auth === 'bearer' && !d.secret) out.secret = new AppError('CONN-REQUIRED', { field: 'Token' });
+  if (d.auth === 'basic' && !d.secret.trim())
+    out.secret = new AppError('CONN-REQUIRED', { field: 'Password' });
+  if (d.auth === 'bearer' && !d.secret.trim()) out.secret = new AppError('CONN-REQUIRED', { field: 'Token' });
   return out;
 }
 
@@ -102,6 +102,7 @@ export function ConnectionForm({
     document.title = 'New connection · Stream Lab';
   }, []);
   const h1 = useScreenHeading();
+  const colorName = useId();
   const [id] = useState(() => `c_${crypto.randomUUID()}`);
   const [d, setD] = useState<Draft>({
     name: '',
@@ -128,11 +129,17 @@ export function ConnectionForm({
     return e ? present(e).message : undefined;
   };
   const set = <K extends keyof Draft>(k: K, v: Draft[K]) => setD((x) => ({ ...x, [k]: v }));
+  // A new login method starts with an empty secret: a password typed for one is never sent as the other's token.
+  const setAuth = (a: AuthType) => setD((x) => ({ ...x, auth: a, secret: '' }));
   const blur = (f: FieldKey) => () => setTouched((t) => new Set(t).add(f));
   const count = Object.keys(all).length;
   const save = () => {
     setSubmitted(true);
-    if (count) return;
+    if (count) {
+      // Straight to the first field to fix (the summary is said once; pressing Save again says it again here).
+      requestAnimationFrame(() => document.querySelector<HTMLElement>('form [aria-invalid="true"]')?.focus());
+      return;
+    }
     const { connection, secrets } = splitSecrets(c);
     const key = secretKey(id, 'login');
     onSave({
@@ -189,7 +196,7 @@ export function ConnectionForm({
               <label key={x.color} className="relative cursor-pointer">
                 <input
                   type="radio"
-                  name="color"
+                  name={colorName}
                   className="peer sr-only"
                   checked={d.color === x.color}
                   onChange={() => set('color', x.color)}
@@ -228,7 +235,7 @@ export function ConnectionForm({
         </Field>
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <Field label="Login method">
-            <Select value={d.auth} onChange={(e) => set('auth', e.target.value as AuthType)}>
+            <Select value={d.auth} onChange={(e) => setAuth(e.target.value as AuthType)}>
               {AUTH.map((a) => (
                 <option key={a.type} value={a.type}>
                   {a.label}
@@ -328,9 +335,7 @@ export function ConnectionForm({
             onChange={(e) => set('readOnly', e.target.checked)}
           />
         </label>
-        {submitted && count > 0 && (
-          <Banner severity="error">{present(new AppError('CONN-FORM-INVALID', { n: count })).message}</Banner>
-        )}
+        {submitted && count > 0 && <ErrorBanner error={new AppError('CONN-FORM-INVALID', { n: count })} />}
         <div className="flex justify-end gap-3 border-t border-line pt-4">
           <Button type="button" onClick={onCancel}>
             Cancel

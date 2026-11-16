@@ -370,3 +370,10 @@ describe('audit of db78f52', () => {
     expect(t).not.toContain('user:');
   });
 });
+
+describe('audit of 276dfa0', () => {
+  it('#8 an unreadable address with "/" in its password still loses the login', () => {
+    const t = exportConnections([conn({ url: 'https://u:p/ss@flink.example.com' })]);
+    expect(t).not.toContain('p/ss');
+  });
+});

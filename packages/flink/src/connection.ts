@@ -49,11 +49,11 @@ export type ConnectionField =
 
 const FIELD_LABEL: Record<ConnectionField, string> = {
   name: 'Name',
-  url: 'Address',
+  url: 'JobManager REST URL',
   user: 'User',
   command: 'Token command',
-  cert: 'Client certificate',
-  key: 'Client key',
+  cert: 'Client certificate (PEM file)',
+  key: 'Client key (PEM file)',
   proxy: 'Proxy address',
   headers: 'Headers',
   gateway: 'SQL Gateway address',
@@ -107,7 +107,7 @@ function withoutUserinfo(u: string): string {
     before = new URL(u);
   } catch {
     // Not an address the parser reads: still never keep what looks like a login (to the last "@", "\\" included).
-    return u.replace(/^(\s*[a-z][a-z0-9+.-]*:\/\/)[^/?#]*@/i, '$1');
+    return u.replace(/^(\s*[a-z][a-z0-9+.-]*:\/\/).*@/i, '$1'); // unreadable: to the very last "@"
   }
   try {
     const after = new URL(cut);
@@ -200,8 +200,8 @@ export function validateConnection(
         out.headers = new AppError('CONN-HEADER-INVALID', {
           // Invisible and direction-changing characters shown as \uXXXX; the rest as typed.
           name: n.replace(
-            // eslint-disable-next-line no-control-regex -- control characters are exactly what is matched
-            /[\u0000-\u001f\u007f-\u009f\u00ad\u061c\u200b-\u200f\u2028-\u202e\u2060-\u2069\ufeff\u{e0000}-\u{e007f}]/gu,
+            // eslint-disable-next-line no-control-regex, no-misleading-character-class -- invisible and combining characters are exactly what is matched
+            /[\u0000-\u001f\u007f-\u009f\u00ad\u034f\u061c\u115f\u1160\u180e\u200b-\u200f\u2028-\u202e\u2060-\u2069\u3164\ufe00-\ufe0f\ufeff\uffa0\u{e0000}-\u{e007f}]/gu,
             (ch) => `\\u{${ch.codePointAt(0)!.toString(16)}}`,
           ),
           reason: 'has characters a header name can not have',

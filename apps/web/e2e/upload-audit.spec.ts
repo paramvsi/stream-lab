@@ -281,6 +281,10 @@ test('storage audit 2: when the delete marker can not be written, Undo still bri
   });
   await page.getByRole('button', { name: 'Delete Refunds matching' }).click();
   await page.getByRole('button', { name: 'Delete pipeline' }).click();
+  // Another visit to My pipelines purges before the Undo (audit: an empty marker read as "long deleted").
+  // The delete marks its rows in the background: give it a moment before the purge.
+  await page.waitForTimeout(300);
+  await page.evaluate(async () => (await import('/src/sim/uploads.ts')).purgeDeletedUploads(new Set()));
   await page.getByRole('button', { name: 'Undo' }).click();
   await expect(page.getByRole('link', { name: 'Refunds matching' })).toBeVisible();
   await expect
@@ -306,4 +310,65 @@ test('storage audit 6+7+8: focus lands on the list after freeing, usage follows 
     await page.locator('li').filter({ hasText: 'Uploaded data of "Refunds matching copy" deleted.' }).count(),
   ).toBe(1);
   await expect.poll(() => page.evaluate(() => document.activeElement?.tagName)).toBe('A');
+});
+
+// ---- Inspector/storage audit (00b017a + 8e09ce0) ----
+test('purge audit 2: a copy still being saved (fresh rows, no pipeline yet) is not marked or freed', async ({
+  page,
+}) => {
+  await upload(page);
+  await page.evaluate(async () => {
+    const u = await import('/src/sim/uploads.ts');
+    await u.saveRows('p_race', 'pay', [{ a: 1 }]); // rows written, pipeline not saved yet
+    await u.purgeDeletedUploads(new Set()); // a My pipelines visit with a list that lacks p_race
+    // The copy is saved; a later visit (after the grace period) knows it.
+    await u.purgeDeletedUploads(new Set(['p_race']), Date.now() + 11 * 60_000);
+  });
+  expect((await opfs(page)).filter((f) => f.startsWith('p_race/'))).toEqual(['p_race/pay.jsonl']);
+});
+
+test('purge audit 3: one folder another tab holds does not stop the purge or throw', async ({ page }) => {
+  const errors: string[] = [];
+  page.on('pageerror', (e) => errors.push(e.message));
+  await upload(page);
+  await page.evaluate(async () => {
+    const u = await import('/src/sim/uploads.ts');
+    await u.saveRows('p_old1', 'pay', [{ a: 1 }]);
+    await u.saveRows('p_old2', 'pay', [{ a: 1 }]);
+    await u.deleteUploads('p_old1');
+    await u.deleteUploads('p_old2');
+    const orig = FileSystemDirectoryHandle.prototype.removeEntry;
+    FileSystemDirectoryHandle.prototype.removeEntry = function (name: string, o?: FileSystemRemoveOptions) {
+      if (name === 'p_old1') return Promise.reject(new DOMException('busy', 'NoModificationAllowedError'));
+      return orig.call(this, name, o);
+    };
+    // Must not reject (in the app that is an unhandled error), whatever order the folders come in.
+    await u.purgeDeletedUploads(new Set(), Date.now() + 11 * 60_000);
+  });
+  const left = await opfs(page);
+  expect(left.some((f) => f.startsWith('p_old1/'))).toBe(true); // held: kept for the next pass
+  expect(left.some((f) => f.startsWith('p_old2/'))).toBe(false); // the pass went on
+  expect(errors).toEqual([]);
+});
+
+test('purge audit 4: a failed "Delete uploaded data" leaves the pipeline using its rows', async ({
+  page,
+}) => {
+  await upload(page);
+  await page.goto('/#/pipelines');
+  await page.evaluate(() => {
+    const orig = FileSystemDirectoryHandle.prototype.removeEntry;
+    FileSystemDirectoryHandle.prototype.removeEntry = function (name: string, o?: FileSystemRemoveOptions) {
+      if (this.name === 'uploads')
+        return Promise.reject(new DOMException('busy', 'NoModificationAllowedError'));
+      return orig.call(this, name, o);
+    };
+  });
+  await page.getByRole('button', { name: 'Delete uploaded data of Refunds matching' }).click();
+  await page.getByRole('dialog').getByRole('button', { name: 'Delete uploaded data' }).click();
+  await expect(page.getByText('could not be deleted: another tab is using it.')).toBeVisible();
+  await page.getByRole('link', { name: 'Refunds matching' }).click();
+  await page.getByRole('button', { name: 'Data', exact: true }).click();
+  await page.getByRole('dialog', { name: 'Data' }).getByRole('tab', { name: 'Upload file' }).click();
+  await expect(page.getByText('Payments reads cards.csv (3 events).')).toBeVisible();
 });

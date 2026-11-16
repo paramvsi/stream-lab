@@ -238,7 +238,8 @@ interface Ctx {
   late: (ev: SimEvent) => void;
   fire: (ts: number) => void;
   now: () => number;
-  keyed: (key: string) => void;
+  /** A keyed event (ENG-03); null = the operator is not keyed (one subtask, as Flink's windowAll / global rank). */
+  keyed: (key: string | null) => void;
 }
 
 interface Operator {
@@ -417,7 +418,7 @@ function windowOp(n: PipelineNode, x: Ctx): Operator {
   return {
     process(_p, ev) {
       const key = keyOf(ev.data, keyBy);
-      x.keyed(key);
+      x.keyed(keyBy.length ? key : null);
       let ws = state.get(key);
       if (!ws) state.set(key, (ws = new Map()));
       let live = 0;
@@ -537,7 +538,7 @@ function joinOp(n: PipelineNode, x: Ctx, rightSchema: Schema): Operator {
       const raw = ev.data[String(port === 'left' ? c.leftKey : c.rightKey)] ?? null;
       // NULL keys never match (SQL equi-join): a left row with one waits alone, for padding.
       const k = raw === null ? `\u0000null${nulls++}` : String(raw);
-      x.keyed(String(raw));
+      x.keyed(raw === null ? NULL_KEY : String(raw)); // a NULL key is not the text "null"
       if (port === 'left') {
         const rec = { ev, matched: false };
         for (const r of right.get(k) ?? [])
@@ -701,7 +702,7 @@ function operator(
             // FLINK: a record for a window already ranked is late and dropped (numLateRecordsDropped).
             if (end - 1 <= wm) return;
             const k = `${end}|${keyOf(ev.data, parts)}`;
-            x.keyed(keyOf(ev.data, parts));
+            x.keyed(parts.length ? keyOf(ev.data, parts) : null);
             const b = buf.get(k) ?? { end, es: [] };
             b.es.push(ev);
             buf.set(k, b);
@@ -724,7 +725,7 @@ function operator(
       return {
         process: (_p, ev) => {
           const k = keyOf(ev.data, parts);
-          x.keyed(k);
+          x.keyed(parts.length ? k : null);
           const next = sorted([...(top.get(k) ?? []), ev]).slice(0, Number(c.n));
           top.set(k, next);
           const i = next.indexOf(ev);
@@ -794,6 +795,10 @@ function operator(
       return { process: (_p, ev) => x.emit('main', ev) };
   }
 }
+
+/** ENG-03 display keys: a NULL key, and all events of an operator that is not keyed. */
+export const NULL_KEY = '∅';
+export const ALL_KEYS = '(all events)';
 
 /* ---------------- run ---------------- */
 
@@ -952,6 +957,7 @@ export function createRun(g: Graph, opts: RunOptions = {}): Run {
   };
   // SIM-RUNTIME-EXPR dead letter: the enabled Dead-letter node this node feeds, else the first enabled one.
   const routing = new Map<string, Map<string, number>>(); // keyed node → events per key (ENG-03)
+  let statsCalls = 0;
   const dlqIds = new Set(order.filter((n) => n.type === 'Dead-letter' && !n.disabled).map((n) => n.id));
   const deadLetterFor = (id: string) =>
     (out.get(id) ?? []).find((e) => dlqIds.has(e.target))?.target ?? [...dlqIds][0];
@@ -982,8 +988,9 @@ export function createRun(g: Graph, opts: RunOptions = {}): Run {
       now: () => stats.now,
       keyed: (key) => {
         if (!st.subtasks) return;
-        st.subtasks[subtaskOf(key, parallelism)]!++;
-        keyCounts.set(key, (keyCounts.get(key) ?? 0) + 1);
+        st.subtasks[key === null ? 0 : subtaskOf(key, parallelism)]!++;
+        const k = key ?? ALL_KEYS;
+        keyCounts.set(k, (keyCounts.get(k) ?? 0) + 1);
       },
     };
     if (t === 'Sink' || t === 'Dead-letter') {
@@ -1144,16 +1151,25 @@ export function createRun(g: Graph, opts: RunOptions = {}): Run {
     tapped: () => tapped,
     snapshot: (id) => ops.get(id)?.snapshot?.(),
     stats: () => {
-      for (const [id, counts] of routing)
-        ns(id).keyRouting = [...counts]
-          .sort((a, b) => b[1] - a[1] || (a[0] < b[0] ? -1 : 1))
-          .slice(0, 50)
-          .map(([key, events]) => ({
+      // The busiest keys, about once a second (every 10th call) and at the end: one pass keeping the top 50,
+      // not a sort of every key on every 100 ms tick.
+      if (statsCalls++ % 10 === 0 || stats.done)
+        for (const [id, counts] of routing) {
+          const top: [string, number][] = [];
+          for (const e of counts) {
+            if (top.length === 50 && e[1] <= top[49]![1]) continue;
+            let at = top.findIndex((t) => e[1] > t[1] || (e[1] === t[1] && e[0] < t[0]));
+            if (at < 0) at = top.length;
+            top.splice(at, 0, e);
+            if (top.length > 50) top.pop();
+          }
+          ns(id).keyRouting = top.map(([key, events]) => ({
             key,
-            keyGroup: keyGroupOf(key),
-            subtask: subtaskOf(key, parallelism),
+            keyGroup: key === ALL_KEYS ? -1 : keyGroupOf(key),
+            subtask: key === ALL_KEYS ? 0 : subtaskOf(key, parallelism),
             events,
           }));
+        }
       for (const [id, op] of ops) if (op.keys) ns(id).keys = op.keys();
       return stats;
     },

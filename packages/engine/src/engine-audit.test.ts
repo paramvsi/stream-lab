@@ -512,3 +512,58 @@ describe('storage audit · chaos', () => {
     expect(r.stats().nodes['w']!.late).toBe(0);
   });
 });
+
+describe('inspector audit', () => {
+  it('#7 a window with no key runs on one subtask; a NULL join key shows as ∅, apart from the text "null"', () => {
+    const g: Graph = {
+      nodes: [
+        node('s', 'Source', { schema: SCHEMA, outOfOrdernessMs: 0 }),
+        node('w', 'Window', { sizeMs: 60000, keyBy: [] }),
+        node('out', 'Sink'),
+      ],
+      edges: [edge('s', 'w'), edge('w', 'out')],
+    };
+    const r = createRun(g, { sourceData: { s: Array.from({ length: 20 }, (_, i) => row(i, `c_${i}`)) } });
+    r.advance(Infinity);
+    expect(r.stats().nodes['w']!.subtasks!.filter((x) => x > 0)).toHaveLength(1);
+    const j: Graph = {
+      nodes: [
+        node('l', 'Source', { schema: SCHEMA, outOfOrdernessMs: 0 }),
+        node('r', 'Source', { schema: SCHEMA, outOfOrdernessMs: 0 }),
+        node('j', 'Join', {
+          kind: 'inner',
+          leftKey: 'card_id',
+          rightKey: 'card_id',
+          lowerMs: -60000,
+          upperMs: 60000,
+        }),
+        node('out', 'Sink'),
+      ],
+      edges: [edge('l', 'j', 'main', 'left'), edge('r', 'j', 'main', 'right'), edge('j', 'out')],
+    };
+    const rj = createRun(j, { sourceData: { l: [row(0, null), row(1, 'null')], r: [row(2, 'c_9')] } });
+    rj.advance(Infinity);
+    const keys = rj
+      .stats()
+      .nodes['j']!.keyRouting!.map((k) => k.key)
+      .sort();
+    expect(keys).toEqual(['c_9', 'null', '∅']);
+  });
+  it('#8 only the 50 busiest keys are listed (the cut-off is exercised)', () => {
+    const g: Graph = {
+      nodes: [
+        node('gen', 'Generator', { count: 600 }),
+        node('d', 'Deduplicate', { key: ['payment_id'] }),
+        node('out', 'Sink'),
+      ],
+      edges: [edge('gen', 'd'), edge('d', 'out')],
+    };
+    const r = createRun(g);
+    r.advance(Infinity);
+    const k = r.stats().nodes['d']!.keyRouting!;
+    expect(k).toHaveLength(50);
+    expect(k.reduce((a, x) => a + x.events, 0)).toBeLessThan(
+      r.stats().nodes['d']!.subtasks!.reduce((a, b) => a + b, 0),
+    );
+  });
+});

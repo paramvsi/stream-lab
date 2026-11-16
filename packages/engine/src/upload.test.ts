@@ -193,3 +193,13 @@ describe('storage audit · JSON', () => {
     });
   });
 });
+
+describe('inspector audit · upload', () => {
+  it('#5 a .json holding JSON Lines, cut at the limit, drops its partial last line quietly', async () => {
+    const { parseJson } = await import('./upload');
+    expect(parseJson('{"a":1}\n{"a":2}\n{"a":3,"b":"x', true)).toMatchObject({
+      rows: [{ a: 1 }, { a: 2 }],
+      bad: [],
+    });
+  });
+});

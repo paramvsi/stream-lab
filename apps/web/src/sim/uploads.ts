@@ -113,14 +113,22 @@ async function uploadsRoot() {
 
 /** Deleting a pipeline marks its uploads; they are freed by purgeDeletedUploads after the grace period. */
 export async function deleteUploads(pipelineId: string): Promise<void> {
+  let d: FileSystemDirectoryHandle;
   try {
-    const f = await (await dir(pipelineId, false)).getFileHandle(DELETED, { create: true });
+    d = await dir(pipelineId, false);
+  } catch {
+    return; // no uploads for this pipeline: nothing to mark
+  }
+  try {
+    const f = await d.getFileHandle(DELETED, { create: true });
     const w = await f.createWritable();
     await w.write(String(Date.now()));
     await w.close();
   } catch {
-    // No uploads for it, or the marker can't be written (storage full). Either way the rows stay for now, so Undo
-    // and another tab's "Keep a copy" still work; purgeDeletedUploads marks them later as orphans.
+    // The marker can't be written (storage full). The rows stay, so Undo and another tab's "Keep a copy" still
+    // work; an empty marker would read as "deleted long ago", so it is removed. purgeDeletedUploads marks the
+    // rows later as orphans.
+    await d.removeEntry(DELETED).catch(() => undefined); // never created, or already gone
   }
 }
 
@@ -134,11 +142,23 @@ export async function restoreUploads(pipelineId: string): Promise<void> {
 }
 
 /** Frees uploads deleted longer ago than the grace period (called when My pipelines opens). */
-export async function purgeDeletedUploads(
-  /** Pipelines that exist: rows of any other pipeline are orphans (their delete could not mark them). */
+let purging: Promise<void> | null = null;
+/**
+ * Frees uploads deleted longer ago than the grace period; marks orphans (rows of pipelines that no longer exist,
+ * when their delete could not mark them); unmarks rows of a pipeline that exists again. One pass at a time.
+ */
+export function purgeDeletedUploads(
+  /** Pipelines that exist now. */
   existing: Set<string>,
   now = Date.now(),
 ): Promise<void> {
+  purging ??= purgePass(existing, now).finally(() => {
+    purging = null;
+  });
+  return purging;
+}
+
+async function purgePass(existing: Set<string>, now: number): Promise<void> {
   let root: FileSystemDirectoryHandle;
   try {
     root = await uploadsRoot();
@@ -148,17 +168,35 @@ export async function purgeDeletedUploads(
   const entries = (root as unknown as { entries(): AsyncIterable<[string, FileSystemHandle]> }).entries();
   for await (const [name, h] of entries) {
     if (h.kind !== 'directory') continue;
-    let at: number;
+    const d = h as FileSystemDirectoryHandle;
+    let at = NaN;
     try {
-      at = Number(
-        await (await (await (h as FileSystemDirectoryHandle).getFileHandle(DELETED)).getFile()).text(),
-      );
+      at = Number(await (await (await d.getFileHandle(DELETED)).getFile()).text());
     } catch {
-      // Not marked. A pipeline that no longer exists gets its grace period now; a live one is kept.
-      if (!existing.has(name)) await deleteUploads(name);
-      continue;
+      // not marked
     }
-    if (now - at >= UPLOAD_GRACE_MS) await root.removeEntry(name, { recursive: true });
+    try {
+      if (existing.has(name)) {
+        // Marked but the pipeline exists (Undo, or a copy saved after a stale list): keep its rows.
+        if (!Number.isNaN(at)) await d.removeEntry(DELETED);
+        continue;
+      }
+      if (Number.isFinite(at) && at > 0) {
+        if (now - at >= UPLOAD_GRACE_MS) await root.removeEntry(name, { recursive: true });
+        continue;
+      }
+      // Unmarked rows of a pipeline that does not exist. Only rows untouched for the grace period are orphans:
+      // a Duplicate or "Keep a copy" writes its rows before saving the pipeline, so fresh rows are left alone.
+      let newest = 0;
+      for await (const [, f] of (
+        d as unknown as { entries(): AsyncIterable<[string, FileSystemHandle]> }
+      ).entries())
+        if (f.kind === 'file')
+          newest = Math.max(newest, (await (f as FileSystemFileHandle).getFile()).lastModified);
+      if (now - newest >= UPLOAD_GRACE_MS) await deleteUploads(name);
+    } catch {
+      // Another tab holds this folder: leave it for the next pass (housekeeping only, nothing the user asked for).
+    }
   }
 }
 

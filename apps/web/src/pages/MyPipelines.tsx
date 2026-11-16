@@ -378,12 +378,20 @@ export function MyPipelines() {
                   setFreeingBusy(true);
                   const m = freeing;
                   try {
-                    // The pipeline stops claiming the rows first; then they are freed.
-                    const p = await getPipeline(m.id);
+                    // The pipeline stops claiming the rows first; then they are freed. If freeing fails, the
+                    // pipeline claims them again (nothing changed for the user but the banner).
+                    let p: Awaited<ReturnType<typeof getPipeline>>;
+                    try {
+                      p = await getPipeline(m.id);
+                    } catch (e) {
+                      if (!(e instanceof AppError)) throw e;
+                      return setStoreError(e);
+                    }
                     if (p && !(await save({ ...p, data: { ...p.data, uploads: {} } }))) return;
                     try {
                       await removeUploads(m.id);
                     } catch (e) {
+                      if (p) await save(p);
                       const reason =
                         (e as { name?: string })?.name === 'NoModificationAllowedError'
                           ? 'another tab is using it'

@@ -144,7 +144,7 @@ export const lastCompleteLine = (text: string) => text.slice(0, text.lastIndexOf
  */
 export function parseJson(text: string, cut = false): Parsed {
   const start = text.search(/\S/);
-  if (start < 0 || text[start] !== '[') return parseJsonl(text);
+  if (start < 0 || text[start] !== '[') return parseJsonl(cut ? lastCompleteLine(text) : text); // JSON Lines in a .json
   const rows: Parsed['rows'] = [];
   const lines: number[] = [];
   const bad: BadRow[] = [];

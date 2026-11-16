@@ -19,10 +19,8 @@ export function StageInspector({ nodeId }: { nodeId: string }) {
     <section aria-label="Subtasks" className="flex flex-col gap-2 border-t border-line pt-4">
       <h3 className="m-0 text-[13px] font-semibold">Subtasks in this run</h3>
       <p className="m-0 text-[13px] text-muted">
-        {p} subtasks share {MAX_PARALLELISM} key groups: subtask <i>s</i> owns groups{' '}
-        <span className="font-mono">s × {MAX_PARALLELISM / p}</span> to{' '}
-        <span className="font-mono">(s + 1) × {MAX_PARALLELISM / p} − 1</span>. A key always lands on the same
-        one.
+        {p} subtasks share {MAX_PARALLELISM} key groups; each owns the range shown. A key always lands on the
+        same subtask.
       </p>
       <Table
         dense
@@ -31,6 +29,14 @@ export function StageInspector({ nodeId }: { nodeId: string }) {
         rowKey={(r) => r.i}
         columns={[
           { key: 'sub', header: 'Subtask', mono: true, render: (r) => r.i },
+          // FLINK: KeyGroupRangeAssignment — subtask s owns groups ⌈s·128/p⌉ … ⌈(s+1)·128/p⌉ − 1.
+          {
+            key: 'groups',
+            header: 'Key groups',
+            mono: true,
+            render: (r) =>
+              `${Math.ceil((r.i * MAX_PARALLELISM) / p)}–${Math.ceil(((r.i + 1) * MAX_PARALLELISM) / p) - 1}`,
+          },
           { key: 'events', header: 'Events', mono: true, align: 'right', render: (r) => n(r.events) },
           {
             key: 'share',
@@ -49,8 +55,15 @@ export function StageInspector({ nodeId }: { nodeId: string }) {
           rows={keys}
           rowKey={(r) => r.key}
           columns={[
-            { key: 'key', header: 'Key', mono: true, render: (r) => r.key || '∅' },
-            { key: 'group', header: 'Key group', mono: true, align: 'right', render: (r) => r.keyGroup },
+            // An empty value shows as "" (∅ is a NULL key; "(all events)" an operator that is not keyed).
+            { key: 'key', header: 'Key', mono: true, render: (r) => (r.key === '' ? '""' : r.key) },
+            {
+              key: 'group',
+              header: 'Key group',
+              mono: true,
+              align: 'right',
+              render: (r) => (r.keyGroup < 0 ? '—' : r.keyGroup),
+            },
             { key: 'sub', header: 'Subtask', mono: true, align: 'right', render: (r) => r.subtask },
             { key: 'events', header: 'Events', mono: true, align: 'right', render: (r) => n(r.events) },
           ]}

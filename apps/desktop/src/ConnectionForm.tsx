@@ -208,7 +208,8 @@ export function ConnectionForm({
         e instanceof AppError ? e : new AppError('CONN-IO', { host, reason: 'the test could not run' }, e);
       // The check that was running failed (named, as boards D02f/C04 do); the ones after it never ran.
       setResults((r) => {
-        const failedAt = STEPS.find((x) => !r?.[x.id])?.id;
+        // Only once a check has run: a test that could not start names no check (it was not a lookup failure).
+        const failedAt = r && Object.keys(r).length ? STEPS.find((x) => !r[x.id])?.id : undefined;
         return Object.fromEntries(
           STEPS.map((x) => [
             x.id,

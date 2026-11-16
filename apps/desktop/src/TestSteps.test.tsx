@@ -295,6 +295,21 @@ describe('audit of e92f1b3', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Test connection' }));
     const msg = await steps().findByText(/rejected the token/);
     const banner = msg.closest('[role="alert"], [role="status"]')!.parentElement!;
-    expect(banner.querySelector('.shrink-0.items-center.gap-2')).toBeNull();
+    expect(banner.querySelector('[data-slot="actions"]')).toBeNull();
+  });
+});
+
+describe('audit of 4da3ee5', () => {
+  it('a test that could not start names no check: every row says Skipped', async () => {
+    app(() => {
+      throw new TypeError('no transport');
+    });
+    await toForm();
+    await userEvent.type(screen.getByLabelText(/^Name/), 'local-docker');
+    await userEvent.type(screen.getByLabelText(/JobManager REST URL/), 'http://localhost:8081');
+    await userEvent.click(screen.getByRole('button', { name: 'Test connection' }));
+    await steps().findByText(/the test could not run/);
+    expect(steps().queryByText(/· Failed/)).toBeNull();
+    expect(steps().getAllByText(/· Skipped/)).toHaveLength(7);
   });
 });

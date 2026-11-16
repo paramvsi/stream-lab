@@ -35,7 +35,11 @@ export function Banner({ severity, children, actions, onDismiss, className = '' 
         )}
       </span>
       {/* Held back with the message: the region must be inserted empty to be announced. */}
-      {filled && actions && <div className="flex shrink-0 items-center gap-2">{actions}</div>}
+      {filled && actions && (
+        <div data-slot="actions" className="flex shrink-0 items-center gap-2">
+          {actions}
+        </div>
+      )}
       {filled && severity === 'info' && onDismiss && (
         <IconButton aria-label="Dismiss" size="sm" bordered={false} onClick={onDismiss}>
           <X size={16} aria-hidden="true" />

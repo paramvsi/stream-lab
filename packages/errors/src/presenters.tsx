@@ -172,7 +172,9 @@ export function ErrorPage({
       icon={icon}
       severity={p.severity}
       title={p.title}
-      actions={p.actions.length ? <Actions p={p} e={error} onAction={onAction} max={3} /> : undefined}
+      actions={
+        shown(p, onAction).length ? <Actions p={p} e={error} onAction={onAction} max={3} /> : undefined
+      }
     >
       {p.body}
     </EmptyState>

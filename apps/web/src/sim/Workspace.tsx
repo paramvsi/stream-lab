@@ -76,7 +76,8 @@ import { RunPanel, useBottomDrawer } from './RunPanel';
 import { RunPill } from './RunPill';
 import { historyEntries, useGraph, type ConnectFrom } from './store';
 import { ConnectionHint, EdgeActions, setHoveredEdge, StreamEdge, type SlEdge } from './StreamEdge';
-import { REF_CTX } from './refTables';
+import { refCtx, useRefTables } from './refTables';
+import { listRefTables } from '../storage';
 
 const nodeTypes = { sl: NodeCard };
 export const LARGE_GRAPH = 150;
@@ -93,7 +94,7 @@ function attachable(type: NodeType, from: ConnectFrom): boolean {
     ? { source: fresh.id, sourceHandle: port, target: from.nodeId, targetHandle: from.handleId }
     : { source: from.nodeId, sourceHandle: from.handleId, target: fresh.id, targetHandle: port };
   try {
-    return !connectionIssue({ nodes: [...nodes, fresh], edges }, c, REF_CTX);
+    return !connectionIssue({ nodes: [...nodes, fresh], edges }, c, refCtx());
   } catch {
     return false;
   }
@@ -189,11 +190,24 @@ function Canvas() {
   }, [large, toast]);
   const layout = useAutoLayout();
 
+  // DATA-03: imported reference tables, loaded once per workspace; checks and runs see them.
+  const tables = useRefTables((s) => s.user);
+  useEffect(() => {
+    listRefTables().then(
+      (ts) => useRefTables.setState({ user: Object.fromEntries(ts.map((t) => [t.name, t])) }),
+      (e: unknown) => {
+        if (!(e instanceof AppError)) throw e;
+        const p = present(e); // STORE-BLOCKED: the built-in tables still work
+        toast({ severity: p.severity, message: p.message });
+      },
+    );
+  }, [toast]);
+
   // SIM-14: validation on every change (NODES.md: debounced 150 ms).
   useEffect(() => {
-    const t = setTimeout(() => setIssues(validate({ nodes, edges }, REF_CTX)), 150);
+    const t = setTimeout(() => setIssues(validate({ nodes, edges }, refCtx())), 150);
     return () => clearTimeout(t);
-  }, [nodes, edges]);
+  }, [nodes, edges, tables]);
 
   // SIMULATOR.md: no re-render storms. Schemas depend on structure, not positions: recompute only when the
   // structure changes (not on every drag frame), and keep each edge's `data` object while its schema is equal.
@@ -201,7 +215,7 @@ function Canvas() {
   // `nodes` is left out on purpose: positions change every drag frame and never affect schemas; structKey
   // captures everything that does.
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  const schemas = useMemo(() => propagate({ nodes, edges }, REF_CTX), [structKey, edges]);
+  const schemas = useMemo(() => propagate({ nodes, edges }, refCtx()), [structKey, edges, tables]);
   const rfNodes = useMemo<SlNode[]>(
     () =>
       nodes.map((n) => ({
@@ -292,7 +306,7 @@ function Canvas() {
             sourceHandle: c.sourceHandle ?? 'main',
             targetHandle: c.targetHandle ?? 'main',
           },
-          REF_CTX,
+          refCtx(),
         );
       } catch {
         return false;

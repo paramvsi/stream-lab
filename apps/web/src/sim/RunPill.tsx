@@ -8,7 +8,7 @@ import { useIssues } from './issues';
 import { dispose, runner, SPEEDS, useRun } from './run';
 import { useDataDrawer } from './DataDrawer';
 import { useGraph } from './store';
-import { REF_CTX } from './refTables';
+import { refCtx } from './refTables';
 
 const time = (ms: number) => new Date(ms).toISOString().slice(11, 19);
 const n = (x: number) => x.toLocaleString('en-US');
@@ -79,7 +79,7 @@ export function RunPill() {
     const runAgain = async () => {
       if (await runner.play()) return;
       const g = useGraph.getState();
-      const b = runBlocker(validate({ nodes: g.nodes, edges: g.edges }, REF_CTX));
+      const b = runBlocker(validate({ nodes: g.nodes, edges: g.edges }, refCtx()));
       if (!b) return;
       const p = present(new AppError(b.code, b.params));
       toast({ severity: p.severity, message: p.message });
@@ -87,7 +87,7 @@ export function RunPill() {
     // Run again only when the changed pipeline can run (SIM-RUN-BLOCKED otherwise). Checked on the graph now:
     // the issues store updates after a short debounce.
     const { nodes, edges } = useGraph.getState();
-    const canRun = !runBlocker(validate({ nodes, edges }, REF_CTX));
+    const canRun = !runBlocker(validate({ nodes, edges }, refCtx()));
     const p = present(new AppError('SIM-RUN-CHANGED'));
     toast({
       severity: p.severity,

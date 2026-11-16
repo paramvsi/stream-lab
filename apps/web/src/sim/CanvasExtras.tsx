@@ -6,7 +6,7 @@ import { DropdownMenu } from 'radix-ui';
 import { createContext, useCallback, useContext, useState, type ReactNode } from 'react';
 import { autoLayout } from './geometry';
 import { useGraph } from './store';
-import { REF_CTX } from './refTables';
+import { refCtx } from './refTables';
 
 /* ---------- actions shared by the toolbar, the context menus and the shortcuts ---------- */
 
@@ -121,7 +121,7 @@ export function ConnectPicker({ fromId, onClose }: { fromId: string; onClose: ()
         const issue = connectionIssue(
           { nodes, edges },
           { source: fromId, sourceHandle: port, target: n.id, targetHandle: p.id },
-          REF_CTX,
+          refCtx(),
         );
         return { n, p, reason: issue ? present(new AppError(issue.code, issue.params)).message : undefined };
       }),

@@ -12,7 +12,7 @@ import {
 } from '@sl/graph';
 import { useGraph, type PipelineData } from './store';
 import { loadRows } from './uploads';
-import { REF_CTX } from './refTables';
+import { refCtx, useRefTables } from './refTables';
 
 /**
  * Run store (ARCHITECTURE: separate from the graph store, not in undo history) and the Worker client.
@@ -167,7 +167,12 @@ async function load() {
     type: 'load',
     graph: { nodes, edges },
     // The same settings the Data drawer shows (invalid stored values fall back field by field).
-    opts: { seed, sourceData, generator: effectiveGenerator(data.generator, seed) },
+    opts: {
+      seed,
+      sourceData,
+      generator: effectiveGenerator(data.generator, seed),
+      refTables: useRefTables.getState().user, // DATA-03 imported tables
+    },
   });
   connect().postMessage({ type: 'speed', speed: useRun.getState().speed });
   loaded = true;
@@ -178,7 +183,7 @@ async function load() {
 /** SIM-RUN-BLOCKED: a pipeline with errors does not run, from any button (pill or toast). */
 const blocked = () => {
   const { nodes, edges } = useGraph.getState();
-  return runBlocker(validate({ nodes, edges }, REF_CTX)) !== null; // the graph now, not the debounced issues store
+  return runBlocker(validate({ nodes, edges }, refCtx())) !== null; // the graph now, not the debounced issues store
 };
 
 // A change to the pipeline during a run: pause, and start over on the next Run.

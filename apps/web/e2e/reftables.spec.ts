@@ -94,3 +94,57 @@ test('tables audit 2: the Data drawer never opens by itself on another pipeline'
   await expect(page.locator('.react-flow__node').first()).toBeVisible();
   expect(await page.getByRole('dialog', { name: 'Data' }).count()).toBe(0);
 });
+
+test('DATA-03 an imported table (IndexedDB refTables) is seen by checks, the preview and the run', async ({
+  page,
+}) => {
+  await openBlank(page);
+  await page.evaluate(async () => {
+    const s = await import('/src/storage.ts');
+    const r = await import('/src/sim/refTables.ts');
+    const ids = [...new Set(r.allTables()['merchants']!.rows.map((x) => String(x['merchant_id'])))];
+    await s.saveRefTable({
+      name: 'merchant_flags',
+      key: 'merchant_id',
+      description: 'Imported: merchants under watch',
+      columns: [
+        { name: 'merchant_id', type: 'string', required: true },
+        { name: 'flag', type: 'string', required: true },
+      ],
+      rows: ids.map((id) => ({ merchant_id: id, flag: 'watch' })),
+    } as never);
+  });
+  await openBlank(page); // a workspace opened after the import loads it
+  await page.evaluate(async () => {
+    const m = await import('/src/sim/store.ts');
+    const g = m.useGraph.getState();
+    const gen = g.addNode('Generator', { x: 0, y: 0 });
+    const l = g.addNode('Lookup', { x: 260, y: 0 }, { nodeId: gen, handleId: 'main' });
+    g.updateConfig(l, {
+      table: 'merchant_flags',
+      key: 'merchant_id',
+      tableKey: 'merchant_id',
+      asOf: false,
+      onMiss: 'pass',
+    });
+    g.addNode('Sink', { x: 520, y: 0 }, { nodeId: l, handleId: 'main' });
+  });
+  const panel = page.getByRole('region', { name: 'Run panel' });
+  await page.waitForTimeout(400); // validation debounce
+  await expect(panel).not.toContainText('Reference table "merchant_flags" is empty or missing');
+  await page.locator('.react-flow__node').filter({ hasText: 'LOOKUP' }).focus();
+  await page.keyboard.press('Enter');
+  const d = page.getByRole('dialog', { name: 'Lookup settings' });
+  await d.getByRole('tab', { name: 'Output preview' }).click();
+  await expect(d.getByRole('table', { name: 'Events after the node' }).locator('tbody')).toContainText(
+    'watch',
+  );
+  await page.keyboard.press('Escape');
+  await page.getByText('10×', { exact: true }).click();
+  await page.locator('.react-flow__panel.top').getByRole('button', { name: 'Run', exact: true }).click();
+  await expect(page.locator('.react-flow__panel.top [data-run-label]')).toHaveText(/^Finished/, {
+    timeout: 20000,
+  });
+  await panel.getByRole('tab', { name: 'Output' }).click();
+  await expect(panel.getByRole('table', { name: /^Output of / })).toContainText('watch');
+});

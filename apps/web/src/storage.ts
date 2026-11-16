@@ -1,11 +1,12 @@
 import { AppError } from '@sl/errors';
+import type { BuiltinTable } from '@sl/engine';
 import type { Pipeline } from '@sl/graph';
 import { openDB, type IDBPDatabase } from 'idb';
 import { deleteUploads } from './sim/uploads';
 
 /** ARCHITECTURE.md § Website data flow: IndexedDB `pipelines` (versioned JSON), BroadcastChannel `streamlab`. */
 const DB = 'streamlab';
-const VERSION = 1;
+const VERSION = 2; // 2: the `refTables` store (DATA-03)
 
 let dbp: Promise<IDBPDatabase> | null = null;
 function db() {
@@ -15,6 +16,8 @@ function db() {
       openDB(DB, VERSION, {
         upgrade(d) {
           if (!d.objectStoreNames.contains('pipelines')) d.createObjectStore('pipelines', { keyPath: 'id' });
+          if (!d.objectStoreNames.contains('refTables'))
+            d.createObjectStore('refTables', { keyPath: 'name' });
         },
       }),
     )
@@ -156,4 +159,26 @@ export async function _resetForTests() {
   const p = dbp;
   dbp = null;
   (await p?.catch(() => null))?.close();
+}
+
+/**
+ * DATA-03: imported reference tables (ARCHITECTURE: IndexedDB `refTables`), shared by every pipeline in this
+ * browser. Throws STORE-* on failure (the caller keeps the form's content and says so).
+ */
+export async function listRefTables(): Promise<BuiltinTable[]> {
+  return (await (await db()).getAll('refTables')) as BuiltinTable[];
+}
+export async function saveRefTable(t: BuiltinTable): Promise<void> {
+  try {
+    await (await db()).put('refTables', t);
+  } catch (e) {
+    throw await storeError(e);
+  }
+}
+export async function deleteRefTable(name: string): Promise<void> {
+  try {
+    await (await db()).delete('refTables', name);
+  } catch (e) {
+    throw await storeError(e);
+  }
 }

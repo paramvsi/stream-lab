@@ -5,6 +5,7 @@ import { Cable } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { uploadedRows } from '../run';
 import { useGraph } from '../store';
+import { useRefTables } from '../refTables';
 
 const ISO = /^\d{4}-\d{2}-\d{2}T(\d{2}:\d{2}:\d{2})(\.\d+)?Z$/;
 const cell = (v: Event[string]) =>
@@ -76,6 +77,7 @@ export function PreviewPanel({
   const node = nodes.find((n) => n.id === nodeId);
   // ponytail: recomputed per render (audit 3 measured 0.5–2 ms for a 20-node chain); memoize if it grows.
   const seed = useGraph((s) => s.seed);
+  const refTables = useRefTables((s) => s.user);
   const stored = useGraph((s) => s.data.generator);
   const uploads = useGraph((s) => s.data.uploads);
   const pipelineId = useGraph((s) => s.pipelineId);
@@ -93,6 +95,7 @@ export function PreviewPanel({
     seed,
     generator: effectiveGenerator(stored, seed),
     sourceData,
+    refTables,
   });
   if (!node || !p) return null;
   const s = spec(node.type);

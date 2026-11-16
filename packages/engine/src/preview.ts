@@ -23,7 +23,7 @@ export function runToHere(
   nodeId: string,
   n = 5,
   // The pipeline's seed and Data-drawer generator, so the preview shows what a run would (DATA-01).
-  data: Pick<RunOptions, 'seed' | 'generator' | 'sourceData'> = {},
+  data: Pick<RunOptions, 'seed' | 'generator' | 'sourceData' | 'refTables'> = {},
 ): Preview | null {
   if (!g.nodes.some((x) => x.id === nodeId)) return null;
   const run = createRun(g, { sample: n, tap: nodeId, holdFinalWatermark: true, seed: 42, ...data });

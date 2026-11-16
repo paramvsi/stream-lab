@@ -14,7 +14,7 @@ export interface PipelineData {
   uploads?: Record<string, { file: string; rows: number }>;
 }
 import { create } from 'zustand';
-import { REF_CTX } from './refTables';
+import { refCtx } from './refTables';
 
 /** What undo/redo restores (SIMULATOR.md: nodes without selection/drag state, edges, config). */
 interface Snapshot {
@@ -157,7 +157,7 @@ export const useGraph = create<GraphState>()(
               ? { source: n.id, sourceHandle: port, target: from.nodeId, targetHandle: from.handleId }
               : { source: from.nodeId, sourceHandle: from.handleId, target: n.id, targetHandle: port };
             // Same rules as a drag (SIM-PORT-TAKEN, SIM-PORT-TYPE…): if refused, the node is added unconnected.
-            if (!connectionIssue({ nodes: [...get().nodes, n], edges }, e, REF_CTX))
+            if (!connectionIssue({ nodes: [...get().nodes, n], edges }, e, refCtx()))
               edges.push({ id: edgeId(e), ...e });
           }
         }
@@ -312,7 +312,7 @@ export const useGraph = create<GraphState>()(
         const edges: PipelineEdge[] = [];
         for (const e of r.edges) {
           if (!ids.has(e.source) || !ids.has(e.target) || known.has(e.id)) continue;
-          if (!connectionIssue({ nodes: allNodes, edges: [...get().edges, ...edges] }, e, REF_CTX))
+          if (!connectionIssue({ nodes: allNodes, edges: [...get().edges, ...edges] }, e, refCtx()))
             edges.push(e);
         }
         if (!nodes.length && !edges.length) return;

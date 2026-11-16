@@ -112,7 +112,7 @@ test('SIM-21 run panel: Timeline while running, Output opens when finished, Prob
   await panel.getByRole('tab', { name: 'Timeline' }).click();
   await expect(panel).toContainText(/\d+ window fires · \d+ late events/);
   await panel.getByRole('tab', { name: 'Trace' }).click();
-  await expect(panel).toContainText('Tracing an event is not available yet');
+  await expect(panel).toContainText('Pick an output row to trace it'); // EXPL-03: Trace is built
   await page.screenshot({ path: `test-results/shots/${test.info().project.name}-W09k-finished.png` });
   expect(errors.filter((e) => /Maximum update depth|getSnapshot/.test(e))).toEqual([]);
   await page.waitForFunction(() => document.getAnimations().every((a) => a.playState !== 'running'));

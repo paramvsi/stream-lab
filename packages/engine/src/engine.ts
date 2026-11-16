@@ -28,6 +28,9 @@ export interface SimEvent {
   data: Event;
   /** Why it went to a side output / dead letter. */
   reason?: string;
+  /** EXPL-02 lineage (trace runs only): this event's id, and the events it came from when an operator says. */
+  id?: number;
+  parents?: number[];
 }
 
 export interface RefTable {
@@ -37,7 +40,28 @@ export interface RefTable {
   versioned?: boolean;
 }
 
+/** EXPL-02: one step of an event's path — which node emitted it, on which port, from which events. */
+export interface TraceHop {
+  id: number;
+  node: string;
+  port: string;
+  parents: number[];
+  ts: number;
+  data: Event;
+  reason?: string;
+  /** The emitting node's watermark at that moment, and the run's clock. */
+  watermark: number;
+  at: number;
+}
+export interface Trace {
+  hops: Map<number, TraceHop>;
+  /** Per Sink / Dead-letter, the id of each output row, in the order of stats().outputs. */
+  outputs: Record<string, number[]>;
+}
+
 export interface RunOptions {
+  /** EXPL-02 explain mode: record every event's lineage (costs memory; off for normal runs). */
+  trace?: boolean;
   /** Pipeline-level seed for sources that are not Generators. */
   seed?: number;
   /** The pipeline's data generator (Data drawer, DATA-01) for Sources with no uploaded rows. */
@@ -339,6 +363,8 @@ interface Win {
   acc: Acc[];
   keyData: Event;
   fired: boolean;
+  /** EXPL-02: ids of the events in the window (trace runs). */
+  members?: number[];
   /** Merged into another session or cleaned up: its pending timers are ignored. */
   dead: boolean;
 }
@@ -426,7 +452,7 @@ function windowOp(n: PipelineNode, x: Ctx): Operator {
                 : s.max;
     });
     // FLINK: a window result's timestamp is window.maxTimestamp() = end − 1.
-    return { ts: w.end - 1, data };
+    return { ts: w.end - 1, data, ...(w.members ? { parents: [...w.members] } : {}) };
   };
   const fire = (w: Win) => {
     w.fired = true;
@@ -477,6 +503,7 @@ function windowOp(n: PipelineNode, x: Ctx): Operator {
           };
           for (const m of merged) {
             combine(nw.acc, m.acc);
+            if (m.members) (nw.members ??= []).push(...m.members);
             m.dead = true;
             ws.delete(`${m.start}:${m.end}`);
           }
@@ -496,6 +523,7 @@ function windowOp(n: PipelineNode, x: Ctx): Operator {
           put(ws, w);
         }
         add(w.acc, ev.data);
+        if (ev.id !== undefined) (w.members ??= []).push(ev.id);
         // FLINK: EventTimeTrigger.onElement fires at once for a late-but-allowed element.
         if (end - 1 <= wm) fire(w);
       }
@@ -538,6 +566,7 @@ function joinOp(n: PipelineNode, x: Ctx, rightSchema: Schema): Operator {
   const right = new Map<string, SimEvent[]>();
   const rename = (k: string, l: Event) => (k in l ? `right_${k}` : k);
   const merge = (l: SimEvent, r: SimEvent): SimEvent => ({
+    ...(l.id !== undefined && r.id !== undefined ? { parents: [l.id, r.id] } : {}),
     // FLINK: interval join output timestamp = max(left, right).
     ts: Math.max(l.ts, r.ts),
     data: {
@@ -547,6 +576,7 @@ function joinOp(n: PipelineNode, x: Ctx, rightSchema: Schema): Operator {
   });
   // A left row with no match is padded with the right side's fields as NULL (join.ts output schema).
   const pad = (l: SimEvent): SimEvent => ({
+    ...(l.id !== undefined ? { parents: [l.id] } : {}),
     ts: l.ts,
     data: { ...l.data, ...Object.fromEntries(rightSchema.map((f) => [rename(f.name, l.data), null])) },
   });
@@ -736,7 +766,13 @@ function operator(
               if (b.end - 1 <= wm) {
                 sorted(b.es)
                   .slice(0, Number(c.n))
-                  .forEach((ev, i) => x.emit('main', { ts: b.end - 1, data: { ...ev.data, rank: i + 1 } }));
+                  .forEach((ev, i) =>
+                    x.emit('main', {
+                      ts: b.end - 1,
+                      data: { ...ev.data, rank: i + 1 },
+                      ...(ev.id !== undefined ? { parents: [ev.id] } : {}),
+                    }),
+                  );
                 buf.delete(k);
               }
           },
@@ -866,6 +902,8 @@ export interface Run {
   inject(c?: { late?: number; duplicates?: number; malformed?: number; stallMs?: number }): ChaosReport;
   /** Simulation time of the next arrival, or undefined at the end of input. */
   next(): number | undefined;
+  /** EXPL-02 lineage, when the run was made with `trace`; null otherwise. */
+  trace(): Trace | null;
 }
 
 export function createRun(g: Graph, opts: RunOptions = {}): Run {
@@ -962,7 +1000,32 @@ export function createRun(g: Graph, opts: RunOptions = {}): Run {
   // Operators
   const ops = new Map<string, Operator>();
   const wmOut = new Map<string, number>();
-  const deliver = (from: string, port: string, ev: SimEvent) => {
+  // EXPL-02 lineage: what is being processed now is the parent of what is emitted, unless the operator says.
+  const trace: Trace | null = opts.trace ? { hops: new Map(), outputs: {} } : null;
+  let nextId = 0;
+  let current: number[] = [];
+  const record = (node: string, port: string, ev: SimEvent): SimEvent => {
+    if (!trace) return ev;
+    const id = ++nextId;
+    const parents = ev.parents ?? current;
+    const st = ns(node);
+    trace.hops.set(id, {
+      id,
+      node,
+      port,
+      parents,
+      ts: ev.ts,
+      data: ev.data,
+      ...(ev.reason ? { reason: ev.reason } : {}),
+      watermark: st.watermark,
+      at: stats.now,
+    });
+    const { parents: _p, ...rest } = ev;
+    void _p;
+    return { ...rest, id };
+  };
+  const deliver = (from: string, port: string, raw: SimEvent) => {
+    const ev = record(from, port, raw);
     const st = ns(from);
     st.out[port] = (st.out[port] ?? 0) + 1;
     if (from === opts.tap) (tapped.output[port] ??= []).push(ev.data);
@@ -976,7 +1039,10 @@ export function createRun(g: Graph, opts: RunOptions = {}): Run {
   const receive = (id: string, port: string, ev: SimEvent, from: string) => {
     ns(id).in++;
     if (id === opts.tap) (tapped.input[port] ??= []).push(ev.data);
+    const before = current;
+    current = ev.id !== undefined ? [ev.id] : [];
     ops.get(id)?.process(port, ev, from);
+    current = before;
   };
   // SIM-RUNTIME-EXPR dead letter: the enabled Dead-letter node this node feeds, else the first enabled one.
   const routing = new Map<string, Map<string, number>>(); // keyed node → events per key (ENG-03)
@@ -1000,7 +1066,7 @@ export function createRun(g: Graph, opts: RunOptions = {}): Run {
         log({ kind: 'fail', node: n.id, at: stats.now, ts: ev.ts, watermark: st.watermark, reason });
         // SIM-RUNTIME-EXPR: "They were sent to Dead-letter" — every Dead-letter node receives the event.
         const d = deadLetterFor(n.id);
-        if (d) receive(d, 'main', { ...ev, reason }, n.id);
+        if (d) receive(d, 'main', record(n.id, 'dead-letter', { ...ev, reason }), n.id);
       },
       late: (ev) => {
         st.late++;
@@ -1018,11 +1084,14 @@ export function createRun(g: Graph, opts: RunOptions = {}): Run {
     };
     if (t === 'Sink' || t === 'Dead-letter') {
       const rows = (stats.outputs[n.id] = []) as Event[];
+      const ids = trace ? (trace.outputs[n.id] = [] as number[]) : null;
       const reasonField = t === 'Dead-letter' ? String(cfg(n).reasonField || 'reason') : '';
       ops.set(n.id, {
         process: (_p, ev) => {
-          if (rows.length < keep)
+          if (rows.length < keep) {
             rows.push(reasonField ? { ...ev.data, [reasonField]: ev.reason ?? null } : ev.data);
+            if (ids && ev.id !== undefined) ids.push(ev.id);
+          }
         },
       });
     } else if (spec(t).category !== 'Sources')
@@ -1111,6 +1180,7 @@ export function createRun(g: Graph, opts: RunOptions = {}): Run {
   return {
     step,
     next: () => arrivals[i]?.at,
+    trace: () => trace,
     inject: (c = {}) => {
       const lateN = c.late ?? 5;
       const dupN = c.duplicates ?? 5;

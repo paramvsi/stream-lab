@@ -723,3 +723,67 @@ describe('DATA-05 generator: key skew and fraud patterns', () => {
     expect(on).toBeGreaterThan(off + 20);
   });
 });
+
+describe('EXPL-02 lineage (explain mode only)', () => {
+  const g: Graph = {
+    nodes: [
+      node('s', 'Source', { schema: SCHEMA, outOfOrdernessMs: 0 }),
+      node('f', 'Filter', { expr: 'amount > 1.0' }),
+      node('w', 'Window', {
+        sizeMs: 60000,
+        keyBy: ['card_id'],
+        aggregates: [{ fn: 'count', field: '', as: 'n' }],
+      }),
+      node('out', 'Sink'),
+    ],
+    edges: [edge('s', 'f'), edge('f', 'w'), edge('w', 'out')],
+  };
+  const rows = [row(0, 'c1', 5), row(10, 'c1', 0.5), row(20, 'c1', 7), row(30, 'c2', 9)];
+  it('tracing does not change the run', () => {
+    const plain = createRun(g, { sourceData: { s: rows } });
+    const traced = createRun(g, { sourceData: { s: rows }, trace: true });
+    plain.advance(Infinity);
+    traced.advance(Infinity);
+    expect(traced.stats().outputs).toEqual(plain.stats().outputs);
+  });
+  it('an output row leads back through the window to the filtered source events', () => {
+    const r = createRun(g, { sourceData: { s: rows }, trace: true });
+    r.advance(Infinity);
+    const t = r.trace()!;
+    const c1 = t.outputs['out']!.findIndex((id) => t.hops.get(id)!.data['card_id'] === 'c1');
+    const win = t.hops.get(t.outputs['out']![c1]!)!; // the row is the window's output
+    expect(win.node).toBe('w');
+    expect(win.parents).toHaveLength(2); // 5 and 7; 0.5 was filtered out
+    const passed = win.parents.map((p) => t.hops.get(p)!);
+    expect(passed.map((h) => h.node)).toEqual(['f', 'f']);
+    expect(passed.map((h) => t.hops.get(h.parents[0]!)!.node)).toEqual(['s', 's']);
+    expect(passed.map((h) => h.data['amount'])).toEqual([5, 7]);
+  });
+  it('a join result has both sides as parents', () => {
+    const j: Graph = {
+      nodes: [
+        node('a', 'Source', { schema: SCHEMA, outOfOrdernessMs: 0 }),
+        node('b', 'Source', { schema: SCHEMA, outOfOrdernessMs: 0 }),
+        node('j', 'Join', {
+          kind: 'inner',
+          leftKey: 'card_id',
+          rightKey: 'card_id',
+          lowerMs: -60000,
+          upperMs: 60000,
+        }),
+        node('out', 'Sink'),
+      ],
+      edges: [edge('a', 'j', 'main', 'left'), edge('b', 'j', 'main', 'right'), edge('j', 'out')],
+    };
+    const r = createRun(j, { sourceData: { a: [row(0, 'c1', 5)], b: [row(10, 'c1', 7)] }, trace: true });
+    r.advance(Infinity);
+    const t = r.trace()!;
+    const hop = t.hops.get(t.outputs['out']![0]!)!;
+    expect(hop.parents.map((p) => t.hops.get(p)!.node).sort()).toEqual(['a', 'b']);
+  });
+  it('no trace unless asked', () => {
+    const r = createRun(g, { sourceData: { s: rows } });
+    r.advance(Infinity);
+    expect(r.trace()).toBeNull();
+  });
+});

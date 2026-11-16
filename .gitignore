@@ -8,3 +8,9 @@ coverage
 context/*.zip
 test-results
 playwright-report
+
+# Handover and working notes: kept locally, not part of what builds and deploys.
+/context/
+/CLAUDE.md
+/MORNING.md
+/STATUS.md

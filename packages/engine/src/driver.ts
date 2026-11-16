@@ -4,7 +4,8 @@ import type { Graph } from '@sl/graph';
 export type RunState = 'ready' | 'running' | 'paused' | 'finished' | 'crashed';
 
 export type DriverMessage =
-  | { type: 'stats'; state: RunState; speed: number; stats: RunStats }
+  /** duration: the clock time of the last arrival (EXPL-05 scrubber's range). */
+  | { type: 'stats'; state: RunState; speed: number; stats: RunStats; duration?: number }
   | { type: 'crash'; n: number; reason: string }
   | { type: 'slow'; speed: number }
   /** SIM-16 Chaos: what was injected. */
@@ -60,7 +61,14 @@ export class Driver {
   }
 
   private send() {
-    if (this.run) this.post({ type: 'stats', state: this.state, speed: this.speed, stats: this.run.stats() });
+    if (this.run)
+      this.post({
+        type: 'stats',
+        state: this.state,
+        speed: this.speed,
+        stats: this.run.stats(),
+        duration: this.run.end(),
+      });
   }
 
   play() {
@@ -104,6 +112,26 @@ export class Driver {
     this.guard(() => {
       const report = this.run!.inject();
       this.post({ type: 'chaos', report });
+    });
+    this.send();
+  }
+
+  /**
+   * EXPL-05 time scrubber: the run as it was at clock `at` — rebuilt and replayed up to there (deterministic,
+   * SIM-24), then paused; at the end it finishes. ponytail: Chaos injected before is not replayed.
+   */
+  seek(at: number) {
+    this.clock = 0;
+    this.build();
+    if (!this.run) return;
+    this.guard(() => {
+      const run = this.run!;
+      for (let t = run.next(); t !== undefined && t <= at; t = run.next()) run.step();
+      if (run.next() === undefined) {
+        run.step(); // the end of input flushes the final watermark
+        this.state = 'finished';
+      } else this.state = 'paused';
+      this.clock = Math.min(at, run.stats().now || at);
     });
     this.send();
   }

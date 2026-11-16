@@ -10,7 +10,7 @@ import { useEffect, useRef, useState } from 'react';
 import { create } from 'zustand';
 import { Events } from './drawer/PreviewPanel';
 import { useIssues } from './issues';
-import { fmt, useRun } from './run';
+import { fmt, runner, useRun } from './run';
 import { useGraph } from './store';
 
 /** SIMULATOR.md: one bottom drawer — node config or run panel. True while the node drawer is open. */
@@ -77,6 +77,7 @@ function Timeline({ stats }: { stats: RunStats | null }) {
           <circle key={`l${i}`} cx={px(e)} cy={py(e.ts)} r={2.6} fill="var(--sl-color-orange-700)" />
         ))}
       </svg>
+      <Scrubber />
       <p className="m-0 text-[13px] text-muted">
         Watermark {wm.length ? hms(wm.at(-1)!.ts) : '—'} · {fmt(fires.length)} window fires ·{' '}
         {fmt(late.length)} late events · grey dots are sampled events, the rose line is the watermark.
@@ -93,6 +94,51 @@ function LiveSql() {
       <Unsupported nodes={unsupported} />
       <SqlView sql={sql} fill />
     </div>
+  );
+}
+
+/**
+ * EXPL-05 time scrubber: drag along the run's clock and the replay moves there (the run is replayed up to that
+ * point and paused), so the timeline, counts and outputs show that moment.
+ */
+function Scrubber() {
+  const duration = useRun((s) => s.duration);
+  const now = useRun((s) => s.stats?.now ?? 0);
+  const stale = useRun((s) => s.stale);
+  // Where the handle was put, until the run reports it moved: a late change event then repeats the same seek
+  // instead of carrying the old clock back (a range input tied straight to the clock jumped back).
+  const [pos, setPos] = useState<number | null>(null);
+  const [seen, setSeen] = useState(now);
+  if (now !== seen) {
+    setSeen(now);
+    setPos(null);
+  }
+  if (!duration) return null;
+  const step = Math.max(1, Math.round(duration / 500));
+  const clock = (ms: number) => `${(ms / 1000).toFixed(1)} s`;
+  return (
+    <label className="flex max-w-[900px] items-center gap-3 text-[13px] text-muted">
+      <span className="shrink-0 font-medium text-ink">Replay</span>
+      <input
+        type="range"
+        className="sl-focus w-full accent-rose-600"
+        min={0}
+        max={duration}
+        step={step}
+        value={pos ?? Math.min(now, duration)}
+        disabled={stale}
+        aria-valuetext={`${clock(now)} of ${clock(duration)}`}
+        // The handle snaps to its step: within one step of the end means the end.
+        onChange={(e) => {
+          const v = Number(e.target.value);
+          setPos(v);
+          runner.seek(v + step >= duration ? duration : v);
+        }}
+      />
+      <span className="shrink-0 font-mono tabular-nums">
+        {clock(now)} / {clock(duration)}
+      </span>
+    </label>
   );
 }
 

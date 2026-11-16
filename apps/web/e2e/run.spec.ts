@@ -315,3 +315,26 @@ test('WM01 a run that starts over shows its rows dropping in again (no stale cou
     true,
   ]);
 });
+
+test('EXPL-05 the time scrubber moves the replay: back to the start pauses early, to the end finishes', async ({
+  page,
+}) => {
+  await scenario(page, 'Card fraud bursts');
+  await page.getByText('10×', { exact: true }).click();
+  await page.locator('.react-flow__panel.top').getByRole('button', { name: 'Run', exact: true }).click();
+  await expect(status(page)).toHaveText(/^Finished/, { timeout: 15000 });
+  const panel = page.getByRole('region', { name: 'Run panel' });
+  await panel.getByRole('tab', { name: 'Timeline' }).click();
+  const slider = panel.getByRole('slider', { name: 'Replay' });
+  // Keyboard, as a user without a mouse drags it.
+  await slider.focus();
+  await page.keyboard.press('Home');
+  await expect(status(page)).toHaveText(/^Paused at event \d+$/);
+  const early = Number((await status(page).innerText()).replace(/\D/g, ''));
+  for (let i = 0; i < 20; i++) await page.keyboard.press('ArrowRight');
+  await expect
+    .poll(async () => Number((await status(page).innerText()).replace(/\D/g, '')))
+    .toBeGreaterThan(early);
+  await page.keyboard.press('End');
+  await expect(status(page)).toHaveText(/^Finished/);
+});

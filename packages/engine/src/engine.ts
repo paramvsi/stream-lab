@@ -904,6 +904,8 @@ export interface Run {
   next(): number | undefined;
   /** EXPL-02 lineage, when the run was made with `trace`; null otherwise. */
   trace(): Trace | null;
+  /** Clock time of the last arrival (the run's length). */
+  end(): number;
 }
 
 export function createRun(g: Graph, opts: RunOptions = {}): Run {
@@ -1181,6 +1183,7 @@ export function createRun(g: Graph, opts: RunOptions = {}): Run {
     step,
     next: () => arrivals[i]?.at,
     trace: () => trace,
+    end: () => arrivals.at(-1)?.at ?? 0,
     inject: (c = {}) => {
       const lateN = c.late ?? 5;
       const dupN = c.duplicates ?? 5;

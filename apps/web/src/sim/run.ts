@@ -24,6 +24,8 @@ export interface RunStore {
   state: RunState;
   speed: number;
   stats: RunStats | null;
+  /** EXPL-05: the run's length on the clock (the scrubber's range). */
+  duration: number;
   crash: { n: number; reason: string } | null;
   /** SIM-SLOW: the speed that could not be kept up, until the toast is shown. */
   slow: number | null;
@@ -42,6 +44,7 @@ const initial: RunStore = {
   state: 'ready',
   speed: 1,
   stats: null,
+  duration: 0,
   crash: null,
   slow: null,
   stale: false,
@@ -89,7 +92,13 @@ function connect(): Worker {
     if (m.type === 'beat') return;
     if (m.type === 'chaos') return void useRun.setState({ chaos: m.report });
     if (m.type === 'stats')
-      useRun.setState({ state: m.state, speed: m.speed, stats: m.stats, busiest: busiestOf(m.stats) });
+      useRun.setState({
+        state: m.state,
+        speed: m.speed,
+        stats: m.stats,
+        busiest: busiestOf(m.stats),
+        ...(m.duration !== undefined ? { duration: m.duration } : {}),
+      });
     else if (m.type === 'slow') useRun.setState({ slow: m.speed });
     else useRun.setState({ state: 'crashed', crash: { n: m.n, reason: m.reason } });
   };
@@ -221,6 +230,11 @@ export const runner = {
     connect().postMessage({ type: 'step' });
   },
   /** Back to Ready: the next Run or Step loads the pipeline as it is then. */
+  /** EXPL-05 time scrubber: the run as it was at clock `at` (replayed to there, then paused). */
+  seek(at: number) {
+    if (!loaded || useRun.getState().stale) return;
+    worker?.postMessage({ type: 'seek', at });
+  },
   reset() {
     loaded = false;
     useRun.setState({ state: 'ready', stats: null, stale: false, busiest: null });

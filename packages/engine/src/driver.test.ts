@@ -96,3 +96,21 @@ describe('SIM-SLOW · SIM-ENGINE-CRASH', () => {
     expect(d.state).toBe('crashed');
   });
 });
+
+describe('EXPL-05 · seek (the time scrubber moves the replay)', () => {
+  it('seek(t) replays the run up to clock t, paused; backwards too; to the end finishes', () => {
+    const { d, last } = setup();
+    d.setSpeed(1); // a first stats message
+    const end = last().duration!;
+    expect(end).toBeGreaterThan(0);
+    d.seek(end / 2);
+    const half = last();
+    expect(half.state).toBe('paused');
+    expect(half.stats.now).toBeLessThanOrEqual(end / 2);
+    expect(half.stats.processed).toBeGreaterThan(0);
+    d.seek(end / 4);
+    expect(last().stats.processed).toBeLessThan(half.stats.processed);
+    d.seek(end);
+    expect(last().state).toBe('finished');
+  });
+});

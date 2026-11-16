@@ -53,7 +53,9 @@ export async function* testConnection(
   // An address that does not parse fails the first step (the form validates it first: CONN-URL-INVALID).
   let host: string;
   try {
-    host = new URL(t.url).hostname;
+    const u = new URL(t.url);
+    if (u.protocol !== 'http:' && u.protocol !== 'https:') throw new Error('not http');
+    host = u.hostname.replace(/\.$/, '');
   } catch {
     const error = new AppError('CONN-URL-INVALID');
     yield { id: 'resolve', status: 'fail', error };
@@ -63,7 +65,7 @@ export async function* testConnection(
   /** The host that answered (no port: a TLS terminator or a tunnel may change it); unknown: the same. */
   const answeredBy = (u: string) => {
     try {
-      return new URL(u, t.url).hostname;
+      return new URL(u, t.url).hostname.replace(/\.$/, ''); // a trailing dot is the same host
     } catch {
       return host;
     }
@@ -113,7 +115,8 @@ export async function* testConnection(
     // A sign-in page: an answer from another host, an HTML page, or a redirect to another host (FLINK_API.md).
     const elsewhere = answeredBy(r.url) !== host;
     const redirect = r.status >= 300 && r.status < 400;
-    const away = redirect && answeredBy(r.headers['location'] ?? '') !== host;
+    const location = Object.entries(r.headers).find(([k]) => k.toLowerCase() === 'location')?.[1] ?? '';
+    const away = redirect && answeredBy(location) !== host;
     if (elsewhere || away || (r.status < 300 && html))
       throw new StepFailure('login', new AppError('CONN-SSO-REDIRECT', { host }));
     if (redirect) throw new StepFailure('login', statusError(r, 'reading /config'));
@@ -124,7 +127,7 @@ export async function* testConnection(
     const version = config['flink-version'];
     if (versionSupported(version)) yield { id: 'flink', status: 'pass', detail: `Flink ${version}` };
     // A build without a version ("<unknown>"): Flink, but nothing to adapt the UI to.
-    else if (!/^\d+\.\d+/.test(version))
+    else if (!/^v?\d+\.\d+/i.test(version))
       yield { id: 'flink', status: 'warn', detail: 'Flink (it does not report its version)' };
     else
       yield {

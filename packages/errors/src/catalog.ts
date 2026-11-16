@@ -4,7 +4,7 @@ export interface CatalogEntry { code: string; area: string; severity: string; pl
 
 export const CATALOG = {
   "CONN-URL-INVALID": {"code": "CONN-URL-INVALID", "area": "Desktop · Connections", "severity": "error", "placement": "field", "message": "Enter a full address like https://flink.example.com:8081.", "actions": [], "board": "D02c"},
-  "CONN-URL-SECRET": {"code": "CONN-URL-SECRET", "area": "Desktop · Connections", "severity": "error", "placement": "field", "message": "Put the user and password in the Login section, not in the address, so they are kept in the keychain.", "actions": [], "board": "D02c"},
+  "CONN-URL-SECRET": {"code": "CONN-URL-SECRET", "area": "Desktop · Connections", "severity": "error", "placement": "field", "message": "Put the user and password in the login fields for this address, not in the address, so they are kept in the keychain.", "actions": [], "board": "D02c"},
   "CONN-NAME-TAKEN": {"code": "CONN-NAME-TAKEN", "area": "Desktop · Connections", "severity": "error", "placement": "field", "message": "A connection called \"{name}\" already exists.", "actions": [], "board": "D02c"},
   "CONN-REQUIRED": {"code": "CONN-REQUIRED", "area": "Desktop · Connections", "severity": "error", "placement": "field", "message": "{field} is required.", "actions": [], "board": "D02c"},
   "CONN-DNS": {"code": "CONN-DNS", "area": "Desktop · Connections", "severity": "error", "placement": "panel (test result)", "message": "Could not find {host}. Check the address or your VPN.", "actions": ["Edit address", "Copy details"], "board": "D02f"},

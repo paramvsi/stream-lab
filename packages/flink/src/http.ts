@@ -15,6 +15,7 @@ export interface FlinkRequest {
 }
 export interface FlinkResponse {
   status: number;
+  /** Header names lower-cased (as reqwest gives them); readers still match any case. */
   headers: Record<string, string>;
   body: string;
   /** The URL that answered (after redirects): a different host means an SSO page. */

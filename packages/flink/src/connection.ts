@@ -1,4 +1,4 @@
-import { AppError } from '@sl/errors';
+import { AppError, present } from '@sl/errors';
 import { z } from 'zod';
 
 /**
@@ -31,7 +31,8 @@ export const ConnectionSchema = z.object({
   headers: z.array(Header),
   transport: z.discriminatedUnion('type', [
     z.object({ type: z.literal('direct') }),
-    z.object({ type: z.literal('proxy'), url: z.string() }),
+    /** user: the proxy's own login (its password is in the keychain); never inside the url. */
+    z.object({ type: z.literal('proxy'), url: z.string(), user: z.string().optional() }),
   ]),
   timeoutMs: z.number().int().positive(),
   pollMs: z.number().int().positive(),
@@ -70,10 +71,73 @@ function urlError(u: string): AppError | null {
   if (x.username || x.password) return new AppError('CONN-URL-SECRET');
   return null;
 }
-/** Headers that carry credentials: never stored or exported as plain values. */
-const SECRET_HEADERS = new Set(['proxy-authorization', 'cookie', 'x-api-key', 'api-key']);
+/** Headers that carry credentials: their values go to the keychain even when not marked secret. */
+const SECRET_HEADERS = new Set([
+  'authorization',
+  'proxy-authorization',
+  'cookie',
+  'set-cookie',
+  'x-api-key',
+  'api-key',
+  'x-auth-token',
+]);
 const isSecretHeader = (h: { name: string; secret: boolean }) =>
   h.secret || SECRET_HEADERS.has(h.name.trim().toLowerCase());
+
+/** The keychain entry for one secret of a connection: the cluster login, the gateway's, the proxy's, a header's. */
+export const secretKey = (connId: string, part: 'login' | 'gateway' | 'proxy' | `header:${string}`) =>
+  `streamlab/${connId}/${part}`;
+
+/** An address without a user and password in it (they are never stored). */
+function withoutUserinfo(u: string): string {
+  try {
+    const x = new URL(u);
+    if (!x.username && !x.password) return u;
+    x.username = '';
+    x.password = '';
+    return x.toString();
+  } catch {
+    return u;
+  }
+}
+
+/**
+ * What may be stored or written to a file, and what goes to the keychain instead: header values that are
+ * credentials (marked or not), keyed by secretKey(). Addresses lose any user and password. Used on save and export.
+ */
+export function splitSecrets(c: Connection): {
+  connection: Connection;
+  secrets: { key: string; value: string }[];
+} {
+  const secrets: { key: string; value: string }[] = [];
+  const headers = c.headers.map((h) => {
+    if (!isSecretHeader(h)) return h;
+    if (h.value !== undefined)
+      secrets.push({ key: secretKey(c.id, `header:${h.name.trim().toLowerCase()}`), value: h.value });
+    return { name: h.name, secret: true };
+  });
+  const connection: Connection = {
+    ...c,
+    url: withoutUserinfo(c.url),
+    headers,
+    transport:
+      c.transport.type === 'proxy' ? { ...c.transport, url: withoutUserinfo(c.transport.url) } : c.transport,
+    ...(c.gateway ? { gateway: { ...c.gateway, url: withoutUserinfo(c.gateway.url) } } : {}),
+  };
+  return { connection, secrets };
+}
+
+/** A login's own fields (the cluster's, or the SQL Gateway's when it has its own). */
+function loginErrors(a: Connection['auth']): Partial<Record<'user' | 'command' | 'cert' | 'key', AppError>> {
+  const out: Partial<Record<'user' | 'command' | 'cert' | 'key', AppError>> = {};
+  if (a.type === 'basic' && !a.user.trim()) out.user = required('user');
+  if (a.type === 'token-command' && !a.command.trim()) out.command = required('command');
+  if (a.type === 'mtls') {
+    if (!a.cert.trim()) out.cert = required('cert');
+    if (!a.key.trim()) out.key = required('key');
+  }
+  return out;
+}
 
 /**
  * CONN-02: every field's problem, on blur (one field) and on save (all). `taken`: the other connections' names.
@@ -93,12 +157,7 @@ export function validateConnection(
     const e = urlError(c.url.trim());
     if (e) out.url = e;
   }
-  if (c.auth.type === 'basic' && !c.auth.user.trim()) out.user = required('user');
-  if (c.auth.type === 'token-command' && !c.auth.command.trim()) out.command = required('command');
-  if (c.auth.type === 'mtls') {
-    if (!c.auth.cert.trim()) out.cert = required('cert');
-    if (!c.auth.key.trim()) out.key = required('key');
-  }
+  Object.assign(out, loginErrors(c.auth));
   if (c.transport.type === 'proxy') {
     if (!c.transport.url.trim()) out.proxy = required('proxy');
     else {
@@ -111,22 +170,21 @@ export function validateConnection(
     out.headers = new AppError('CONN-HEADER-AUTH');
   else if (c.headers.some((h) => !h.name.trim()))
     out.headers = new AppError('CONN-REQUIRED', { field: 'Header name' });
+  // A SQL Gateway counts only when it has an address; its own login must be complete.
   if (c.gateway && c.gateway.url.trim()) {
     const e = urlError(c.gateway.url.trim());
     if (e) out.gateway = e;
+    // Its own login (not the cluster's): it must be there and complete.
+    if (!c.gateway.sameLogin && (!c.gateway.auth || Object.keys(loginErrors(c.gateway.auth)).length))
+      out.gatewayLogin = required('gatewayLogin');
   }
-  if (c.gateway && !c.gateway.sameLogin && !c.gateway.auth) out.gatewayLogin = required('gatewayLogin');
   return out;
 }
 
 /** CONN-08: the connections file. Secret header values are left out; secrets never leave the keychain. */
 export const EXPORT_FORMAT = 'streamlab.connections';
 export function exportConnections(cs: Connection[]): string {
-  const clean = cs.map((c) => ({
-    ...c,
-    // Credential headers (Cookie, Proxy-Authorization…) count as secret even when not marked.
-    headers: c.headers.map((h) => (isSecretHeader(h) ? { name: h.name, secret: true } : h)),
-  }));
+  const clean = cs.map((c) => splitSecrets(c).connection);
   return JSON.stringify({ format: EXPORT_FORMAT, version: 1, connections: clean }, null, 2);
 }
 
@@ -141,59 +199,82 @@ const FileSchema = z.object({
 /** The line of a character offset (1-based). */
 const lineAt = (text: string, offset: number) => text.slice(0, offset).split('\n').length;
 
+/** The line of the n-th connection whose "id" is `id` (ids may repeat in a file); 1 when it can not be found. */
+function lineOfId(text: string, id: unknown, nth: number): number {
+  if (typeof id !== 'string') return 1;
+  const esc = JSON.stringify(id).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const hits = [...text.matchAll(new RegExp(`"id"\\s*:\\s*${esc}`, 'g'))];
+  const hit = hits[nth] ?? hits[0];
+  return hit?.index !== undefined ? lineAt(text, hit.index) : 1;
+}
+
+export interface ImportDuplicate {
+  /** The connection in the file (index into `connections`). */
+  index: number;
+  /** The connection here with the same name: "Replace" keeps its id (and so its keychain entries). */
+  existingId: string;
+}
+
 /**
  * CONN-08 import: the file's connections, or CONN-IMPORT-INVALID with the line and the reason (nothing is
- * imported). `duplicates`: names that already exist (the caller asks skip / replace / keep both: CONN-IMPORT-DUP).
+ * imported). Each connection is checked as the form checks it (no password in an address, no Authorization
+ * header…), and a name may appear only once in a file. Imported connections get fresh ids; `duplicates` pairs each
+ * one whose name exists here with that connection, for skip / replace / keep both (CONN-IMPORT-DUP).
  */
 export function importConnections(
   file: string,
   text: string,
-  existing: string[],
-): { connections: Connection[]; duplicates: string[]; dupError: AppError | null } | { error: AppError } {
+  existing: { id: string; name: string }[],
+):
+  | { connections: Connection[]; duplicates: ImportDuplicate[]; dupError: AppError | null }
+  | { error: AppError } {
+  const invalid = (line: number, reason: string, cause?: unknown) => ({
+    error: new AppError('CONN-IMPORT-INVALID', { file, line, reason }, cause),
+  });
   let data: unknown;
   try {
     data = JSON.parse(text);
   } catch (e) {
     // A position when the parser gives one; a file that ends too early: its last line.
     const m = /position (\d+)/.exec(String(e));
-    const line = m ? lineAt(text, Number(m[1])) : text.split('\n').length;
-    return { error: new AppError('CONN-IMPORT-INVALID', { file, line, reason: 'not valid JSON' }, e) };
+    return invalid(m ? lineAt(text, Number(m[1])) : text.split('\n').length, 'not valid JSON', e);
   }
+  const rawConns =
+    data && typeof data === 'object' ? (data as { connections?: { id?: unknown }[] }).connections : undefined;
+  const lineOf = (i: number) => {
+    if (!Array.isArray(rawConns)) return 1;
+    const id = rawConns[i]?.id;
+    const nth = rawConns.slice(0, i).filter((c) => c?.id === id).length;
+    return lineOfId(text, id, nth);
+  };
   const r = FileSchema.safeParse(data);
   if (!r.success) {
     const issue = r.error.issues[0]!;
-    const path = issue.path.join('.');
-    // The line of the connection the problem is in (its "id"), else the top of the file.
     const i = issue.path[0] === 'connections' ? Number(issue.path[1]) : -1;
-    const conns =
-      data && typeof data === 'object'
-        ? (data as { connections?: { id?: unknown }[] }).connections
-        : undefined;
-    const id = i >= 0 && Array.isArray(conns) ? conns[i]?.id : undefined;
-    // The "id" key with that value, not the first place the same text appears (it may be a name).
-    const m =
-      typeof id === 'string'
-        ? new RegExp(`"id"\\s*:\\s*${JSON.stringify(id).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`).exec(text)
-        : null;
-    const at = m ? m.index : -1;
-    return {
-      error: new AppError('CONN-IMPORT-INVALID', {
-        file,
-        line: at >= 0 ? lineAt(text, at) : 1,
-        reason: `${path || 'file'}: ${issue.message}`,
-      }),
-    };
+    return invalid(i >= 0 ? lineOf(i) : 1, `${issue.path.join('.') || 'file'}: ${issue.message}`);
   }
-  // Names already here, or twice in the file (case ignored, as CONN-NAME-TAKEN does).
-  const have = new Set(existing.map((n) => n.trim().toLowerCase()));
-  const duplicates: string[] = [];
-  for (const c of r.data.connections) {
+  const seen = new Set<string>();
+  for (const [i, c] of r.data.connections.entries()) {
+    const problems = Object.entries(validateConnection(c, []));
+    if (problems.length) {
+      const [field, e] = problems[0]!;
+      return invalid(
+        lineOf(i),
+        `${c.name || 'a connection'}, ${FIELD_LABEL[field as ConnectionField]}: ${present(e!).message}`,
+      );
+    }
     const k = c.name.trim().toLowerCase();
-    if (have.has(k)) duplicates.push(c.name);
-    have.add(k);
+    if (seen.has(k)) return invalid(lineOf(i), `the name "${c.name.trim()}" appears twice`);
+    seen.add(k);
   }
-  // Fresh ids: secrets are keyed by id, and a file's ids may match connections here or each other.
-  const connections = r.data.connections.map((c) => ({ ...c, id: newId() }));
+  const here = new Map(existing.map((x) => [x.name.trim().toLowerCase(), x.id]));
+  const duplicates: ImportDuplicate[] = [];
+  const connections = r.data.connections.map((c, index) => {
+    const existingId = here.get(c.name.trim().toLowerCase());
+    if (existingId) duplicates.push({ index, existingId });
+    // Fresh ids: secrets are keyed by id, and a file's ids may match connections here or each other.
+    return { ...c, id: newId() };
+  });
   return {
     connections,
     duplicates,

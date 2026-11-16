@@ -98,10 +98,11 @@ describe('CONN-08 import / export', () => {
   });
   it('names that already exist are reported for skip / replace / keep both (CONN-IMPORT-DUP)', () => {
     const r = importConnections('c.json', exportConnections([conn(), conn({ id: 'c2', name: 'dev' })]), [
-      'PROD-EU',
+      { id: 'local-1', name: 'PROD-EU' },
     ]);
     expect(r).toMatchObject({
-      duplicates: ['prod-eu'],
+      // "Replace" keeps the existing id (and its keychain entries).
+      duplicates: [{ index: 0, existingId: 'local-1' }],
       dupError: { code: 'CONN-IMPORT-DUP', params: { n: 1 } },
     });
   });
@@ -126,14 +127,21 @@ describe('audit of 77b0572', () => {
       codes(validateConnection(conn({ gateway: { url: 'https://u:p@gw:8083', sameLogin: true } }), [])),
     ).toEqual({ gateway: 'CONN-URL-SECRET' });
   });
-  it('#3 imported connections get fresh ids; names twice in the file (any case) are duplicates', () => {
-    const text = exportConnections([conn(), conn({ name: 'A' }), conn({ name: 'a' })]);
-    const r = importConnections('c.json', text, []);
+  it('#3 imported connections get fresh ids; a name twice in the file (any case) is an invalid file', () => {
+    const r = importConnections('c.json', exportConnections([conn(), conn({ name: 'A' })]), []);
     if ('error' in r) throw r.error;
     const ids = r.connections.map((c) => c.id);
-    expect(new Set(ids).size).toBe(3);
+    expect(new Set(ids).size).toBe(2);
     expect(ids).not.toContain('c1');
-    expect(r.duplicates).toEqual(['a']);
+    const twice = importConnections(
+      'c.json',
+      exportConnections([conn({ name: 'A' }), conn({ name: 'a ' })]),
+      [],
+    );
+    expect(twice).toMatchObject({ error: { code: 'CONN-IMPORT-INVALID' } });
+    expect(
+      String((twice as unknown as { error: { params: { reason: string } } }).error.params.reason),
+    ).toMatch(/appears twice/);
   });
   it('#8 a separate SQL Gateway login is required when not the same; #9 empty header names; credential headers are not exported', () => {
     expect(
@@ -160,5 +168,75 @@ describe('audit of 77b0572', () => {
     const bad = exportConnections([conn({ name: 'c9' }), conn({ id: 'c9', env: 'qa' as never })]);
     const line = bad.split('\n').findIndex((l) => l.includes('"id": "c9"')) + 1;
     expect(importConnections('c.json', bad, [])).toMatchObject({ error: { params: { line } } });
+  });
+});
+
+describe('audit of 27279b8', () => {
+  it('#1 import checks each connection like the form: a password in an address or an Authorization header is refused', () => {
+    const file = (c: Record<string, unknown>) =>
+      JSON.stringify(
+        { format: 'streamlab.connections', version: 1, connections: [{ ...conn(), ...c }] },
+        null,
+        2,
+      );
+    const secret = importConnections(
+      'c.json',
+      file({ url: 'https://alice:s3cret@flink.example.com:8081' }),
+      [],
+    );
+    expect(secret).toMatchObject({ error: { code: 'CONN-IMPORT-INVALID' } });
+    const auth = importConnections(
+      'c.json',
+      file({ headers: [{ name: 'Authorization', value: 'Bearer x', secret: false }] }),
+      [],
+    );
+    expect(auth).toMatchObject({ error: { code: 'CONN-IMPORT-INVALID' } });
+    // Export never writes them either.
+    const text = exportConnections([
+      conn({
+        url: 'https://alice:s3cret@flink.example.com:8081',
+        headers: [{ name: 'X-Auth-Token', value: 'T0K', secret: false }],
+      }),
+    ]);
+    expect(text).not.toContain('s3cret');
+    expect(text).not.toContain('T0K');
+  });
+  it('#3 a proxy has its own login (user here, password in the keychain); #4 credential headers go to the keychain on save', async () => {
+    const { splitSecrets, secretKey } = await import('./connection');
+    expect(
+      validateConnection(conn({ transport: { type: 'proxy', url: 'http://proxy:3128', user: 'bob' } }), []),
+    ).toEqual({});
+    const { connection, secrets } = splitSecrets(
+      conn({ headers: [{ name: 'Cookie', value: 'session=abc', secret: false }] }),
+    );
+    expect(connection.headers).toEqual([{ name: 'Cookie', secret: true }]);
+    expect(secrets).toEqual([{ key: secretKey('c1', 'header:cookie'), value: 'session=abc' }]);
+  });
+  it('#7 the line of a bad connection is its own, even when ids repeat; #8 the gateway login must be complete, and only when a gateway is set', () => {
+    const text = JSON.stringify(
+      {
+        format: 'streamlab.connections',
+        version: 1,
+        connections: [conn({ id: 'x' }), { ...conn({ id: 'x', name: 'b' }), env: 'qa' }],
+      },
+      null,
+      2,
+    );
+    const line =
+      text
+        .split('\n')
+        .findIndex(
+          (l, i, a) => l.includes('"id": "x"') && a.slice(0, i).some((p) => p.includes('"id": "x"')),
+        ) + 1;
+    expect(importConnections('c.json', text, [])).toMatchObject({ error: { params: { line } } });
+    expect(
+      codes(
+        validateConnection(
+          conn({ gateway: { url: 'https://gw:8083', sameLogin: false, auth: { type: 'basic', user: '' } } }),
+          [],
+        ),
+      ),
+    ).toEqual({ gatewayLogin: 'CONN-REQUIRED' });
+    expect(validateConnection(conn({ gateway: { url: '', sameLogin: false } }), [])).toEqual({});
   });
 });

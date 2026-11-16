@@ -126,9 +126,13 @@ export function SiteHeader() {
       d.open = false;
       if (refocus) d.querySelector('summary')?.focus();
     };
-    // Only when the menu has focus: Escape elsewhere (a search field) belongs to that element.
-    const onKey = (e: KeyboardEvent) =>
-      e.key === 'Escape' && menu.current?.contains(document.activeElement) && close(true);
+    // Escape closes an open menu wherever focus is (Safari does not focus <summary> on click); focus moves to
+    // Menu only when it was in the menu or nowhere, never away from a field the user is in.
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return;
+      const a = document.activeElement;
+      close(!a || a === document.body || !!menu.current?.contains(a));
+    };
     // Tabbing out of the menu closes it too.
     const onFocus = (e: FocusEvent) => {
       if (!menu.current?.contains(e.target as Node)) close(false);

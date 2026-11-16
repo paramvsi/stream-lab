@@ -140,6 +140,13 @@ test.describe('phone menu focus', () => {
     await expect(menu).toBeVisible();
     for (let i = 0; i < 5; i++) await page.keyboard.press('Tab'); // four links, then out
     await expect(menu).toBeHidden();
+    // Open with focus on the page (Safari does not focus <summary> on click): Escape still closes it.
+    await summary.click();
+    await expect(menu).toBeVisible();
+    await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
+    await page.keyboard.press('Escape');
+    await expect(menu).toBeHidden();
+    // Escape in a field (menu closed) stays in the field.
     const search = page.getByLabel('Search the glossary');
     await search.focus();
     await page.keyboard.press('Escape');

@@ -20,6 +20,9 @@ export type FlinkConfig = z.infer<typeof ConfigSchema>;
 
 /** 1.20 and 2.x are supported; older is read-only best effort (CONN-VERSION-OLD). */
 export function versionSupported(v: string): boolean {
-  const [maj = 0, min = 0] = v.split('.').map((x) => Number.parseInt(x, 10) || 0);
+  const [maj = 0, min = 0] = v
+    .replace(/^v/i, '')
+    .split('.')
+    .map((x) => Number.parseInt(x, 10) || 0);
   return maj > 1 || (maj === 1 && min >= 20);
 }

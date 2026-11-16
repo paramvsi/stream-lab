@@ -171,3 +171,22 @@ describe('audit of 66749d1', () => {
     expect(fromTransport({ kind: 'tls_other', host: 'h' }).code).toBe('CONN-IO');
   });
 });
+
+describe('audit of 27279b8', () => {
+  it('#9 a Location header in any case; a trailing dot is the same host; a non-http address fails step 1; "v1.20" is a version', async () => {
+    const cap = await run(
+      cluster({
+        'GET /config': { ...ok('', { status: 302 }), headers: { Location: 'https://sso.example.com/' } },
+      }),
+    );
+    expect(statuses(cap.steps)[2]).toBe('login:fail:CONN-SSO-REDIRECT');
+    const dot = await run(
+      cluster({ 'GET /config': ok(CONFIG, { url: 'https://flink.example.com./config' }) }),
+    );
+    expect(dot.outcome.result).toBe('pass');
+    const scheme = await run(cluster(), { ...target, url: 'flink:8081' });
+    expect(statuses(scheme.steps)[0]).toBe('resolve:fail:CONN-URL-INVALID');
+    const v = await run(cluster({ 'GET /config': ok({ 'flink-version': 'v1.20.0' }) }));
+    expect(v.steps[3]).toMatchObject({ id: 'flink', status: 'pass' });
+  });
+});

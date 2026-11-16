@@ -5,10 +5,11 @@ import {
   GeneratorSettings,
   type GeneratorSettings as Gen,
 } from '@sl/graph';
-import { Button, Drawer, Field, Input, useToast } from '@sl/ui';
+import { Button, Drawer, Field, Input, Tabs, useToast } from '@sl/ui';
 import { Copy, Database } from 'lucide-react';
 import { useState } from 'react';
 import { useGraph } from './store';
+import { UploadTab } from './UploadTab';
 
 const current = (): Gen => {
   const { data, seed } = useGraph.getState();
@@ -127,7 +128,15 @@ export function DataButton() {
       </Button>
       <Drawer open={open} onOpenChange={setOpen} title="Data">
         {/* Remounted per open: Cancel discards edits. */}
-        {open && <DataForm onDone={() => setOpen(false)} />}
+        {open && (
+          <Tabs
+            label="Data source"
+            items={[
+              { value: 'generator', label: 'Generator', content: <DataForm onDone={() => setOpen(false)} /> },
+              { value: 'upload', label: 'Upload file', content: <UploadTab onDone={() => setOpen(false)} /> },
+            ]}
+          />
+        )}
       </Drawer>
     </>
   );

@@ -1,8 +1,9 @@
-import type { DriverMessage, RunState, RunStats } from '@sl/engine';
+import type { DriverMessage, Event, RunState, RunStats } from '@sl/engine';
 import RunWorker from '@sl/engine/worker?worker';
 import { create } from 'zustand';
 import { runBlocker, validate } from '@sl/graph';
 import { useGraph } from './store';
+import { loadRows } from './uploads';
 
 /**
  * Run store (ARCHITECTURE: separate from the graph store, not in undo history) and the Worker client.
@@ -104,16 +105,24 @@ const signature = (): unknown[] => {
 };
 const sameSig = (a: unknown[], b: unknown[]) => a.length === b.length && a.every((x, i) => x === b[i]);
 
-function load() {
-  const { nodes, edges, seed, data } = useGraph.getState();
+async function load() {
+  const { nodes, edges, seed, data, pipelineId } = useGraph.getState();
+  const sig = signature();
+  // DATA-02: Sources with an uploaded file read its rows (kept in OPFS); a missing file falls back to the generator.
+  const sourceData: Record<string, Event[]> = {};
+  for (const id of Object.keys(data.uploads ?? {})) {
+    if (!nodes.some((n) => n.id === id && n.type === 'Source')) continue;
+    const rows = await loadRows(pipelineId, id);
+    if (rows) sourceData[id] = rows;
+  }
   connect().postMessage({
     type: 'load',
     graph: { nodes, edges },
-    opts: { seed, ...(data.generator ? { generator: data.generator } : {}) },
+    opts: { seed, sourceData, ...(data.generator ? { generator: data.generator } : {}) },
   });
   connect().postMessage({ type: 'speed', speed: useRun.getState().speed });
   loaded = true;
-  loadedSig = signature();
+  loadedSig = sig;
   useRun.setState({ stale: false, staleNotice: false });
 }
 
@@ -132,16 +141,16 @@ useGraph.subscribe(() => {
 });
 
 export const runner = {
-  play() {
+  async play() {
     if (blocked()) return;
     const { state, stale } = useRun.getState();
-    if (!loaded || stale || state === 'finished') load();
+    if (!loaded || stale || state === 'finished') await load();
     connect().postMessage({ type: 'play' });
   },
   pause: () => worker?.postMessage({ type: 'pause' }),
-  step() {
+  async step() {
     if (blocked()) return;
-    if (!loaded || useRun.getState().stale) load();
+    if (!loaded || useRun.getState().stale) await load();
     connect().postMessage({ type: 'step' });
   },
   /** Back to Ready: the next Run or Step loads the pipeline as it is then. */

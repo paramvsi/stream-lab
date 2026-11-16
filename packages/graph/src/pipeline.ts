@@ -32,7 +32,12 @@ export const PipelineV1 = z.object({
       targetHandle: z.string(),
     }),
   ),
-  data: z.object({ generator: z.unknown().optional(), refTables: z.array(z.string()) }),
+  data: z.object({
+    generator: z.unknown().optional(),
+    refTables: z.array(z.string()),
+    /** DATA-02: per Source node id, the uploaded file it reads (rows are kept in OPFS, not in the JSON). */
+    uploads: z.record(z.string(), z.object({ file: z.string(), rows: z.number().int().min(0) })).optional(),
+  }),
   viewport: z.object({ x: z.number(), y: z.number(), zoom: z.number() }),
 });
 export type Pipeline = z.infer<typeof PipelineV1> & { nodes: PipelineNode[]; edges: PipelineEdge[] };

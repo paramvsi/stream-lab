@@ -7,6 +7,12 @@ import {
   type PipelineNode,
 } from '@sl/graph';
 import { temporal } from 'zundo';
+
+export interface PipelineData {
+  generator?: unknown;
+  refTables: string[];
+  uploads?: Record<string, { file: string; rows: number }>;
+}
 import { create } from 'zustand';
 
 /** What undo/redo restores (SIMULATOR.md: nodes without selection/drag state, edges, config). */
@@ -22,7 +28,7 @@ export interface GraphState extends Snapshot {
   name: string;
   /** Pipeline-level data settings (Data drawer, DATA-01). Not in undo history, like the name. */
   seed: number;
-  data: { generator?: unknown; refTables: string[] };
+  data: PipelineData;
   /** UI-only, never in history. */
   selected: string[];
   selectedEdges: string[];
@@ -34,10 +40,12 @@ export interface GraphState extends Snapshot {
     nodes: PipelineNode[];
     edges: PipelineEdge[];
     seed?: number;
-    data?: { generator?: unknown; refTables: string[] };
+    data?: PipelineData;
   }): void;
   /** Data drawer "Apply and regenerate". */
   setGenerator(g: { seed: number } & Record<string, unknown>): void;
+  /** DATA-02: a Source now reads an uploaded file (null: back to the generator). */
+  setUpload(sourceId: string, upload: { file: string; rows: number } | null): void;
   addNode(type: NodeType, position: { x: number; y: number }, connectFrom?: ConnectFrom): string;
   connect(e: Omit<PipelineEdge, 'id'>): void;
   /** Live drag: positions change without history; `endDrag` records one "Moved …" step. */
@@ -398,6 +406,11 @@ export const useGraph = create<GraphState>()(
       select: (nodes, edges = []) => set({ selected: nodes, selectedEdges: edges }),
       setName: (name) => set({ name }),
       setGenerator: (g) => set({ seed: g.seed, data: { ...get().data, generator: g } }),
+      setUpload: (sourceId, upload) => {
+        const rest = { ...get().data.uploads };
+        delete rest[sourceId];
+        set({ data: { ...get().data, uploads: upload ? { ...rest, [sourceId]: upload } : rest } });
+      },
     }),
     {
       limit: HISTORY_LIMIT,

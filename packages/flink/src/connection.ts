@@ -209,6 +209,27 @@ export function headerProblem(headers: { name: string }[]): { index: number; err
 export const normBasePath = (p: string) => p.trim().replace(/\/+$/, '');
 
 /**
+ * A base path the app can put in front of every request: "/" then segments of ASCII path characters or
+ * %-escapes, nothing else. Each segment is also checked decoded (as a gateway that decodes before routing sees
+ * it): not "." or "..", no "/" or "\\" inside, nothing invisible or control, valid UTF-8.
+ */
+export function basePathOk(p: string): boolean {
+  if (!/^(\/([A-Za-z0-9\-._~!$&'()*+,;=:]|%[0-9A-Fa-f]{2})+)+$/.test(p)) return false;
+  return p
+    .slice(1)
+    .split('/')
+    .every((seg) => {
+      let d: string;
+      try {
+        d = decodeURIComponent(seg);
+      } catch {
+        return false; // a %-escape that is not UTF-8
+      }
+      return d !== '.' && d !== '..' && !/[/\\]|[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/u.test(d);
+    });
+}
+
+/**
  * CONN-02: every field's problem, on blur (one field) and on save (all). `taken`: the other connections' names.
  * CONN-MTLS-FILE is raised when the file is read (Rust side), not here.
  */
@@ -229,15 +250,7 @@ export function validateConnection(
   Object.assign(out, loginErrors(c.auth));
   // A path, not an address: a pasted URL (with a login in it) would be stored as typed.
   const bp = normBasePath(c.basePath);
-  // Allowed, not refused: ASCII path characters and valid %-escapes only (so nothing invisible or non-path gets
-  // in), no empty segment, no dot segment even when %-encoded ("/%2e%2e" resolves as ".."), no encoded control.
-  if (
-    bp &&
-    (!/^(\/([A-Za-z0-9\-._~!$&'()*+,;=:]|%[0-9A-Fa-f]{2})+)+$/.test(bp) ||
-      /\/(\.|%2e){1,2}(\/|$)/i.test(bp) ||
-      /%(0[0-9a-f]|1[0-9a-f]|7f)/i.test(bp))
-  )
-    out.basePath = new AppError('CONN-BASEPATH-FORMAT');
+  if (bp && !basePathOk(bp)) out.basePath = new AppError('CONN-BASEPATH-FORMAT');
   if (c.transport.type === 'proxy') {
     if (!c.transport.url.trim()) out.proxy = required('proxy');
     else {

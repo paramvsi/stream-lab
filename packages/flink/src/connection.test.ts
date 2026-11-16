@@ -463,11 +463,12 @@ describe('audit of 9e989a0', () => {
       '/v1.2',
       '/proxy/application_1_0001',
       '/a%20b',
-      '/%2F',
-      '/%2f',
+      '/a%C3%BC',
       '/...',
       '/..a',
+      '/a%2e%2e',
       '/a;b=c',
+      "/a!b$c&d'e(f)*+,:",
     ])
       expect([ok, v(ok)]).toEqual([ok, 'ok']);
   });
@@ -485,6 +486,18 @@ describe('audit of 9e989a0', () => {
       '/a\ufff9',
       '/a\u2800',
       '/日本',
+      '/a%10',
+      '/a%1f',
+      '/zürich',
+      '/%2F',
+      '/%2f',
+      '/%2e%2e%2fadmin',
+      '/a%5c..',
+      '/a%e2%80%8b',
+      '/a%ef%bb%bf',
+      '/a%c2%80',
+      '/a%80',
+      '/50%off',
     ])
       expect([bad, v(bad)]).toEqual([bad, 'CONN-BASEPATH-FORMAT']);
   });

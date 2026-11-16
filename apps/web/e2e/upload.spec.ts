@@ -74,7 +74,7 @@ test('DATA-TOO-LARGE: over 200 MB offers the first 200 MB or another file (WX06)
     el.dispatchEvent(new Event('change', { bubbles: true }));
   });
   await expect(
-    d.getByText('payments-2025.jsonl is 1434 MB. The simulator handles up to 200 MB per file.'),
+    d.getByText('payments-2025.jsonl is 1.4 GB. The simulator handles up to 200 MB per file.'),
   ).toBeVisible();
   await expect(d.getByRole('button', { name: 'Read first 200 MB' })).toBeVisible();
   await expect(d.getByRole('button', { name: 'Choose another' })).toBeVisible();

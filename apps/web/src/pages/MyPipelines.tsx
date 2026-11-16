@@ -7,6 +7,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { newId } from '../sim/store';
 import { deletePipeline, getPipeline, listPipelines, savePipeline, type PipelineMeta } from '../storage';
 import { SiteShell } from './SiteShell';
+import { copyUploads } from '../sim/uploads';
 
 const ago = (iso: string) => {
   const s = (Date.now() - Date.parse(iso)) / 1000;
@@ -68,7 +69,10 @@ export function MyPipelines() {
   const duplicate = async (m: PipelineMeta) => {
     const p = await getPipeline(m.id);
     if (!p) return;
-    await save({ ...p, id: newId('p'), name: `${p.name} copy`, updatedAt: new Date().toISOString() });
+    const id = newId('p');
+    await save({ ...p, id, name: `${p.name} copy`, updatedAt: new Date().toISOString() });
+    // The copy keeps its uploads: they are stored per pipeline id (OPFS), so copy the rows too.
+    await copyUploads(p.id, id, Object.keys(p.data.uploads ?? {}));
   };
 
   const remove = async (m: PipelineMeta) => {

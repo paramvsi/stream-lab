@@ -847,7 +847,9 @@ export function createRun(g: Graph, opts: RunOptions = {}): Run {
     const schema = s.out.get(n.id)?.['main'] ?? [];
     const timeField = n.type === 'Source' ? String(c.eventTime || 'event_time') : 'event_time';
     const ooo = n.type === 'Source' ? Number(c.outOfOrdernessMs ?? 0) : GENERATOR_OOO_MS;
-    const uploaded = opts.sourceData?.[n.id];
+    const all = opts.sourceData?.[n.id];
+    // The preview samples uploads too: their first `sample` rows.
+    const uploaded = all && opts.sample ? all.slice(0, opts.sample) : all;
     const evs = uploaded
       ? uploaded.map((data, i) => ({
           at: i * (opts.sourceGapMs?.[n.id] ?? 20),

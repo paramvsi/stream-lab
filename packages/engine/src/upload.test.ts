@@ -76,3 +76,53 @@ describe('DATA-02 · mapping and types (DATA-SCHEMA, DATA-PARSE)', () => {
     expect(fileSize(2048)).toBe('2 KB');
   });
 });
+
+describe('upload audit · parsing', () => {
+  it('#2 a stray opening quote costs one row, not the rest of the file', () => {
+    const p = parseCsv('a,b\n1,2\n"3,4\n5,6\n7,8');
+    expect(p.bad).toEqual([{ line: 3, reason: 'a quote is never closed' }]);
+    expect(p.rows).toEqual([
+      { a: '1', b: '2' },
+      { a: '5', b: '6' },
+      { a: '7', b: '8' },
+    ]);
+  });
+  it('#3 an out-of-range time is a bad row, not a crash', () => {
+    const p = parseJsonl('{"card_id":"c","amount":1,"event_time":1e20}');
+    expect(typedRows(p, schema, autoMap(p.columns, schema)).bad).toEqual([
+      { line: 1, reason: '"event_time" is not a date and time' },
+    ]);
+  });
+  it('#5 a file cut at the size limit drops its partial last line', async () => {
+    const { lastCompleteLine } = await import('./upload');
+    expect(lastCompleteLine('a,b\n1,2\n3,4')).toBe('a,b\n1,2\n');
+  });
+  it('#9 duplicate headers keep both columns (the second is renamed)', () => {
+    const p = parseCsv('a,amount,amount\nx,10,99');
+    expect(p.columns).toEqual(['a', 'amount', 'amount_2']);
+    expect(p.rows[0]).toEqual({ a: 'x', amount: '10', amount_2: '99' });
+  });
+  it('#11 blank or non-decimal numbers are bad rows, not 0 or hex', () => {
+    const p = parseCsv('card_id,amount,event_time\nc, ,2026-11-15T12:00:00Z\nc,0x1A,2026-11-15T12:00:00Z');
+    expect(typedRows(p, schema, autoMap(p.columns, schema)).bad.map((b) => b.reason)).toEqual([
+      '"amount" is empty',
+      '"amount" is not a number',
+    ]);
+  });
+  it('#10 the event-time field is required even when the schema marks it optional', () => {
+    const opt = schema.map((f) => (f.name === 'event_time' ? { ...f, required: false } : f));
+    const p = parseCsv('card_id,amount,event_time\nc,1,');
+    expect(typedRows(p, opt, autoMap(p.columns, opt), 'event_time').bad).toEqual([
+      { line: 2, reason: '"event_time" is empty' },
+    ]);
+  });
+  it('#12 a .json file holding an array of objects is read as rows', async () => {
+    const { parseJson } = await import('./upload');
+    const p = parseJson('[\n {"a": 1},\n {"a": 2}\n]');
+    expect(p.rows).toEqual([{ a: 1 }, { a: 2 }]);
+  });
+  it('WX06 sizes over 1 GB read as GB; just over the limit is not "200 MB"', () => {
+    expect(fileSize(1.4 * 1024 ** 3)).toBe('1.4 GB');
+    expect(fileSize(MAX_UPLOAD_BYTES + 1)).toBe('201 MB');
+  });
+});

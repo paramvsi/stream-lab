@@ -1,8 +1,16 @@
 import type { DriverMessage, Event, RunState, RunStats } from '@sl/engine';
 import RunWorker from '@sl/engine/worker?worker';
 import { create } from 'zustand';
-import { effectiveGenerator, runBlocker, validate } from '@sl/graph';
-import { useGraph } from './store';
+import {
+  configOf,
+  effectiveGenerator,
+  labelOf,
+  runBlocker,
+  validate,
+  type PipelineNode,
+  type Schema,
+} from '@sl/graph';
+import { useGraph, type PipelineData } from './store';
 import { loadRows } from './uploads';
 import { REF_CTX } from './refTables';
 
@@ -23,6 +31,8 @@ export interface RunStore {
   stale: boolean;
   /** SIM-RUN-CHANGED is shown only when a running or paused run was interrupted, not after it finished. */
   staleNotice: boolean;
+  /** DATA-UPLOAD-UNUSED: Sources whose upload this run could not use, and why (shown once per run). */
+  unused: { source: string; reason: string }[];
   /** SIM-17: the node with most events in (computed once per stats message). */
   busiest: string | null;
 }
@@ -34,6 +44,7 @@ const initial: RunStore = {
   slow: null,
   stale: false,
   staleNotice: false,
+  unused: [],
   busiest: null,
 };
 export const useRun = create<RunStore>(() => initial);
@@ -106,16 +117,45 @@ const signature = (): unknown[] => {
 };
 const sameSig = (a: unknown[], b: unknown[]) => a.length === b.length && a.every((x, i) => x === b[i]);
 
+/**
+ * DATA-02: rows for Sources with an upload. A file gone from this browser (copied or imported pipeline, cleared site
+ * data) or rows missing a field the Source now needs fall back to the generator, and say why (DATA-UPLOAD-UNUSED).
+ */
+export async function uploadedRows(
+  pipelineId: string,
+  nodes: PipelineNode[],
+  data: PipelineData,
+): Promise<{ sourceData: Record<string, Event[]>; unused: { source: string; reason: string }[] }> {
+  const sourceData: Record<string, Event[]> = {};
+  const unused: { source: string; reason: string }[] = [];
+  for (const [id, u] of Object.entries(data.uploads ?? {})) {
+    const n = nodes.find((x) => x.id === id && x.type === 'Source');
+    if (!n) continue;
+    const rows = await loadRows(pipelineId, id);
+    if (!rows) {
+      unused.push({ source: labelOf(n), reason: `${u.file} is not in this browser` });
+      continue;
+    }
+    const c = configOf(n) as { schema: Schema; eventTime: string };
+    const need = c.schema.filter((f) => f.required || f.name === c.eventTime).map((f) => f.name);
+    const missing = need.find((f) => rows[0] && (rows[0][f] === undefined || rows[0][f] === null));
+    if (missing) {
+      unused.push({
+        source: labelOf(n),
+        reason: `${u.file} has no "${missing}", which the Source now needs`,
+      });
+      continue;
+    }
+    sourceData[id] = rows;
+  }
+  return { sourceData, unused };
+}
+
 async function load() {
   const { nodes, edges, seed, data, pipelineId } = useGraph.getState();
   const sig = signature();
-  // DATA-02: Sources with an uploaded file read its rows (kept in OPFS); a missing file falls back to the generator.
-  const sourceData: Record<string, Event[]> = {};
-  for (const id of Object.keys(data.uploads ?? {})) {
-    if (!nodes.some((n) => n.id === id && n.type === 'Source')) continue;
-    const rows = await loadRows(pipelineId, id);
-    if (rows) sourceData[id] = rows;
-  }
+  const { sourceData, unused } = await uploadedRows(pipelineId, nodes, data);
+  useRun.setState({ unused });
   connect().postMessage({
     type: 'load',
     graph: { nodes, edges },

@@ -1,6 +1,7 @@
 import { AppError } from '@sl/errors';
 import type { Pipeline } from '@sl/graph';
 import { openDB, type IDBPDatabase } from 'idb';
+import { deleteUploads } from './sim/uploads';
 
 /** ARCHITECTURE.md § Website data flow: IndexedDB `pipelines` (versioned JSON), BroadcastChannel `streamlab`. */
 const DB = 'streamlab';
@@ -81,6 +82,7 @@ export async function deletePipeline(id: string): Promise<void> {
   }
   // Neither a rescue copy nor this tab's unsaved copy may bring a deleted pipeline back; other tabs stop saving it.
   clearRescue(id);
+  void deleteUploads(id); // its uploaded rows (OPFS) are freed too
   unsaved.delete(id);
   announce({ type: 'deleted', id, tab: TAB });
 }

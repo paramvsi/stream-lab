@@ -15,6 +15,7 @@ import {
 } from '../storage';
 import { useSaveState } from './saveState';
 import { newId, useGraph } from './store';
+import { copyUploads } from './uploads';
 import { Workspace } from './Workspace';
 
 export const AUTOSAVE_MS = 500;
@@ -272,13 +273,15 @@ export function WorkspaceRoute({ id }: { id: string }) {
                   name: `${useGraph.getState().name} (copy)`,
                   updatedAt: new Date().toISOString(),
                 };
-                void savePipeline(copy).then(
-                  () => void navigate({ to: '/sim/$id', params: { id: copy.id } }),
-                  (e: unknown) => {
-                    if (!(e instanceof AppError)) throw e;
-                    setStoreError(e);
-                  },
-                );
+                void savePipeline(copy)
+                  .then(() => copyUploads(id, copy.id, Object.keys(copy.data.uploads ?? {})))
+                  .then(
+                    () => void navigate({ to: '/sim/$id', params: { id: copy.id } }),
+                    (e: unknown) => {
+                      if (!(e instanceof AppError)) throw e;
+                      setStoreError(e);
+                    },
+                  );
               }}
             />
           )}

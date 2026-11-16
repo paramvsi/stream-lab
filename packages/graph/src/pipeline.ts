@@ -108,6 +108,8 @@ export function parsePipeline(input: unknown, file: string): Parsed {
   if (!r.success) return fail(file, plainReason(r.error.issues[0]!.path, migrated));
   const p = r.data as Pipeline;
   if (p.data.generator !== undefined) {
+    if (p.data.generator === null || typeof p.data.generator !== 'object')
+      return fail(file, 'its data generator is not a set of settings');
     const bad = generatorIssues(p.data.generator as Record<string, unknown>)[0];
     if (bad) return fail(file, `its data generator is invalid (${bad.reason})`);
   }

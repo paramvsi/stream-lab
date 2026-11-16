@@ -25,48 +25,68 @@ export interface Parsed {
 export function parseCsv(text: string): Parsed {
   const records: { cells: string[]; line: number }[] = [];
   const bad: BadRow[] = [];
-  let cells: string[] = [];
-  let cell = '';
-  let quoted = false;
+  // Scan from `pos`; a quote never closed costs only its own line: scanning restarts on the next line.
+  let pos = 0;
   let line = 1;
-  let start = 1;
-  let wasQuoted = false;
-  const endCell = () => {
-    cells.push(cell);
-    cell = '';
-    wasQuoted = false;
-  };
-  const endRecord = () => {
-    endCell();
-    if (!(cells.length === 1 && cells[0] === '')) records.push({ cells, line: start });
-    cells = [];
-  };
-  for (let i = 0; i < text.length; i++) {
-    const ch = text[i]!;
-    if (quoted) {
-      if (ch === '"' && text[i + 1] === '"') {
-        cell += '"';
-        i++;
-      } else if (ch === '"') quoted = false;
-      else {
-        if (ch === '\n') line++;
-        cell += ch;
-      }
-    } else if (ch === '"' && cell === '' && !wasQuoted) {
-      quoted = true;
-      wasQuoted = true;
-    } else if (ch === ',') endCell();
-    else if (ch === '\n' || ch === '\r') {
-      if (ch === '\r' && text[i + 1] === '\n') i++;
-      endRecord();
-      line++;
-      start = line;
-    } else cell += ch;
+  while (pos < text.length) {
+    let cells: string[] = [];
+    let cell = '';
+    let quoted = false;
+    let wasQuoted = false;
+    let start = line;
+    let recordPos = pos;
+    const endCell = () => {
+      cells.push(cell);
+      cell = '';
+      wasQuoted = false;
+    };
+    const endRecord = () => {
+      endCell();
+      if (!(cells.length === 1 && cells[0] === '')) records.push({ cells, line: start });
+      cells = [];
+    };
+    for (let i = pos; i < text.length; i++) {
+      const ch = text[i]!;
+      if (quoted) {
+        if (ch === '"' && text[i + 1] === '"') {
+          cell += '"';
+          i++;
+        } else if (ch === '"') quoted = false;
+        else {
+          if (ch === '\n') line++;
+          cell += ch;
+        }
+      } else if (ch === '"' && cell === '' && !wasQuoted) {
+        quoted = true;
+        wasQuoted = true;
+      } else if (ch === ',') endCell();
+      else if (ch === '\n' || ch === '\r') {
+        if (ch === '\r' && text[i + 1] === '\n') i++;
+        endRecord();
+        line++;
+        start = line;
+        recordPos = i + 1;
+      } else cell += ch;
+    }
+    if (!quoted) {
+      if (cell !== '' || cells.length) endRecord();
+      break;
+    }
+    bad.push({ line: start, reason: 'a quote is never closed' });
+    const next = text.indexOf('\n', recordPos);
+    if (next < 0) break;
+    pos = next + 1;
+    line = start + 1;
   }
-  if (quoted) bad.push({ line: start, reason: 'a quote is never closed' });
-  else if (cell !== '' || cells.length) endRecord();
   const [header, ...body] = records;
-  const columns = (header?.cells ?? []).map((c) => c.trim());
+  // Duplicate headers keep every column: the second "amount" becomes "amount_2" (nothing is overwritten).
+  const seen = new Map<string, number>();
+  const columns = (header?.cells ?? []).map((c) => {
+    const name = c.trim();
+    const k = (seen.get(name) ?? 0) + 1;
+    seen.set(name, k);
+    return k > 1 ? `${name}_${k}` : name;
+  });
   const rows: Parsed['rows'] = [];
   const lines: number[] = [];
   for (const r of body) {
@@ -106,6 +126,21 @@ export function parseJsonl(text: string): Parsed {
   return { columns: [...columns], rows, lines, bad };
 }
 
+/** The text up to its last line break: a file cut at the size limit loses its partial last row, not a value. */
+export const lastCompleteLine = (text: string) => text.slice(0, text.lastIndexOf('\n') + 1);
+
+/** A .json file: an array of objects, else JSON Lines. */
+export function parseJson(text: string): Parsed {
+  if (!text.trimStart().startsWith('[')) return parseJsonl(text);
+  try {
+    const arr: unknown = JSON.parse(text);
+    if (!Array.isArray(arr)) return parseJsonl(text);
+    return parseJsonl(arr.map((x) => JSON.stringify(x)).join('\n'));
+  } catch {
+    return { columns: [], rows: [], lines: [], bad: [{ line: 1, reason: 'not valid JSON' }] };
+  }
+}
+
 /** Default mapping: each schema field to the column with the same name (case-insensitive), else unmapped. */
 export function autoMap(columns: string[], schema: Schema): Record<string, string | null> {
   return Object.fromEntries(
@@ -122,6 +157,8 @@ export function typedRows(
   p: Parsed,
   schema: Schema,
   mapping: Record<string, string | null>,
+  /** The Source's event-time field: always required (an event with no time can't be placed). */
+  eventTime?: string,
 ): { rows: Event[]; bad: BadRow[] } {
   const rows: Event[] = [];
   const bad = [...p.bad];
@@ -130,14 +167,18 @@ export function typedRows(
     for (const f of schema) {
       const col = mapping[f.name];
       const v = col ? raw[col] : undefined;
-      const empty = v === undefined || v === null || v === '';
+      const empty = v === undefined || v === null || (typeof v === 'string' && v.trim() === '');
       if (empty) {
-        if (f.required) return void bad.push({ line: p.lines[i]!, reason: `"${f.name}" is empty` });
+        if (f.required || f.name === eventTime)
+          return void bad.push({ line: p.lines[i]!, reason: `"${f.name}" is empty` });
         out[f.name] = null;
         continue;
       }
       if (f.type === 'number') {
-        const x = typeof v === 'number' ? v : Number(String(v).trim());
+        // Decimal only: "0x1A" or "1e" are not amounts.
+        const txt = String(v).trim();
+        const x =
+          typeof v === 'number' ? v : /^[-+]?(\d+\.?\d*|\.\d+)([eE][-+]?\d+)?$/.test(txt) ? Number(txt) : NaN;
         if (!Number.isFinite(x))
           return void bad.push({ line: p.lines[i]!, reason: `"${f.name}" is not a number` });
         out[f.name] = x;
@@ -148,7 +189,8 @@ export function typedRows(
         out[f.name] = s === 'true' || s === '1';
       } else if (f.type === 'timestamp') {
         const t = parseTime(v);
-        if (Number.isNaN(t))
+        // Date's range is ±8.64e15 ms: beyond it there is no date (and toISOString would throw).
+        if (!Number.isFinite(t) || Math.abs(t) > 8.64e15)
           return void bad.push({ line: p.lines[i]!, reason: `"${f.name}" is not a date and time` });
         out[f.name] = new Date(t).toISOString();
       } else out[f.name] = String(v);
@@ -161,6 +203,8 @@ export function typedRows(
 
 /** "214 MB" style size for DATA-TOO-LARGE. */
 export const fileSize = (bytes: number) =>
-  bytes >= 1024 * 1024
-    ? `${Math.round(bytes / (1024 * 1024))} MB`
-    : `${Math.max(1, Math.round(bytes / 1024))} KB`;
+  bytes >= 1024 ** 3
+    ? `${Math.round((bytes / 1024 ** 3) * 10) / 10} GB`
+    : bytes >= 1024 * 1024
+      ? `${Math.ceil(bytes / (1024 * 1024))} MB` // up, so 200 MB + 1 byte never reads as "200 MB"
+      : `${Math.max(1, Math.ceil(bytes / 1024))} KB`;

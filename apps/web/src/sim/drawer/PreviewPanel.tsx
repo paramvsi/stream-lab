@@ -2,6 +2,8 @@ import { runToHere, type Event } from '@sl/engine';
 import { configOf, effectiveGenerator, spec } from '@sl/graph';
 import { EmptyState, Table, type Column } from '@sl/ui';
 import { Cable } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import { uploadedRows } from '../run';
 import { useGraph } from '../store';
 
 const ISO = /^\d{4}-\d{2}-\d{2}T(\d{2}:\d{2}:\d{2})(\.\d+)?Z$/;
@@ -69,9 +71,22 @@ export function PreviewPanel({
   // ponytail: recomputed per render (audit 3 measured 0.5–2 ms for a 20-node chain); memoize if it grows.
   const seed = useGraph((s) => s.seed);
   const stored = useGraph((s) => s.data.generator);
+  const uploads = useGraph((s) => s.data.uploads);
+  const pipelineId = useGraph((s) => s.pipelineId);
+  // Uploaded rows (OPFS, async) so the preview shows what a run would read (DATA-02).
+  const [sourceData, setSourceData] = useState<Record<string, Event[]>>({});
+  useEffect(() => {
+    let live = true;
+    const g = useGraph.getState();
+    void uploadedRows(pipelineId, g.nodes, g.data).then((r) => live && setSourceData(r.sourceData));
+    return () => {
+      live = false;
+    };
+  }, [pipelineId, uploads]);
   const p = runToHere({ nodes, edges }, nodeId, events, {
     seed,
     generator: effectiveGenerator(stored, seed),
+    sourceData,
   });
   if (!node || !p) return null;
   const s = spec(node.type);

@@ -10,7 +10,7 @@ Rules for implementers:
 4. Every code needs a test that triggers it and asserts the message, placement and actions (`TESTING.md`).
 5. "Board" is the design artboard that shows it. `W…/WX…` are in the Website canvas, `D…/X…/G…` in the Desktop canvas.
 
-Total: **139 codes** (128 from the handover + `CONN-SSH-HOSTKEY`, `API-4XX`, `COPY-FAILED` added in M0, `SIM-DUP-EDGE`, `SIM-PORT-TAKEN`, `SIM-REDO-EMPTY`, `PIPELINE-NOT-FOUND`, `PIPELINE-DELETED-ELSEWHERE` added in M1; `NODE-DUP-FIELD`, `NODE-RANGE` added in M2; `SIM-RUN-CHANGED` added in M3).
+Total: **141 codes** (128 from the handover + `CONN-SSH-HOSTKEY`, `API-4XX`, `COPY-FAILED` added in M0, `SIM-DUP-EDGE`, `SIM-PORT-TAKEN`, `SIM-REDO-EMPTY`, `PIPELINE-NOT-FOUND`, `PIPELINE-DELETED-ELSEWHERE` added in M1; `NODE-DUP-FIELD`, `NODE-RANGE` added in M2; `SIM-RUN-CHANGED`, `DATA-UPLOAD-UNUSED`, `DATA-READ-FAILED` added in M3).
 
 
 ## Desktop · Connections
@@ -196,6 +196,8 @@ Total: **139 codes** (128 from the handover + `CONN-SSH-HOSTKEY`, `API-4XX`, `CO
 | `DATA-PARSE` | Uploaded CSV/JSONL rows fail to parse | Row parser | warning | panel (upload) with row list | {n} of {total} rows could not be read (first: line {l}: {reason}). | Skip bad rows, Download report | W12c |
 | `DATA-SCHEMA` | Uploaded rows miss fields the source schema requires | Schema compare | error | panel | Column "{c}" is missing; the Source schema needs it. | Map columns | W12c |
 | `DATA-TOO-LARGE` | File > 200 MB | File.size | error | panel | {file} is {size}. The simulator handles up to 200 MB per file. | Read first 200 MB, Choose another | WX06 |
+| `DATA-UPLOAD-UNUSED` | A Source's uploaded rows can not be used for a run: gone from this browser (copied or imported pipeline, cleared site data) or no longer matching the Source schema | Run start | warning | toast | {source} uses the generator in this run: {reason}. | Open data | W12 |
+| `DATA-READ-FAILED` | The browser can not read the chosen file (moved, permission, I/O error) | File read | error | panel | {file} could not be read: {reason}. | Choose another | W12b |
 | `GEN-INVALID` | Generator settings invalid (rate ≤ 0, late % > 100) | Schema | error | field | {reason}. | — | W12 |
 | `STORE-FULL` | IndexedDB/OPFS quota exceeded on save | QuotaExceededError | error | banner (persistent) | Can not save: browser storage is full ({used}). | Manage storage | WX04 |
 | `STORE-BLOCKED` | Storage unavailable (private mode, blocked) | IndexedDB open fails | warning | banner | This browser is not letting Stream Lab save. Work will be lost when you close the tab. | Export now | WX04 |

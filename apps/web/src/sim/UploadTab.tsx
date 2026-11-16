@@ -4,35 +4,42 @@ import {
   MAX_UPLOAD_BYTES,
   missingColumns,
   parseCsv,
+  parseJson,
   parseJsonl,
+  lastCompleteLine,
   typedRows,
   type BadRow,
   type Event,
   type Parsed,
 } from '@sl/engine';
-import { AppError, ErrorBanner, present } from '@sl/errors';
+import { AppError, ErrorBanner } from '@sl/errors';
 import { configOf, labelOf, type Schema } from '@sl/graph';
 import { Button, EmptyState, Field, Select, Table, useToast } from '@sl/ui';
 import { FileUp, Upload } from 'lucide-react';
-import { useRef, useState, type RefObject } from 'react';
+import { useEffect, useRef, useState, type RefObject } from 'react';
 import { Events } from './drawer/PreviewPanel';
 import { useGraph } from './store';
-import { saveRows } from './uploads';
+import { loadRows, saveRows } from './uploads';
 
 const n = (x: number) => x.toLocaleString('en-US');
 
-/** Reads a file as text with progress (W12b "Reading … 72%"); bytes, not lines, drive the percentage. */
-async function readText(file: Blob, onProgress: (done: number) => void): Promise<string> {
+/**
+ * Reads a file as text with progress (W12b "Reading 41,200 events 72%"): bytes drive the percentage, line breaks the
+ * count. ponytail: UTF-8 only; a Windows-1252 file shows replacement characters (encoding detection if asked).
+ */
+async function readText(file: Blob, onProgress: (done: number, lines: number) => void): Promise<string> {
   const reader = file.stream().getReader();
   const dec = new TextDecoder();
   let text = '';
   let done = 0;
+  let lines = 0;
   for (;;) {
     const r = await reader.read();
     if (r.done) break;
     done += r.value.length;
+    for (const b of r.value) if (b === 10) lines++;
     text += dec.decode(r.value, { stream: true });
-    onProgress(done / Math.max(1, file.size));
+    onProgress(done / Math.max(1, file.size), lines);
   }
   return text + dec.decode();
 }
@@ -40,7 +47,8 @@ async function readText(file: Blob, onProgress: (done: number) => void): Promise
 type Step =
   | { kind: 'idle' }
   | { kind: 'large'; file: File }
-  | { kind: 'reading'; name: string; progress: number }
+  | { kind: 'reading'; name: string; progress: number; lines: number }
+  | { kind: 'failed'; name: string; reason: string }
   | { kind: 'parsed'; name: string; parsed: Parsed; mapping: Record<string, string | null> };
 
 /**
@@ -58,7 +66,20 @@ export function UploadTab({ onDone }: { onDone: () => void }) {
   const input = useRef<HTMLInputElement>(null);
   const mapFirst = useRef<HTMLSelectElement>(null);
   const toast = useToast();
+  const [saveError, setSaveError] = useState<AppError | null>(null);
   const source = sources.find((x) => x.id === sourceId);
+  const current = source ? uploads?.[source.id] : undefined;
+  // Is the recorded upload still in this browser? (A copied, imported or cleared pipeline may have lost it.)
+  const [stored, setStored] = useState<boolean | null>(null);
+  const pipelineId = useGraph((s) => s.pipelineId);
+  useEffect(() => {
+    if (!current || !source) return;
+    let live = true;
+    void loadRows(pipelineId, source.id).then((r) => live && setStored(r !== null));
+    return () => {
+      live = false;
+    };
+  }, [pipelineId, source, current]);
 
   if (!source)
     return (
@@ -66,13 +87,29 @@ export function UploadTab({ onDone }: { onDone: () => void }) {
         Add a Source node; an uploaded file replaces its generated events.
       </EmptyState>
     );
-  const schema = (configOf(source) as { schema: Schema }).schema;
-  const current = uploads?.[source.id];
+  const { schema, eventTime } = configOf(source) as { schema: Schema; eventTime: string };
 
-  const read = async (file: Blob, name: string) => {
-    setStep({ kind: 'reading', name, progress: 0 });
-    const text = await readText(file, (p) => setStep({ kind: 'reading', name, progress: p }));
-    const parsed = /\.csv$/i.test(name) ? parseCsv(text) : parseJsonl(text);
+  const read = async (file: Blob, name: string, cut = false) => {
+    setSaveError(null);
+    setStep({ kind: 'reading', name, progress: 0, lines: 0 });
+    let text: string;
+    try {
+      text = await readText(file, (p, lines) => setStep({ kind: 'reading', name, progress: p, lines }));
+    } catch (e) {
+      // Moved, permission, I/O: DATA-READ-FAILED, never a stuck "Reading".
+      const reason =
+        (e as Error)?.name === 'NotReadableError'
+          ? 'it was moved or can no longer be opened'
+          : 'the browser could not open it';
+      return setStep({ kind: 'failed', name, reason });
+    }
+    // "Read first 200 MB" cuts mid-row: drop the partial last line rather than keep a cut value.
+    if (cut) text = lastCompleteLine(text);
+    const parsed = /\.csv$/i.test(name)
+      ? parseCsv(text)
+      : /\.json$/i.test(name)
+        ? parseJson(text)
+        : parseJsonl(text);
     setStep({ kind: 'parsed', name, parsed, mapping: autoMap(parsed.columns, schema) });
   };
   const pick = (file: File | undefined) => {
@@ -112,7 +149,9 @@ export function UploadTab({ onDone }: { onDone: () => void }) {
       )}
       {current && step.kind === 'idle' && (
         <p className="m-0 flex flex-wrap items-center gap-2 text-[13px] text-muted">
-          {labelOf(source)} reads {current.file} ({n(current.rows)} events).
+          {stored === false
+            ? `${current.file} is not in this browser, so ${labelOf(source)} uses the generator. Upload it again to use it.`
+            : `${labelOf(source)} reads ${current.file} (${n(current.rows)} events).`}
           <Button
             size="sm"
             variant="ghost"
@@ -152,7 +191,8 @@ export function UploadTab({ onDone }: { onDone: () => void }) {
         <ErrorBanner
           error={new AppError('DATA-TOO-LARGE', { file: step.file.name, size: fileSize(step.file.size) })}
           onAction={(a) => {
-            if (a === 'Read first 200 MB') void read(step.file.slice(0, MAX_UPLOAD_BYTES), step.file.name);
+            if (a === 'Read first 200 MB')
+              void read(step.file.slice(0, MAX_UPLOAD_BYTES), step.file.name, true);
             else if (a === 'Choose another') {
               setStep({ kind: 'idle' });
               input.current?.click();
@@ -160,9 +200,28 @@ export function UploadTab({ onDone }: { onDone: () => void }) {
           }}
         />
       )}
+      {step.kind === 'large' && (
+        <p className="m-0 text-[13px] text-muted">
+          A browser tab can hold up to 200 MB. Upload a sample (the first 200 MB will be read), or use the
+          desktop app with a real cluster.
+        </p>
+      )}
+      {step.kind === 'failed' && (
+        <ErrorBanner
+          error={new AppError('DATA-READ-FAILED', { file: step.name, reason: step.reason })}
+          onAction={(a) => {
+            if (a !== 'Choose another') return;
+            setStep({ kind: 'idle' });
+            input.current?.click();
+          }}
+        />
+      )}
+      {saveError && <ErrorBanner error={saveError} />}
       {step.kind === 'reading' && (
         <div className="flex flex-col gap-2">
-          <p className="m-0 text-[14px]">Reading {step.name}</p>
+          <p className="m-0 text-[14px]">
+            Reading {step.name} · {n(step.lines)} rows
+          </p>
           <div
             role="progressbar"
             aria-label={`Reading ${step.name}`}
@@ -183,14 +242,15 @@ export function UploadTab({ onDone }: { onDone: () => void }) {
           mapFirst={mapFirst}
           onMap={(field, col) => setStep({ ...step, mapping: { ...step.mapping, [field]: col || null } })}
           onCancel={() => setStep({ kind: 'idle' })}
+          eventTime={eventTime}
           onUse={async (rows, file) => {
             const id = useGraph.getState().pipelineId;
             try {
               await saveRows(id, source.id, rows);
-            } catch {
-              // OPFS unavailable (private window, blocked site data): the catalog's blocked-storage warning.
-              const p = present(new AppError('STORE-BLOCKED'));
-              return toast({ severity: p.severity, message: p.message });
+            } catch (e) {
+              // STORE-FULL (quota) or STORE-BLOCKED (OPFS refused), as the panel's banner.
+              if (!(e instanceof AppError)) throw e;
+              return setSaveError(e);
             }
             useGraph.getState().setUpload(source.id, { file, rows: rows.length });
             toast({
@@ -212,8 +272,10 @@ function Parsed({
   onMap,
   onCancel,
   onUse,
+  eventTime,
 }: {
   step: Extract<Step, { kind: 'parsed' }>;
+  eventTime: string;
   schema: Schema;
   mapFirst: RefObject<HTMLSelectElement | null>;
   onMap: (field: string, col: string) => void;
@@ -223,7 +285,7 @@ function Parsed({
   const missing = missingColumns(schema, step.mapping);
   const { rows, bad } = missing.length
     ? { rows: [], bad: step.parsed.bad }
-    : typedRows(step.parsed, schema, step.mapping);
+    : typedRows(step.parsed, schema, step.mapping, eventTime);
   const total = rows.length + bad.length;
   const report = () => {
     const csv = ['line,problem', ...bad.map((b) => `${b.line},"${b.reason.replace(/"/g, '""')}"`)].join('\n');
@@ -307,7 +369,7 @@ function Parsed({
               ? { disabledReason: 'No rows could be read.' }
               : {})}
         >
-          Use {n(rows.length)} events
+          Use {n(rows.length)} {rows.length === 1 ? 'event' : 'events'}
         </Button>
       </div>
     </div>

@@ -19,8 +19,17 @@ const n = (x: number) => x.toLocaleString('en-US');
 export function RunPill() {
   const all = useIssues((s) => s.all);
   const blocker = runBlocker(all);
-  const { state, speed, stats, crash, slow, stale, staleNotice } = useRun();
+  const { state, speed, stats, crash, slow, stale, staleNotice, unused } = useRun();
   const toast = useToast();
+  // DATA-UPLOAD-UNUSED: one toast per Source whose upload this run could not use.
+  useEffect(() => {
+    if (!unused.length) return;
+    for (const u of unused) {
+      const p = present(new AppError('DATA-UPLOAD-UNUSED', u));
+      toast({ severity: p.severity, message: p.message });
+    }
+    useRun.setState({ unused: [] });
+  }, [unused, toast]);
   const speedId = useId();
 
   // The worker ends when the workspace closes.

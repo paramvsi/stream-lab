@@ -162,3 +162,28 @@ test('EXPL-02 audit: a dead-letter row (late, board E04) can be explained', asyn
   await expect(card(page)).toContainText('A late event is set aside');
   await expect(panel.getByRole('list')).toContainText('Set aside as late');
 });
+
+test("EXPL-03 audit 5+6: the traced row's sink stays lit; Reset ends the trace", async ({ page }) => {
+  await finished(page, 'Card fraud bursts');
+  const panel = page.getByRole('region', { name: 'Run panel' });
+  await panel.getByRole('tab', { name: 'Output' }).click();
+  const sinkName = (
+    await panel.getByLabel('Sink').evaluate((e) => (e as HTMLSelectElement).selectedOptions[0]!.text)
+  ).replace(/ \(\d+\)$/, '');
+  await panel
+    .getByRole('table', { name: /^Output of / })
+    .locator('tbody tr')
+    .first()
+    .click();
+  await expect(panel.getByRole('tab', { name: 'Trace' })).toHaveAttribute('aria-selected', 'true');
+  const dim = () =>
+    page
+      .locator('.react-flow__node')
+      .evaluateAll((ns) => ns.filter((n) => getComputedStyle(n.firstElementChild!).opacity !== '1').length);
+  await expect.poll(dim).toBeGreaterThan(0);
+  await expect(
+    page.locator('.react-flow__node').filter({ hasText: sinkName }).locator('> *').first(),
+  ).toHaveCSS('opacity', '1');
+  await page.locator('.react-flow__panel.top').getByRole('button', { name: 'Reset' }).click();
+  await expect.poll(dim).toBe(0);
+});

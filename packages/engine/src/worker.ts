@@ -44,6 +44,7 @@ self.onmessage = (e: MessageEvent<WorkerCommand>) => {
   else if (c.type === 'seek') {
     stop(); // a seek pauses (or finishes) the run
     driver.seek(c.at);
+    self.postMessage({ type: 'seeked' } satisfies DriverMessage);
   } else if (c.type === 'chaos') driver.chaos();
   else if (c.type === 'speed') driver.setSpeed(c.speed);
 };

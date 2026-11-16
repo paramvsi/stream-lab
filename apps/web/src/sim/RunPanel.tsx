@@ -105,29 +105,28 @@ function Scrubber() {
   const duration = useRun((s) => s.duration);
   const now = useRun((s) => s.stats?.now ?? 0);
   const stale = useRun((s) => s.stale);
-  // Where the handle was put, until the run reports it moved: a late change event then repeats the same seek
-  // instead of carrying the old clock back (a range input tied straight to the clock jumped back).
-  const [pos, setPos] = useState<number | null>(null);
-  const [seen, setSeen] = useState(now);
-  if (now !== seen) {
-    setSeen(now);
-    setPos(null);
-  }
+  const seeking = useRun((s) => s.seeking);
+  // Where the handle was put, held until the newest seek is done (the clock meanwhile is an older position).
+  const [pos, setPos] = useState(0);
   if (!duration) return null;
   const step = Math.max(1, Math.round(duration / 500));
   const clock = (ms: number) => `${(ms / 1000).toFixed(1)} s`;
+  const shown = seeking ? pos : Math.min(now, duration);
   return (
-    <label className="flex max-w-[900px] items-center gap-3 text-[13px] text-muted">
-      <span className="shrink-0 font-medium text-ink">Replay</span>
+    <div className="flex max-w-[900px] items-center gap-3 text-[13px] text-muted">
+      <span aria-hidden="true" className="shrink-0 font-medium text-ink">
+        Replay
+      </span>
       <input
         type="range"
+        aria-label="Replay"
         className="sl-focus w-full accent-rose-600"
         min={0}
         max={duration}
         step={step}
-        value={pos ?? Math.min(now, duration)}
+        value={shown}
         disabled={stale}
-        aria-valuetext={`${clock(now)} of ${clock(duration)}`}
+        aria-valuetext={`${clock(shown)} of ${clock(duration)}`}
         // The handle snaps to its step: within one step of the end means the end.
         onChange={(e) => {
           const v = Number(e.target.value);
@@ -135,10 +134,11 @@ function Scrubber() {
           runner.seek(v + step >= duration ? duration : v);
         }}
       />
-      <span className="shrink-0 font-mono tabular-nums">
-        {clock(now)} / {clock(duration)}
+      {/* A fixed width, so the slider does not move under the pointer as the digits change. */}
+      <span aria-hidden="true" className="w-[15ch] shrink-0 text-right font-mono tabular-nums">
+        {clock(shown)} / {clock(duration)}
       </span>
-    </label>
+    </div>
   );
 }
 

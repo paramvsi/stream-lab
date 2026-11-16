@@ -338,3 +338,38 @@ test('EXPL-05 the time scrubber moves the replay: back to the start pauses early
   await page.keyboard.press('End');
   await expect(status(page)).toHaveText(/^Finished/);
 });
+
+// ---- Trace + scrubber audit (60c45be, 9de9169) ----
+test('EXPL-05 audit 1+2: a long seek while running is not a crash; a drag ends where it was released', async ({
+  page,
+}) => {
+  await scenario(page, 'Refunds matching');
+  await page.getByRole('button', { name: 'Data', exact: true }).click();
+  const d = page.getByRole('dialog', { name: 'Data' });
+  await d.getByLabel('Events', { exact: true }).fill('20000');
+  await d.getByRole('button', { name: 'Apply and regenerate' }).click();
+  await expect(d).toHaveCount(0);
+  await page.getByText('10×', { exact: true }).click();
+  await page.locator('.react-flow__panel.top').getByRole('button', { name: 'Run', exact: true }).click();
+  const panel = page.getByRole('region', { name: 'Run panel' });
+  await panel.getByRole('tab', { name: 'Timeline' }).click();
+  const slider = panel.getByRole('slider', { name: 'Replay' });
+  await expect(slider).toBeVisible({ timeout: 10000 });
+  await slider.focus();
+  // Several seeks in a row (a drag), each a long replay.
+  for (let i = 0; i < 8; i++) await page.keyboard.press('ArrowRight');
+  await page.keyboard.press('End');
+  // The handle stays at the release point (the end, snapped to its step) while the replays catch up: it never
+  // walks back through the positions it was dragged over.
+  const max = Number(await slider.getAttribute('max'));
+  const step = Number(await slider.getAttribute('step'));
+  const seen = new Set<number>();
+  for (let i = 0; i < 20; i++) {
+    seen.add(Number(await slider.inputValue()));
+    await page.waitForTimeout(400);
+  }
+  expect(seen.size).toBe(1);
+  expect([...seen][0]).toBeGreaterThan(max - step);
+  await expect(status(page)).toHaveText(/^Finished/, { timeout: 30000 });
+  await expect(page.getByText(/the engine stopped responding/)).toHaveCount(0);
+});

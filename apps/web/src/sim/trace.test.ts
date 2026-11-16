@@ -98,3 +98,49 @@ describe('EXPL-03 trace: every input and node behind one output row (board E06)'
     expect(traceRow(g, r.trace()!, 'out', 5)).toEqual([]);
   });
 });
+
+describe('EXPL-03 audit: big fan-in and side ports', () => {
+  const hop = (
+    id: number,
+    n: string,
+    parents: number[],
+    port = 'main',
+    data: Record<string, unknown> = {},
+  ) => ({
+    id,
+    node: n,
+    port,
+    parents,
+    ts: 1000 + id,
+    data,
+    reason: undefined,
+    watermark: 0,
+    at: id,
+  });
+  const g = {
+    nodes: [
+      node('s', 'Source'),
+      node('w', 'Window', { keyBy: [] }),
+      node('f', 'Filter', { expr: 'amount > 1.0' }),
+      node('o', 'Sink'),
+    ],
+    edges: [edge('s', 'w'), edge('w', 'f'), edge('f', 'o', 'rejected')],
+  };
+  it('a window of 200,000 events traces without a stack overflow, quickly', () => {
+    const N = 200_000;
+    const hops = new Map<number, ReturnType<typeof hop>>();
+    const ids: number[] = [];
+    for (let i = 1; i <= N; i++) {
+      hops.set(i, hop(i, 's', []));
+      ids.push(i);
+    }
+    hops.set(N + 1, hop(N + 1, 'w', ids, 'main', { window_end: '2026-01-01T00:05:00.000Z' }));
+    hops.set(N + 2, hop(N + 2, 'f', [N + 1], 'rejected'));
+    const t0 = performance.now();
+    const steps = traceRow(g, { hops, outputs: { o: [N + 2] } } as never, 'o', 0);
+    expect(performance.now() - t0).toBeLessThan(2000);
+    expect(steps[0]!.count).toBe(N);
+    // A rejected event is not said to pass.
+    expect(steps[2]!.text).toBe('amount > 1.0 · set aside');
+  });
+});

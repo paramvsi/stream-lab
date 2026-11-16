@@ -32,6 +32,8 @@ export interface RunStore {
   crash: { n: number; reason: string } | null;
   /** SIM-SLOW: the speed that could not be kept up, until the toast is shown. */
   slow: number | null;
+  /** EXPL-05: a seek is replaying (the scrubber holds its handle; the watchdog waits). */
+  seeking: boolean;
   /** The pipeline changed since this run started. */
   stale: boolean;
   /** SIM-RUN-CHANGED is shown only when a running or paused run was interrupted, not after it finished. */
@@ -51,6 +53,7 @@ const initial: RunStore = {
   snapshots: {},
   crash: null,
   slow: null,
+  seeking: false,
   stale: false,
   staleNotice: false,
   unused: [],
@@ -94,6 +97,7 @@ function connect(): Worker {
     lastSeen = Date.now();
     const m = e.data;
     if (m.type === 'beat') return;
+    if (m.type === 'seeked') return void seekDone();
     if (m.type === 'chaos') return void useRun.setState({ chaos: m.report });
     if (m.type === 'snapshot')
       return void useRun.setState((s) => ({ snapshots: { ...s.snapshots, [m.node]: m.rows } }));
@@ -121,7 +125,9 @@ function connect(): Worker {
     const now = Date.now();
     const late = now - lastCheck > 2000;
     lastCheck = now;
-    if (late || useRun.getState().state !== 'running') lastSeen = now;
+    // A seek replays synchronously and sends no heartbeat meanwhile: that silence is work, not a hang.
+    // ponytail: a replay that truly hangs is then never called a crash; a seek deadline if that shows up.
+    if (late || useRun.getState().seeking || useRun.getState().state !== 'running') lastSeen = now;
     else if (now - lastSeen > HEARTBEAT_MISS_MS) crash('the engine stopped responding');
   }, 1000);
   worker = w;
@@ -199,6 +205,23 @@ export function replaySource(): { graph: Graph; opts: RunOptions } | { reason: s
   return loadedRun;
 }
 
+let seekBusy = false;
+let seekNext: number | null = null;
+function seekDone() {
+  if (seekNext !== null) {
+    worker?.postMessage({ type: 'seek', at: seekNext });
+    seekNext = null;
+  } else {
+    seekBusy = false;
+    useRun.setState({ seeking: false });
+  }
+}
+function seekClear() {
+  seekBusy = false;
+  seekNext = null;
+  useRun.setState({ seeking: false });
+}
+
 async function load() {
   const { nodes, edges, seed, data, pipelineId } = useGraph.getState();
   const sig = signature();
@@ -217,6 +240,7 @@ async function load() {
   chaosUsed = false;
   connect().postMessage({ type: 'load', graph, opts });
   connect().postMessage({ type: 'speed', speed: useRun.getState().speed });
+  seekClear();
   loaded = true;
   loadedSig = sig;
   useRun.setState({ stale: false, staleNotice: false });
@@ -266,10 +290,18 @@ export const runner = {
   seek(at: number) {
     if (!loaded || useRun.getState().stale) return;
     chaosUsed = false; // the replay drops what Chaos injected
-    worker?.postMessage({ type: 'seek', at });
+    useRun.setState({ seeking: true });
+    // Each seek is a full replay: while one runs, only the newest position waits (a drag is not replayed step
+    // by step after the release).
+    if (seekBusy) seekNext = at;
+    else {
+      seekBusy = true;
+      worker?.postMessage({ type: 'seek', at });
+    }
   },
   reset() {
     loaded = false;
+    seekClear();
     useRun.setState({ state: 'ready', stats: null, stale: false, busiest: null });
   },
   speed(speed: number) {

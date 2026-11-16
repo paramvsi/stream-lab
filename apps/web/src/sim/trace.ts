@@ -25,8 +25,11 @@ export function traceRow(g: Graph, t: Trace, sink: string, row: number): TraceSt
     const h = t.hops.get(stack.pop()!);
     if (!h || seen.has(h.id)) continue;
     seen.add(h.id);
-    byNode.set(h.node, [...(byNode.get(h.node) ?? []), h]);
-    stack.push(...h.parents);
+    // push, not spread: a window can have more parents than a call can take arguments (and copying is O(n²)).
+    let list = byNode.get(h.node);
+    if (!list) byNode.set(h.node, (list = []));
+    list.push(h);
+    for (const p of h.parents) stack.push(p);
   }
   return topoOrder(g)
     .filter((n) => byNode.has(n.id))
@@ -49,7 +52,8 @@ export function traceRow(g: Graph, t: Trace, sink: string, row: number): TraceSt
           break;
         case 'Validate': {
           const k = ((c['rules'] ?? []) as unknown[]).length;
-          text = `All ${k} passed`;
+          const bad = hops.find((h) => h.port === 'rejected');
+          text = bad ? `Rule ${bad.reason ?? '?'} failed · set aside` : `All ${k} passed`;
           break;
         }
         case 'Window': {
@@ -67,7 +71,9 @@ export function traceRow(g: Graph, t: Trace, sink: string, row: number): TraceSt
           break;
         }
         case 'Filter':
-          text = `${String(c['expr'])} · ${hops.length} passed`;
+          text = hops.some((h) => h.port === 'rejected')
+            ? `${String(c['expr'])} · set aside`
+            : `${String(c['expr'])} · ${hops.length} passed`;
           break;
         case 'Lookup':
           text = `Joined with ${String(c['table'])}`;

@@ -2,7 +2,8 @@ import { Button, EmptyState } from '@sl/ui';
 import { Lightbulb, Route as RouteIcon } from 'lucide-react';
 import { create } from 'zustand';
 import { AppError } from '@sl/errors';
-import { startExplain, tracedRun, useExplainError } from './ExplainCard';
+import { startExplain, tracedRun, useExplain, useExplainError } from './ExplainCard';
+import { useRun } from './run';
 import { useGraph } from './store';
 import { traceRow, type TraceStep } from './trace';
 
@@ -12,13 +13,31 @@ import { traceRow, type TraceStep } from './trace';
  */
 export const useTrace = create<{ sink: string; row: number; steps: TraceStep[] } | null>(() => null);
 
-/** A node's number in the current trace (1-based), null if it did not contribute, undefined with no trace. */
+/**
+ * A node's number in the current trace (1-based), null if it did not contribute, undefined with no trace. The
+ * row's own sink stays lit (board E06), numbered after the last step: it records no lineage hop of its own.
+ */
 export const useTraceStep = (id: string) =>
   useTrace((s) => {
     if (!s) return undefined;
+    if (id === s.sink) return s.steps.length + 1;
     const i = s.steps.findIndex((x) => x.node === id);
     return i < 0 ? null : i + 1;
   });
+
+// Marks belong to one run of one pipeline: a reset, an edit (the run is stale), a new run or another pipeline
+// ends the trace and the explanation (their row indexes would point into something else).
+const end = () => {
+  if (useTrace.getState()) useTrace.setState(null, true);
+  if (useExplain.getState()) useExplain.setState(null, true);
+};
+useRun.subscribe((r, old) => {
+  if (r.state === 'ready' || (r.stale && !old.stale) || (r.state === 'running' && old.state === 'finished'))
+    end();
+});
+useGraph.subscribe((g, old) => {
+  if (g.pipelineId !== old.pipelineId) end();
+});
 
 export async function startTrace(sink: string, row: number) {
   let trace;
@@ -44,14 +63,15 @@ export function TracePanel() {
     <div className="flex flex-col gap-3">
       <ol className="m-0 flex list-none flex-col gap-2 p-0">
         {t.steps.map((s, i) => (
-          <li key={s.node} className="flex items-baseline gap-3 text-[14px]">
+          // Board E06: light rose badges (11px mono), 13px rows, a 170px label column.
+          <li key={s.node} className="flex items-baseline gap-3 text-[13px]">
             <span
               aria-hidden="true"
-              className="flex size-6 shrink-0 items-center justify-center rounded-full bg-rose-600 font-mono text-[12px] font-semibold text-white"
+              className="flex size-[22px] shrink-0 items-center justify-center rounded-full bg-rose-50 font-mono text-[11px] font-semibold text-rose-700"
             >
               {i + 1}
             </span>
-            <span className="font-medium text-ink">{s.label}</span>
+            <span className="w-[170px] shrink-0 font-medium text-ink">{s.label}</span>
             <span className="text-muted">{s.text}</span>
           </li>
         ))}

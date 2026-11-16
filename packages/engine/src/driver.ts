@@ -14,7 +14,9 @@ export type DriverMessage =
   /** SIM-16 Chaos: what was injected. */
   | { type: 'chaos'; report: ChaosReport }
   /** Sent every second by the worker (SIM-ENGINE-CRASH heartbeat). */
-  | { type: 'beat' };
+  | { type: 'beat' }
+  /** EXPL-05: a seek is done (the page sends the next one only then). */
+  | { type: 'seeked' };
 
 /** Wall-clock budget per tick before the run reports SIM-SLOW. */
 export const TICK_MS = 100;

@@ -89,17 +89,8 @@ export const secretKey = (connId: string, part: 'login' | 'gateway' | 'proxy' | 
   `streamlab/${connId}/${part}`;
 
 /** An address without a user and password in it (they are never stored). */
-function withoutUserinfo(u: string): string {
-  try {
-    const x = new URL(u);
-    if (!x.username && !x.password) return u;
-    x.username = '';
-    x.password = '';
-    return x.toString();
-  } catch {
-    return u;
-  }
-}
+// Only the user and password are cut: the rest of the address stays exactly as written (no added "/", case or port).
+const withoutUserinfo = (u: string) => u.replace(/^([a-z][a-z0-9+.-]*:\/\/)[^/?#@]*@/i, '$1');
 
 /**
  * What may be stored or written to a file, and what goes to the keychain instead: header values that are
@@ -112,7 +103,8 @@ export function splitSecrets(c: Connection): {
   const secrets: { key: string; value: string }[] = [];
   const headers = c.headers.map((h) => {
     if (!isSecretHeader(h)) return h;
-    if (h.value !== undefined)
+    if (h.value)
+      // an empty value is no secret to keep
       secrets.push({ key: secretKey(c.id, `header:${h.name.trim().toLowerCase()}`), value: h.value });
     return { name: h.name, secret: true };
   });
@@ -170,6 +162,25 @@ export function validateConnection(
     out.headers = new AppError('CONN-HEADER-AUTH');
   else if (c.headers.some((h) => !h.name.trim()))
     out.headers = new AppError('CONN-REQUIRED', { field: 'Header name' });
+  else {
+    // A header name is an HTTP token; one name once (secrets are keyed by name, and a second value would be lost).
+    const seen = new Set<string>();
+    for (const h of c.headers) {
+      const n = h.name.trim();
+      if (!/^[!#$%&'*+.^_`|~0-9A-Za-z-]+$/.test(n)) {
+        out.headers = new AppError('CONN-HEADER-INVALID', {
+          name: n,
+          reason: 'has characters a header name can not have',
+        });
+        break;
+      }
+      if (seen.has(n.toLowerCase())) {
+        out.headers = new AppError('CONN-HEADER-INVALID', { name: n, reason: 'is set twice' });
+        break;
+      }
+      seen.add(n.toLowerCase());
+    }
+  }
   // A SQL Gateway counts only when it has an address; its own login must be complete.
   if (c.gateway && c.gateway.url.trim()) {
     const e = urlError(c.gateway.url.trim());
@@ -184,7 +195,11 @@ export function validateConnection(
 /** CONN-08: the connections file. Secret header values are left out; secrets never leave the keychain. */
 export const EXPORT_FORMAT = 'streamlab.connections';
 export function exportConnections(cs: Connection[]): string {
-  const clean = cs.map((c) => splitSecrets(c).connection);
+  // An Authorization header (from before CONN-HEADER-AUTH) is left out: import would refuse the whole file for it.
+  const clean = cs.map((c) => {
+    const x = splitSecrets(c).connection;
+    return { ...x, headers: x.headers.filter((h) => h.name.trim().toLowerCase() !== 'authorization') };
+  });
   return JSON.stringify({ format: EXPORT_FORMAT, version: 1, connections: clean }, null, 2);
 }
 
@@ -202,9 +217,15 @@ const lineAt = (text: string, offset: number) => text.slice(0, offset).split('\n
 /** The line of the n-th connection whose "id" is `id` (ids may repeat in a file); 1 when it can not be found. */
 function lineOfId(text: string, id: unknown, nth: number): number {
   if (typeof id !== 'string') return 1;
-  const esc = JSON.stringify(id).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  const hits = [...text.matchAll(new RegExp(`"id"\\s*:\\s*${esc}`, 'g'))];
-  const hit = hits[nth] ?? hits[0];
+  // Every "id": "…" in the text, decoded (an id may be written with JSON escapes), then the n-th equal one.
+  const hits = [...text.matchAll(/"id"\s*:\s*("(?:[^"\\]|\\.)*")/g)].filter((m) => {
+    try {
+      return JSON.parse(m[1]!) === id;
+    } catch {
+      return false;
+    }
+  });
+  const hit = hits[nth];
   return hit?.index !== undefined ? lineAt(text, hit.index) : 1;
 }
 
@@ -267,13 +288,20 @@ export function importConnections(
     if (seen.has(k)) return invalid(lineOf(i), `the name "${c.name.trim()}" appears twice`);
     seen.add(k);
   }
-  const here = new Map(existing.map((x) => [x.name.trim().toLowerCase(), x.id]));
+  const here = new Map<string, string>();
+  for (const x of existing)
+    if (!here.has(x.name.trim().toLowerCase())) here.set(x.name.trim().toLowerCase(), x.id);
   const duplicates: ImportDuplicate[] = [];
   const connections = r.data.connections.map((c, index) => {
     const existingId = here.get(c.name.trim().toLowerCase());
     if (existingId) duplicates.push({ index, existingId });
-    // Fresh ids: secrets are keyed by id, and a file's ids may match connections here or each other.
-    return { ...c, id: newId() };
+    // Fresh ids: secrets are keyed by id, and a file's ids may match connections here or each other. Secret values
+    // in a file (hand-written: export never writes them) are not taken: secrets only come from the keychain.
+    return {
+      ...c,
+      id: newId(),
+      headers: c.headers.map((h) => (isSecretHeader(h) ? { name: h.name, secret: true } : h)),
+    };
   });
   return {
     connections,

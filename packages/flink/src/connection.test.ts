@@ -240,3 +240,68 @@ describe('audit of 27279b8', () => {
     expect(validateConnection(conn({ gateway: { url: '', sameLogin: false } }), [])).toEqual({});
   });
 });
+
+describe('audit of 4b303d6', () => {
+  it('#1/#5 a header set twice (any case) or with a bad name is CONN-HEADER-INVALID; an empty secret value is not kept', async () => {
+    const { splitSecrets } = await import('./connection');
+    const twice = validateConnection(
+      conn({
+        headers: [
+          { name: 'X-Api-Key', value: 'A', secret: true },
+          { name: 'x-api-key', value: 'B', secret: true },
+        ],
+      }),
+      [],
+    );
+    expect(twice.headers).toMatchObject({
+      code: 'CONN-HEADER-INVALID',
+      params: { name: 'x-api-key', reason: 'is set twice' },
+    });
+    const bad = validateConnection(
+      conn({ headers: [{ name: 'X Bad\nName', value: 'v', secret: false }] }),
+      [],
+    );
+    expect(bad.headers).toMatchObject({ code: 'CONN-HEADER-INVALID' });
+    expect(splitSecrets(conn({ headers: [{ name: 'X-Token', value: '', secret: true }] })).secrets).toEqual(
+      [],
+    );
+  });
+  it('#2 an exported connection always imports again (an old Authorization header is left out); #4 secret values in a file are not taken', () => {
+    const old = conn({
+      headers: [
+        { name: 'Authorization', value: 'Bearer x', secret: false },
+        { name: 'X-Team', value: 'payments', secret: false },
+      ],
+    });
+    const r = importConnections('c.json', exportConnections([old]), []);
+    if ('error' in r) throw r.error;
+    expect(r.connections[0]!.headers).toEqual([{ name: 'X-Team', value: 'payments', secret: false }]);
+    const hand = JSON.stringify({
+      format: 'streamlab.connections',
+      version: 1,
+      connections: [
+        conn({
+          headers: [
+            { name: 'X-Token', value: 'S3CRET', secret: true },
+            { name: 'Cookie', value: 'c=1', secret: false },
+          ],
+        }),
+      ],
+    });
+    const h = importConnections('c.json', hand, []);
+    if ('error' in h) throw h.error;
+    expect(JSON.stringify(h.connections)).not.toMatch(/S3CRET|c=1/);
+  });
+  it('#6 removing a password leaves the rest of the address as written; #7 escaped ids find their line; #8 the first of two equal existing names', () => {
+    const t = exportConnections([conn({ url: 'https://u:p@Flink.Example.com:443/base?x=1' })]);
+    expect(t).toContain('"url": "https://Flink.Example.com:443/base?x=1"');
+    const text =
+      '{\n "format": "streamlab.connections",\n "version": 1,\n "connections": [\n  {\n   "id": "\\u00e9\\/x",\n   "env": "qa"\n  }\n ]\n}';
+    expect(importConnections('c.json', text, [])).toMatchObject({ error: { params: { line: 6 } } });
+    const r = importConnections('c.json', exportConnections([conn()]), [
+      { id: 'e1', name: 'prod-eu' },
+      { id: 'e2', name: 'PROD-EU' },
+    ]);
+    expect(r).toMatchObject({ duplicates: [{ index: 0, existingId: 'e1' }] });
+  });
+});

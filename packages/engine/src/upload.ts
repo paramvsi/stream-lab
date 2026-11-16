@@ -307,9 +307,13 @@ export function tableFromFile(
 ): {
   table: BuiltinTable | null;
   bad: BadRow[];
-  issues: { field: 'name' | 'key' | 'versioned'; code: string; params?: Record<string, string> }[];
+  issues: { field: 'name' | 'key' | 'versioned' | 'file'; code: string; params?: Record<string, string> }[];
 } {
-  const issues: { field: 'name' | 'key' | 'versioned'; code: string; params?: Record<string, string> }[] = [];
+  const issues: {
+    field: 'name' | 'key' | 'versioned' | 'file';
+    code: string;
+    params?: Record<string, string>;
+  }[] = [];
   if (BUILTIN_TABLES[o.name]) issues.push({ field: 'name', code: 'REF-NAME-TAKEN', params: { t: o.name } });
   if (o.versioned && !p.columns.includes('valid_from'))
     issues.push({ field: 'versioned', code: 'REF-NO-VALID-FROM' });
@@ -320,6 +324,8 @@ export function tableFromFile(
     if (blank(r[o.key])) bad.push({ line: p.lines[i] ?? i + 2, reason: `no ${o.key}` });
     else rows.push(r as Event);
   });
+  // An empty table would pass LOOKUP-NO-TABLE (checks see columns) and miss every event.
+  if (!rows.length) issues.push({ field: 'file', code: 'LOOKUP-NO-TABLE', params: { t: o.name } });
   const columns = p.columns
     .filter((c) => c !== '')
     .map((name) => {

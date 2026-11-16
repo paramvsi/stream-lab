@@ -849,7 +849,7 @@ export function createRun(g: Graph, opts: RunOptions = {}): Run {
   const parallelism = opts.parallelism ?? 2;
   const keep = opts.keep ?? 500;
   // DATA-05: the fintech pack's tables are always there; uploaded tables add to (or replace) them.
-  const refTables = { ...BUILTIN_TABLES, ...opts.refTables };
+  const refTables = { ...opts.refTables, ...BUILTIN_TABLES }; // built-in names win (DATA-03)
   const s = propagate(g, { refTables: refSchemas(refTables) });
   const order = topoOrder(g).filter((n) => !(n.disabled && spec(n.type).category === 'Sources'));
   const labels = new Map(g.nodes.map((n) => [n.id, labelOf(n)]));

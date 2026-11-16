@@ -77,7 +77,6 @@ import { RunPill } from './RunPill';
 import { historyEntries, useGraph, type ConnectFrom } from './store';
 import { ConnectionHint, EdgeActions, setHoveredEdge, StreamEdge, type SlEdge } from './StreamEdge';
 import { refCtx, useRefTables } from './refTables';
-import { listRefTables } from '../storage';
 
 const nodeTypes = { sl: NodeCard };
 export const LARGE_GRAPH = 150;
@@ -190,18 +189,8 @@ function Canvas() {
   }, [large, toast]);
   const layout = useAutoLayout();
 
-  // DATA-03: imported reference tables, loaded once per workspace; checks and runs see them.
+  // DATA-03: imported reference tables (loaded by WorkspaceRoute); checks re-run when they change.
   const tables = useRefTables((s) => s.user);
-  useEffect(() => {
-    listRefTables().then(
-      (ts) => useRefTables.setState({ user: Object.fromEntries(ts.map((t) => [t.name, t])) }),
-      (e: unknown) => {
-        if (!(e instanceof AppError)) throw e;
-        const p = present(e); // STORE-BLOCKED: the built-in tables still work
-        toast({ severity: p.severity, message: p.message });
-      },
-    );
-  }, [toast]);
 
   // SIM-14: validation on every change (NODES.md: debounced 150 ms).
   useEffect(() => {

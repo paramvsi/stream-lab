@@ -11,21 +11,35 @@ const VERSION = 2; // 2: the `refTables` store (DATA-03)
 let dbp: Promise<IDBPDatabase> | null = null;
 function db() {
   // Through a promise: some browsers throw synchronously from indexedDB.open (private mode); that must map too.
-  dbp ??= Promise.resolve()
-    .then(() =>
+  dbp ??= new Promise<IDBPDatabase>((resolve, reject) => {
+    let gaveUp = false;
+    const opening = Promise.resolve().then(() =>
       openDB(DB, VERSION, {
         upgrade(d) {
           if (!d.objectStoreNames.contains('pipelines')) d.createObjectStore('pipelines', { keyPath: 'id' });
           if (!d.objectStoreNames.contains('refTables'))
             d.createObjectStore('refTables', { keyPath: 'name' });
         },
+        // A tab still open on an older version holds the upgrade: say so instead of waiting forever.
+        blocked() {
+          gaveUp = true;
+          reject(new AppError('STORE-UPGRADE-BLOCKED'));
+        },
+        // A newer version opening elsewhere: let it upgrade (this tab reconnects on its next call).
+        blocking() {
+          void dbp?.then((d) => d.close());
+          dbp = null;
+        },
       }),
-    )
-    .catch((e: unknown) => {
-      dbp = null;
-      // Private mode / blocked storage: work continues in memory, a banner says so (STORE-BLOCKED).
-      throw new AppError('STORE-BLOCKED', {}, e);
-    });
+    );
+    opening.then(
+      (d) => (gaveUp ? d.close() : resolve(d)), // opened after we gave up: the next call opens it again
+      (e: unknown) => reject(new AppError('STORE-BLOCKED', {}, e)), // private mode / blocked storage
+    );
+  }).catch((e: unknown) => {
+    dbp = null;
+    throw e;
+  });
   return dbp;
 }
 
@@ -166,7 +180,11 @@ export async function _resetForTests() {
  * browser. Throws STORE-* on failure (the caller keeps the form's content and says so).
  */
 export async function listRefTables(): Promise<BuiltinTable[]> {
-  return (await (await db()).getAll('refTables')) as BuiltinTable[];
+  try {
+    return (await (await db()).getAll('refTables')) as BuiltinTable[];
+  } catch (e) {
+    throw await storeError(e);
+  }
 }
 export async function saveRefTable(t: BuiltinTable): Promise<void> {
   try {

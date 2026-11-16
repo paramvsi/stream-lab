@@ -6,9 +6,10 @@ import { create } from 'zustand';
 export const useRefTables = create<{ user: Record<string, BuiltinTable> }>(() => ({ user: {} }));
 
 /** Every table a Lookup can use: the fintech pack's (DATA-05) and the imported ones. */
+// Built-in names win over an imported table of the same name (the shipped scenarios depend on them).
 export const allTables = (): Record<string, BuiltinTable> => ({
-  ...BUILTIN_TABLES,
   ...useRefTables.getState().user,
+  ...BUILTIN_TABLES,
 });
 
 let ctxFor: Record<string, BuiltinTable> | null = null;
@@ -21,7 +22,7 @@ export function refCtx(): SchemaCtx {
   const user = useRefTables.getState().user;
   if (user !== ctxFor) {
     ctxFor = user;
-    ctx = { refTables: refSchemas({ ...BUILTIN_TABLES, ...user }) };
+    ctx = { refTables: refSchemas({ ...user, ...BUILTIN_TABLES }) };
   }
   return ctx;
 }

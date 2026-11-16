@@ -257,3 +257,61 @@ test('DATA-03 delete an imported table, after a confirmation; built-in ones have
     await page.evaluate(async () => (await (await import('/src/storage.ts')).listRefTables()).length),
   ).toBe(0);
 });
+
+// ---- DATA-03 audit (971f5ed) ----
+test('DATA-03 audit: a tab still open on the old database version does not hang this one (STORE-UPGRADE-BLOCKED)', async ({
+  context,
+}) => {
+  const old = await context.newPage();
+  await old.goto('/favicon.svg'); // same origin, no app code: an old deploy's tab holding a version 1 connection
+  await old.evaluate(
+    () =>
+      new Promise<void>((ok) => {
+        const r = indexedDB.open('streamlab', 1);
+        r.onupgradeneeded = () => r.result.createObjectStore('pipelines', { keyPath: 'id' });
+        r.onsuccess = () => {
+          (window as unknown as { keep: IDBDatabase }).keep = r.result;
+          ok();
+        };
+      }),
+  );
+  const page = await context.newPage();
+  await page.goto('/#/pipelines');
+  await expect(
+    page.getByText('Stream Lab was updated in another tab. Close its other tabs, then reload this one.'),
+  ).toBeVisible({
+    timeout: 8000,
+  });
+});
+
+test('DATA-03 audit: a table change during a paused run marks it changed (Run again)', async ({ page }) => {
+  await page.goto('/#/new');
+  await page.getByRole('button', { name: /^Use this scenario.*Card fraud bursts/ }).click();
+  const pill = page.locator('.react-flow__panel.top');
+  await pill.getByRole('button', { name: 'Step', exact: true }).click();
+  await expect(pill.locator('[data-run-label]')).toHaveText(/^Paused/);
+  await page.evaluate(async () => {
+    const r = await import('/src/sim/refTables.ts');
+    r.useRefTables.setState({
+      user: { extra: { name: 'extra', key: 'id', description: '', columns: [], rows: [] } },
+    });
+  });
+  await expect(pill.getByRole('button', { name: 'Run again' })).toBeVisible();
+});
+
+test('DATA-03 audit: tables that can not be loaded show the storage banner (catalog: banner), not a stray rejection', async ({
+  page,
+}) => {
+  const rejections: string[] = [];
+  page.on('pageerror', (e) => rejections.push(e.message));
+  await page.addInitScript(() => {
+    const orig = IDBObjectStore.prototype.getAll;
+    IDBObjectStore.prototype.getAll = function (...a: Parameters<typeof orig>) {
+      if (this.name === 'refTables') throw new DOMException('no', 'UnknownError');
+      return orig.apply(this, a);
+    };
+  });
+  await openBlank(page);
+  await expect(page.getByText('This browser is not letting Stream Lab save.').first()).toBeVisible();
+  expect(rejections).toEqual([]);
+});

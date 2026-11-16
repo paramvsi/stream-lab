@@ -251,3 +251,11 @@ describe('DATA-03 tableFromFile', () => {
     expect(r.table!.columns.find((c) => c.name === 'valid_from')!.type).toBe('timestamp');
   });
 });
+
+describe('DATA-03 audit', () => {
+  it('a file with no usable rows can not become a table (LOOKUP-NO-TABLE would pass on columns only)', () => {
+    const r = tableFromFile(parseCsv('id,v\n'), { name: 't', key: 'id', versioned: false });
+    expect(r.table).toBeNull();
+    expect(r.issues).toEqual([{ field: 'file', code: 'LOOKUP-NO-TABLE', params: { t: 't' } }]);
+  });
+});

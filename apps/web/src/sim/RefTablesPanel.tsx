@@ -176,7 +176,7 @@ export function RefTablesButton() {
   const [pick, setPick] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
   const user = useRefTables((s) => s.user);
-  const all = { ...BUILTIN_TABLES, ...user };
+  const all = { ...user, ...BUILTIN_TABLES }; // as the checks and runs see them
   // Name, key or description (W13 "Search tables").
   const needle = q.trim().toLowerCase();
   const tables = Object.values(all).filter((t) =>

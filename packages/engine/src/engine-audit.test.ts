@@ -604,3 +604,29 @@ describe('routing audit', () => {
     expect(keys).toEqual(Array.from({ length: 50 }, (_, i) => `t_${String(i).padStart(2, '0')}`));
   });
 });
+
+describe('DATA-03 audit: the run keeps a built-in table over an imported one of the same name', () => {
+  it('createRun merges with the built-in winning', () => {
+    const g: Graph = {
+      nodes: [
+        node('s', 'Generator', {}),
+        node('l', 'Lookup', {
+          table: 'merchants',
+          key: 'merchant_id',
+          tableKey: 'merchant_id',
+          asOf: false,
+          onMiss: 'pass',
+        }),
+        node('out', 'Sink'),
+      ],
+      edges: [edge('s', 'l'), edge('l', 'out')],
+    };
+    const r = createRun(g, {
+      refTables: {
+        merchants: { columns: [{ name: 'merchant_id', type: 'string', required: true }], rows: [] },
+      },
+    });
+    r.advance(Infinity);
+    expect(Object.keys(r.stats().outputs['out']![0]!)).toContain('risk_tier');
+  });
+});

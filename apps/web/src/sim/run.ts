@@ -117,7 +117,14 @@ function connect(): Worker {
 const signature = (): unknown[] => {
   const { nodes, edges, data, seed } = useGraph.getState();
   // Labels too: a Union's tag field carries the input node's label.
-  return [edges, data, seed, ...nodes.flatMap((n) => [n.id, n.type, n.config, n.disabled ?? false, n.label])];
+  // The imported reference tables too (DATA-03): the run joins the ones it was loaded with.
+  return [
+    edges,
+    data,
+    seed,
+    useRefTables.getState().user,
+    ...nodes.flatMap((n) => [n.id, n.type, n.config, n.disabled ?? false, n.label]),
+  ];
 };
 const sameSig = (a: unknown[], b: unknown[]) => a.length === b.length && a.every((x, i) => x === b[i]);
 
@@ -187,12 +194,14 @@ const blocked = () => {
 };
 
 // A change to the pipeline during a run: pause, and start over on the next Run.
-useGraph.subscribe(() => {
+function markStale() {
   if (!loaded || useRun.getState().stale || sameSig(signature(), loadedSig)) return;
   const state = useRun.getState().state;
   if (state === 'running') worker?.postMessage({ type: 'pause' });
   useRun.setState({ stale: true, staleNotice: state === 'running' || state === 'paused' });
-});
+}
+useGraph.subscribe(markStale);
+useRefTables.subscribe(markStale);
 
 export const runner = {
   /** False when the pipeline is blocked (SIM-RUN-BLOCKED): nothing runs, the caller says why. */

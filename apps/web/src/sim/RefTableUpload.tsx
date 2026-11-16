@@ -148,6 +148,12 @@ export function RefTableUpload({ onDone }: { onDone: () => void }) {
             <span className="font-mono text-ink">{file.name}</span> ·{' '}
             {(result?.table?.rows.length ?? file.parsed.rows.length).toLocaleString('en-US')} rows
           </p>
+          {/* An empty file can not be a table (a Lookup on it would miss every event). */}
+          {result?.issues.some((i) => i.field === 'file') && (
+            <ErrorBanner
+              error={new AppError('LOOKUP-NO-TABLE', { t: name.trim() || tableName(file.name) })}
+            />
+          )}
           {bad.length > 0 && (
             <Banner severity="warning">
               {

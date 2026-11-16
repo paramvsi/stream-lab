@@ -7,12 +7,14 @@ import { useEffect, useRef, useState } from 'react';
 import {
   clearRescue,
   getPipeline,
+  listRefTables,
   onSavedElsewhere,
   peekRescue,
   savePipeline,
   unsaved,
   writeRescue,
 } from '../storage';
+import { useRefTables } from './refTables';
 import { useSaveState } from './saveState';
 import { newId, useGraph } from './store';
 import { copyUploads, deleteUploads } from './uploads';
@@ -54,6 +56,18 @@ export function WorkspaceRoute({ id }: { id: string }) {
     if (timer.current) clearTimeout(timer.current);
     timer.current = null;
   };
+
+  // DATA-03: imported reference tables, once per workspace. A failure is a storage error like any other (the
+  // catalog's banner); the built-in tables still work.
+  useEffect(() => {
+    listRefTables().then(
+      (ts) => useRefTables.setState({ user: Object.fromEntries(ts.map((t) => [t.name, t])) }),
+      (e: unknown) => {
+        if (!(e instanceof AppError)) throw e;
+        setStoreError(e);
+      },
+    );
+  }, []);
 
   // Open: IndexedDB first (newer than whatever this tab still holds in memory).
   useEffect(() => {

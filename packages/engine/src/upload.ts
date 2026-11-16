@@ -1,4 +1,5 @@
-import type { Schema } from '@sl/graph';
+import type { FieldType, Schema } from '@sl/graph';
+import { BUILTIN_TABLES, type BuiltinTable } from './fintech';
 import { parseTime } from './engine';
 import type { Event } from './random';
 
@@ -294,3 +295,63 @@ export const fileSize = (bytes: number) =>
     : bytes >= 1024 * 1024
       ? `${Math.ceil(bytes / (1024 * 1024))} MB` // up, so 200 MB + 1 byte never reads as "200 MB"
       : `${Math.max(1, Math.ceil(bytes / 1024))} KB`;
+
+/**
+ * DATA-03 "Upload table": parsed CSV/JSONL rows → a reference table, column types inferred (number, boolean,
+ * timestamp for valid_from, else string; a blank cell makes a column optional). Rows with a blank key are bad rows
+ * (DATA-PARSE). Issues are catalog codes for the form's fields.
+ */
+export function tableFromFile(
+  p: Parsed,
+  o: { name: string; key: string; versioned: boolean; description?: string },
+): {
+  table: BuiltinTable | null;
+  bad: BadRow[];
+  issues: { field: 'name' | 'key' | 'versioned'; code: string; params?: Record<string, string> }[];
+} {
+  const issues: { field: 'name' | 'key' | 'versioned'; code: string; params?: Record<string, string> }[] = [];
+  if (BUILTIN_TABLES[o.name]) issues.push({ field: 'name', code: 'REF-NAME-TAKEN', params: { t: o.name } });
+  if (o.versioned && !p.columns.includes('valid_from'))
+    issues.push({ field: 'versioned', code: 'REF-NO-VALID-FROM' });
+  const blank = (v: unknown) => v === null || v === undefined || v === '';
+  const bad = [...p.bad];
+  const rows: Event[] = [];
+  p.rows.forEach((r, i) => {
+    if (blank(r[o.key])) bad.push({ line: p.lines[i] ?? i + 2, reason: `no ${o.key}` });
+    else rows.push(r as Event);
+  });
+  const columns = p.columns
+    .filter((c) => c !== '')
+    .map((name) => {
+      const vals = rows.map((r) => r[name]).filter((v) => !blank(v));
+      const num = (v: unknown) =>
+        typeof v === 'number' || (typeof v === 'string' && v.trim() !== '' && !Number.isNaN(Number(v)));
+      const bool = (v: unknown) => typeof v === 'boolean' || v === 'true' || v === 'false';
+      const type: FieldType =
+        name === 'valid_from' && o.versioned
+          ? 'timestamp'
+          : vals.length && vals.every(bool)
+            ? 'boolean'
+            : vals.length && vals.every(num)
+              ? 'number'
+              : 'string';
+      return { name, type, required: vals.length === rows.length };
+    });
+  for (const r of rows)
+    for (const c of columns) {
+      const v = r[c.name];
+      if (blank(v)) continue;
+      if (c.type === 'number') r[c.name] = Number(v);
+      else if (c.type === 'boolean') r[c.name] = v === true || v === 'true';
+      else r[c.name] = String(v);
+    }
+  const table: BuiltinTable = {
+    name: o.name,
+    key: o.key,
+    description: o.description ?? 'Imported table',
+    columns,
+    rows,
+    ...(o.versioned ? { versioned: true } : {}),
+  };
+  return { table: issues.length ? null : table, bad, issues };
+}

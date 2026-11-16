@@ -6,6 +6,7 @@ import {
   missingColumns,
   parseCsv,
   parseJsonl,
+  tableFromFile,
   typedRows,
 } from './upload';
 
@@ -201,5 +202,52 @@ describe('inspector audit · upload', () => {
       rows: [{ a: 1 }, { a: 2 }],
       bad: [],
     });
+  });
+});
+
+describe('DATA-03 tableFromFile', () => {
+  const csv = (t: string) => parseCsv(t);
+  it('infers column types, keeps the key column first-class and drops empty names', () => {
+    const r = tableFromFile(csv('merchant_id,flag,limit,active\nm1,watch,100,true\nm2,ok,2.5,false\n'), {
+      name: 'merchant_flags',
+      key: 'merchant_id',
+      versioned: false,
+    });
+    expect(r.issues).toEqual([]);
+    expect(r.table!.columns).toEqual([
+      { name: 'merchant_id', type: 'string', required: true },
+      { name: 'flag', type: 'string', required: true },
+      { name: 'limit', type: 'number', required: true },
+      { name: 'active', type: 'boolean', required: true },
+    ]);
+    expect(r.table!.rows[1]).toEqual({ merchant_id: 'm2', flag: 'ok', limit: 2.5, active: false });
+  });
+  it('a column with a blank cell is optional; a row with a blank key is a bad row (DATA-PARSE)', () => {
+    const r = tableFromFile(csv('id,v\na,1\n,2\nc,3\n'), { name: 't', key: 'id', versioned: false });
+    expect(r.issues).toEqual([]);
+    expect(r.table!.rows.map((x) => x['id'])).toEqual(['a', 'c']);
+    expect(r.bad).toEqual([{ line: 3, reason: 'no id' }]);
+    expect(
+      tableFromFile(csv('id,v\na,1\nc,\n'), { name: 't', key: 'id', versioned: false }).table!.columns[1],
+    ).toEqual({ name: 'v', type: 'number', required: false });
+  });
+  it('REF-NAME-TAKEN for a built-in name; REF-NO-VALID-FROM when versioned without valid_from', () => {
+    const p = csv('id,v\na,1\n');
+    expect(tableFromFile(p, { name: 'merchants', key: 'id', versioned: false }).issues).toEqual([
+      { field: 'name', code: 'REF-NAME-TAKEN', params: { t: 'merchants' } },
+    ]);
+    expect(tableFromFile(p, { name: 't', key: 'id', versioned: true }).issues).toEqual([
+      { field: 'versioned', code: 'REF-NO-VALID-FROM' },
+    ]);
+  });
+  it('versioned: valid_from becomes a timestamp column and rows keep ISO strings', () => {
+    const r = tableFromFile(csv('currency,rate,valid_from\nAED,0.27,2026-01-01T12:00:00Z\n'), {
+      name: 'fx',
+      key: 'currency',
+      versioned: true,
+    });
+    expect(r.issues).toEqual([]);
+    expect(r.table!.versioned).toBe(true);
+    expect(r.table!.columns.find((c) => c.name === 'valid_from')!.type).toBe('timestamp');
   });
 });

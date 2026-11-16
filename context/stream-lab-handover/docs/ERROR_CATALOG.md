@@ -10,7 +10,7 @@ Rules for implementers:
 4. Every code needs a test that triggers it and asserts the message, placement and actions (`TESTING.md`).
 5. "Board" is the design artboard that shows it. `W…/WX…` are in the Website canvas, `D…/X…/G…` in the Desktop canvas.
 
-Total: **143 codes** (128 from the handover + `CONN-SSH-HOSTKEY`, `API-4XX`, `COPY-FAILED` added in M0, `SIM-DUP-EDGE`, `SIM-PORT-TAKEN`, `SIM-REDO-EMPTY`, `PIPELINE-NOT-FOUND`, `PIPELINE-DELETED-ELSEWHERE` added in M1; `NODE-DUP-FIELD`, `NODE-RANGE` added in M2; `SIM-RUN-CHANGED`, `DATA-UPLOAD-UNUSED`, `DATA-READ-FAILED`, `LOOKUP-TABLE-KEY`, `DATA-DELETE-FAILED` added in M3).
+Total: **145 codes** (128 from the handover + `CONN-SSH-HOSTKEY`, `API-4XX`, `COPY-FAILED` added in M0, `SIM-DUP-EDGE`, `SIM-PORT-TAKEN`, `SIM-REDO-EMPTY`, `PIPELINE-NOT-FOUND`, `PIPELINE-DELETED-ELSEWHERE` added in M1; `NODE-DUP-FIELD`, `NODE-RANGE` added in M2; `SIM-RUN-CHANGED`, `DATA-UPLOAD-UNUSED`, `DATA-READ-FAILED`, `LOOKUP-TABLE-KEY`, `DATA-DELETE-FAILED`, `REF-NAME-TAKEN`, `REF-NO-VALID-FROM` added in M3).
 
 
 ## Desktop · Connections
@@ -200,6 +200,8 @@ Total: **143 codes** (128 from the handover + `CONN-SSH-HOSTKEY`, `API-4XX`, `CO
 | `DATA-UPLOAD-UNUSED` | A Source's uploaded rows can not be used for a run: gone from this browser (imported pipeline, cleared site data, or a deleted pipeline's copy made after its uploads were freed) or no longer matching the Source schema | Run start | warning | toast | {source} uses the generator in this run: {reason}. | Open data | W12 |
 | `DATA-READ-FAILED` | The browser can not read the chosen file (moved, permission, I/O error) | File read | error | panel | {file} could not be read: {reason}. | Choose another | W12b |
 | `DATA-DELETE-FAILED` | "Delete uploaded data" (My pipelines) can not free the rows | OPFS remove | error | banner | The uploaded data of "{name}" could not be deleted: {reason}. | — | WX04 |
+| `REF-NAME-TAKEN` | An imported reference table is named like a built-in one | Upload table form | error | field | A table called "{t}" is built in; pick another name. | — | W13 |
+| `REF-NO-VALID-FROM` | "Versioned" is checked but the file has no `valid_from` column | Upload table form | error | field | A versioned table needs a "valid_from" column (ISO time); this file has none. | — | W13b |
 | `GEN-INVALID` | Generator settings invalid (rate ≤ 0, late % > 100) | Schema | error | field | {reason}. | — | W12 |
 | `STORE-FULL` | IndexedDB/OPFS quota exceeded on save | QuotaExceededError | error | banner (persistent) | Can not save: browser storage is full ({used}). | Manage storage | WX04 |
 | `STORE-BLOCKED` | Storage unavailable (private mode, blocked) | IndexedDB open fails | warning | banner | This browser is not letting Stream Lab save. Work will be lost when you close the tab. | Export now | WX04 |

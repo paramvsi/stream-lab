@@ -1,6 +1,10 @@
 import { BASE_TIME, BUILTIN_TABLES, type BuiltinTable, type Event } from '@sl/engine';
-import { Button, Drawer, Field, Input, Select, Table } from '@sl/ui';
-import { ArrowLeft, Table2 } from 'lucide-react';
+import { AppError, ErrorBanner } from '@sl/errors';
+import { Button, Dialog, Drawer, Field, Input, Select, Table, useToast } from '@sl/ui';
+import { ArrowLeft, Table2, Trash2, Upload } from 'lucide-react';
+import { deleteRefTable } from '../storage';
+import { useRefTables } from './refTables';
+import { RefTableUpload } from './RefTableUpload';
 import { useEffect, useRef, useState } from 'react';
 import { Events } from './drawer/PreviewPanel';
 
@@ -32,6 +36,61 @@ function rowsAt(t: BuiltinTable, at: string): Event[] {
   return [...best.values()];
 }
 
+/** An imported table can be deleted (built-in ones can not); a confirmation first, as for any deletion. */
+function DeleteTable({ t, onDeleted }: { t: BuiltinTable; onDeleted: () => void }) {
+  const toast = useToast();
+  const [open, setOpen] = useState(false);
+  const [error, setError] = useState<AppError | null>(null);
+  const del = async () => {
+    try {
+      await deleteRefTable(t.name);
+    } catch (e) {
+      if (!(e instanceof AppError)) throw e;
+      return setError(e);
+    }
+    useRefTables.setState((s) => {
+      const user = { ...s.user };
+      delete user[t.name];
+      return { user };
+    });
+    setOpen(false);
+    toast({ severity: 'success', message: `Table ${t.name} deleted.` });
+    onDeleted();
+  };
+  return (
+    <Dialog
+      open={open}
+      onOpenChange={(o) => {
+        setOpen(o);
+        setError(null);
+      }}
+      title={`Delete table ${t.name}?`}
+      severity="error"
+      trigger={
+        <Button size="sm" variant="ghost" className="w-fit" icon={<Trash2 size={16} aria-hidden="true" />}>
+          Delete table
+        </Button>
+      }
+      footer={
+        <>
+          <Button variant="ghost" onClick={() => setOpen(false)}>
+            Cancel
+          </Button>
+          <Button variant="danger" onClick={() => void del()}>
+            Delete
+          </Button>
+        </>
+      }
+    >
+      <p className="m-0">
+        Lookups that use <span className="font-mono">{t.name}</span> will show a missing-table error until you
+        upload it again. This cannot be undone.
+      </p>
+      {error && <ErrorBanner error={error} />}
+    </Dialog>
+  );
+}
+
 function Detail({ t, onBack }: { t: BuiltinTable; onBack: () => void }) {
   const versions = versionsOf(t);
   // Default: the version valid when a run starts (what a default run joins), not the last one.
@@ -60,6 +119,7 @@ function Detail({ t, onBack }: { t: BuiltinTable; onBack: () => void }) {
       >
         All tables
       </Button>
+      {!BUILTIN_TABLES[t.name] && <DeleteTable t={t} onDeleted={onBack} />}
       <p className="m-0 text-[13px] text-muted">
         {t.description}. Key: <span className="font-mono">{t.key}</span>.
       </p>
@@ -106,19 +166,23 @@ function Detail({ t, onBack }: { t: BuiltinTable; onBack: () => void }) {
 
 /**
  * DATA-03 reference tables (boards W13 list, W13b versioned table): the tables Lookup nodes join with. For now the
- * fintech pack's built-in tables (DATA-05), read-only.
- * ponytail: creating, editing and importing tables (rest of DATA-03) is the next slice.
+ * fintech pack's built-in tables (DATA-05, read-only) and tables uploaded in this browser (replace by uploading the
+ * same name again, or delete).
+ * ponytail: no in-app cell editor (no board shows one; MORNING D47).
  */
 export function RefTablesButton() {
   const [open, setOpen] = useState(false);
   const [q, setQ] = useState('');
   const [pick, setPick] = useState<string | null>(null);
+  const [uploading, setUploading] = useState(false);
+  const user = useRefTables((s) => s.user);
+  const all = { ...BUILTIN_TABLES, ...user };
   // Name, key or description (W13 "Search tables").
   const needle = q.trim().toLowerCase();
-  const tables = Object.values(BUILTIN_TABLES).filter((t) =>
+  const tables = Object.values(all).filter((t) =>
     [t.name, t.key, t.description.toLowerCase()].some((x) => x.includes(needle)),
   );
-  const picked = pick ? BUILTIN_TABLES[pick] : undefined;
+  const picked = pick ? all[pick] : undefined;
   return (
     <>
       <Button
@@ -133,19 +197,30 @@ export function RefTablesButton() {
         open={open}
         onOpenChange={(o) => {
           setOpen(o);
-          if (!o) setPick(null);
+          if (!o) {
+            setPick(null);
+            setUploading(false);
+          }
         }}
         // Board W13b: an open table names the drawer.
-        title={picked ? picked.name : 'Reference tables'}
+        title={uploading ? 'Upload table' : picked ? picked.name : 'Reference tables'}
         size={560}
       >
-        {picked ? (
+        {uploading ? (
+          <RefTableUpload onDone={() => setUploading(false)} />
+        ) : picked ? (
           <Detail t={picked} onBack={() => setPick(null)} />
         ) : (
           <div className="flex flex-col gap-4">
-            <Field label="Search tables">
-              <Input type="search" value={q} onChange={(e) => setQ(e.target.value)} />
-            </Field>
+            <div className="flex items-end gap-2">
+              <Field label="Search tables" className="min-w-0 flex-1">
+                <Input type="search" value={q} onChange={(e) => setQ(e.target.value)} />
+              </Field>
+              {/* Board W13: "Upload table" next to the search. */}
+              <Button icon={<Upload size={16} aria-hidden="true" />} onClick={() => setUploading(true)}>
+                Upload table
+              </Button>
+            </div>
             <Table<BuiltinTable>
               label="Reference tables"
               rows={tables}

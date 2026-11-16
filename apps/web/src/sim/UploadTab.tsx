@@ -27,7 +27,10 @@ const n = (x: number) => x.toLocaleString('en-US');
  * Reads a file as text with progress (W12b "Reading 41,200 events 72%"): bytes drive the percentage, line breaks the
  * count. ponytail: UTF-8 only; a Windows-1252 file shows replacement characters (encoding detection if asked).
  */
-async function readText(file: Blob, onProgress: (done: number, lines: number) => void): Promise<string> {
+export async function readText(
+  file: Blob,
+  onProgress: (done: number, lines: number) => void,
+): Promise<string> {
   const reader = file.stream().getReader();
   const dec = new TextDecoder();
   let text = '';

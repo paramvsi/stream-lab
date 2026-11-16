@@ -148,3 +148,112 @@ test('DATA-03 an imported table (IndexedDB refTables) is seen by checks, the pre
   await panel.getByRole('tab', { name: 'Output' }).click();
   await expect(panel.getByRole('table', { name: /^Output of / })).toContainText('watch');
 });
+
+// ---- DATA-03 Upload table (board W13 button) ----
+const CSV = 'merchant_id,flag,limit\nm_001,watch,100\nm_002,ok,250\n';
+async function uploadTable(page: import('@playwright/test').Page, name: string, body: string) {
+  await page.getByRole('button', { name: 'Tables', exact: true }).click();
+  const d = page.getByRole('dialog', { name: 'Reference tables' });
+  const chooser = page.waitForEvent('filechooser');
+  await d.getByRole('button', { name: 'Upload table' }).click();
+  await (await chooser).setFiles({ name, mimeType: 'text/csv', buffer: Buffer.from(body) });
+  return page.getByRole('dialog', { name: 'Upload table' });
+}
+
+test('DATA-03 upload a table: saved in this browser, listed, kept after a reload, usable by a Lookup', async ({
+  page,
+}) => {
+  await openBlank(page);
+  const d = await uploadTable(page, 'Merchant flags.csv', CSV);
+  await expect(d.getByLabel('Table name')).toHaveValue('merchant_flags');
+  await expect(d.getByLabel('Key column')).toHaveValue('merchant_id');
+  await d.getByRole('button', { name: 'Save table' }).click();
+  await expect(page.getByText('Table merchant_flags saved (2 rows).').first()).toBeVisible();
+  const list = page
+    .getByRole('dialog', { name: 'Reference tables' })
+    .getByRole('table', { name: 'Reference tables' });
+  await expect(list).toContainText('merchant_flags');
+  await page.reload();
+  await page.getByRole('button', { name: 'Tables', exact: true }).click();
+  await expect(page.getByRole('dialog', { name: 'Reference tables' })).toContainText('merchant_flags');
+  await page.keyboard.press('Escape');
+  await page.evaluate(async () => {
+    const m = await import('/src/sim/store.ts');
+    const g = m.useGraph.getState();
+    const gen = g.addNode('Generator', { x: 0, y: 0 });
+    const l = g.addNode('Lookup', { x: 260, y: 0 }, { nodeId: gen, handleId: 'main' });
+    g.updateConfig(l, {
+      table: 'merchant_flags',
+      key: 'merchant_id',
+      tableKey: 'merchant_id',
+      asOf: false,
+      onMiss: 'pass',
+    });
+    g.addNode('Sink', { x: 520, y: 0 }, { nodeId: l, handleId: 'main' });
+  });
+  await page.waitForTimeout(400);
+  await expect(page.getByRole('region', { name: 'Run panel' })).not.toContainText(
+    'Reference table "merchant_flags"',
+  );
+});
+
+test('DATA-03 REF-NAME-TAKEN and REF-NO-VALID-FROM on the form; nothing saved', async ({ page }) => {
+  await openBlank(page);
+  const d = await uploadTable(page, 'm.csv', CSV);
+  await d.getByLabel('Table name').fill('merchants');
+  await d.getByLabel('Versioned').check();
+  await d.getByRole('button', { name: 'Save table' }).click();
+  await expect(d).toContainText('A table called "merchants" is built in; pick another name.');
+  await expect(d).toContainText(
+    'A versioned table needs a "valid_from" column (ISO time); this file has none.',
+  );
+  expect(
+    await page.evaluate(async () => (await (await import('/src/storage.ts')).listRefTables()).length),
+  ).toBe(0);
+});
+
+test('DATA-03 rows with a blank key are left out and said so (DATA-PARSE)', async ({ page }) => {
+  await openBlank(page);
+  const d = await uploadTable(page, 'm.csv', CSV + ',blank,5\n');
+  await expect(d).toContainText(
+    '1 of 3 rows could not be read (first: line 4: no merchant_id). They are left out.',
+  );
+  await expect(d).toContainText('2 rows');
+});
+
+test('DATA-03 a failed save says why (STORE-BLOCKED) and the form keeps its content', async ({ page }) => {
+  await openBlank(page);
+  const d = await uploadTable(page, 'm.csv', CSV);
+  await d.getByLabel('Table name').fill('my_flags');
+  await page.evaluate(() => {
+    IDBObjectStore.prototype.put = function () {
+      throw new DOMException('no', 'UnknownError');
+    };
+  });
+  await d.getByRole('button', { name: 'Save table' }).click();
+  await expect(d).toContainText('This browser is not letting Stream Lab save.');
+  await expect(d.getByLabel('Table name')).toHaveValue('my_flags');
+});
+
+test('DATA-03 delete an imported table, after a confirmation; built-in ones have no delete', async ({
+  page,
+}) => {
+  await openBlank(page);
+  const d = await uploadTable(page, 'Merchant flags.csv', CSV);
+  await d.getByRole('button', { name: 'Save table' }).click();
+  const drawer = page.getByRole('dialog', { name: 'Reference tables' });
+  await drawer.getByRole('row', { name: /merchants/ }).click();
+  await expect(page.getByRole('button', { name: 'Delete table' })).toHaveCount(0);
+  await page.getByRole('button', { name: 'All tables' }).click();
+  await drawer.getByRole('row', { name: /merchant_flags/ }).click();
+  await page.getByRole('button', { name: 'Delete table' }).click();
+  const confirm = page
+    .getByRole('alertdialog', { name: 'Delete table merchant_flags?' })
+    .or(page.getByRole('dialog', { name: 'Delete table merchant_flags?' }));
+  await confirm.getByRole('button', { name: 'Delete', exact: true }).click();
+  await expect(page.getByText('Table merchant_flags deleted.').first()).toBeVisible();
+  await expect(drawer.getByRole('table', { name: 'Reference tables' })).not.toContainText('merchant_flags');
+  expect(
+    await page.evaluate(async () => (await (await import('/src/storage.ts')).listRefTables()).length),
+  ).toBe(0);
+});

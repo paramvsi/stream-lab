@@ -14,13 +14,13 @@ const app = () => (
 );
 
 describe('INST-02 / CONN-01 first run (boards D01, C01)', () => {
-  it('Welcome offers Add a connection; Import waits for the connection list and says so', () => {
+  it('Welcome offers Add a connection and Import connections', () => {
     render(app());
     expect(screen.getByRole('heading', { level: 1, name: 'Welcome to Stream Lab' })).toBeTruthy();
     expect(screen.getByRole('button', { name: 'Add a connection' })).toBeTruthy();
-    expect(screen.getByRole('button', { name: /Import connections/ }).getAttribute('aria-disabled')).toBe(
-      'true',
-    );
+    expect(
+      screen.getByRole('button', { name: /Import connections/ }).getAttribute('aria-disabled'),
+    ).toBeNull();
     expect(screen.getByText('docker compose up gives you Flink on localhost:8081.')).toBeTruthy();
   });
   it('Add a connection asks where the cluster runs first: seven platforms, with their support', async () => {

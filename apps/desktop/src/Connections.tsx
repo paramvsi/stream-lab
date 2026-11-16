@@ -39,16 +39,18 @@ const shortAddress = (u: string) => {
 
 /**
  * CONN-08 / boards D03 (the list) and D03d (remove): the saved connections, Export (a file without secrets),
- * Add, and Remove behind a confirmation. Import is the next slice. ponytail: a Remove button per row instead of
+ * Add, and Remove behind a confirmation. ponytail: a Remove button per row instead of
  * the board's row menu (the kit has no menu component yet).
  */
 export function Connections({
   connections,
   onAdd,
+  onImport,
   onRemove,
 }: {
   connections: Connection[];
   onAdd: () => void;
+  onImport: () => void;
   onRemove: (id: string) => void;
 }) {
   const h1 = useScreenHeading();
@@ -78,7 +80,7 @@ export function Connections({
           </p>
         </div>
         <div className="flex gap-3">
-          <Button icon={<Upload size={16} aria-hidden="true" />} disabledReason="Importing is the next step.">
+          <Button icon={<Upload size={16} aria-hidden="true" />} onClick={onImport}>
             Import
           </Button>
           <Button icon={<Download size={16} aria-hidden="true" />} onClick={exportFile}>

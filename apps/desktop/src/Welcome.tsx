@@ -10,7 +10,7 @@ const CARDS: [LucideIcon, string, string][] = [
 ];
 
 /** INST-02 / board D01: the first run, no connections yet. */
-export function Welcome({ onAdd }: { onAdd: () => void }) {
+export function Welcome({ onAdd, onImport }: { onAdd: () => void; onImport: () => void }) {
   const h1 = useScreenHeading();
   useEffect(() => {
     document.title = 'Welcome · Stream Lab';
@@ -34,11 +34,7 @@ export function Welcome({ onAdd }: { onAdd: () => void }) {
           <Button variant="primary" icon={<Plus size={16} aria-hidden="true" />} onClick={onAdd}>
             Add a connection
           </Button>
-          {/* Import needs the connection list to land in (D03, next slice): no button that leads nowhere. */}
-          <Button
-            icon={<Upload size={16} aria-hidden="true" />}
-            disabledReason="Importing comes with the connection list."
-          >
+          <Button icon={<Upload size={16} aria-hidden="true" />} onClick={onImport}>
             Import connections
           </Button>
         </div>

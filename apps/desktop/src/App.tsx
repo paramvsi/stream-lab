@@ -3,6 +3,7 @@ import { useToast } from '@sl/ui';
 import { useState } from 'react';
 import { ConnectionForm } from './ConnectionForm';
 import { Connections } from './Connections';
+import { ImportDialog } from './ImportDialog';
 import { KindPicker } from './KindPicker';
 import { Welcome } from './Welcome';
 
@@ -19,6 +20,7 @@ type Screen =
 export function App() {
   const [screen, setScreen] = useState<Screen>({ name: 'home' });
   const [connections, setConnections] = useState<Connection[]>([]);
+  const [importing, setImporting] = useState(false);
   const toast = useToast();
   if (screen.name === 'form')
     return (
@@ -46,12 +48,34 @@ export function App() {
     );
   // Home: Welcome (D01) with no connections yet, else the connection list (D03).
   const add = () => setScreen({ name: 'kind', kind: null });
-  if (!connections.length) return <Welcome onAdd={add} />;
-  return (
-    <Connections
-      connections={connections}
-      onAdd={add}
-      onRemove={(id) => setConnections((cs) => cs.filter((c) => c.id !== id))}
+  const importDialog = (
+    <ImportDialog
+      open={importing}
+      onOpenChange={setImporting}
+      existing={connections}
+      onImport={({ add: added, replace }) => {
+        setConnections((cs) => [...cs.map((c) => replace.find((r) => r.id === c.id) ?? c), ...added]);
+        const n = added.length + replace.length;
+        toast({ severity: 'success', message: `Imported ${n} connection${n === 1 ? '' : 's'}.` });
+      }}
     />
+  );
+  if (!connections.length)
+    return (
+      <>
+        <Welcome onAdd={add} onImport={() => setImporting(true)} />
+        {importDialog}
+      </>
+    );
+  return (
+    <>
+      <Connections
+        connections={connections}
+        onAdd={add}
+        onImport={() => setImporting(true)}
+        onRemove={(id) => setConnections((cs) => cs.filter((c) => c.id !== id))}
+      />
+      {importDialog}
+    </>
   );
 }

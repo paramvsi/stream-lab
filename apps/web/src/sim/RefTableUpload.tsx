@@ -122,9 +122,15 @@ export function RefTableUpload({ onDone }: { onDone: () => void }) {
             <span className="font-mono">valid_from</span> column). It stays in this browser; uploading the
             same name again replaces the table.
           </p>
-          <Button size="sm" onClick={() => input.current?.click()}>
-            Choose a file
-          </Button>
+          <div className="flex gap-2">
+            <Button size="sm" onClick={() => input.current?.click()}>
+              Choose a file
+            </Button>
+            {/* The chooser can be cancelled: a way back that is not closing the drawer. */}
+            <Button size="sm" variant="ghost" onClick={onDone}>
+              Back to tables
+            </Button>
+          </div>
         </div>
       )}
       {large && (

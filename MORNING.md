@@ -106,3 +106,9 @@ Overnight log. **Decisions** need your call; **Commands** need you to run them. 
 - Row-drop audit, not fixed: (a) a pipeline whose saves keep failing survives only as a localStorage rescue copy after a reload. The cleanup does not know it, so its uploaded rows are marked as orphans after 10 minutes and freed 10 minutes later. Another tab's unsaved pipeline is treated the same way. (b) A stale unsaved entry delays orphan marking in that tab until reload. (c) WM02's "side output highlight 240 ms" is not built.
 - WM06 audit, not fixed: (a) side-output edges stay still now, but the board also draws them dashed orange, and they are still drawn plain. (b) Changing speed mid-run makes the dash jump once (the animation's elapsed time is kept). This is cosmetic.
 - Ref-table audit (971f5ed), not fixed: a table imported in one tab is not seen by a workspace already open in another tab until it is reopened (nothing is announced on the BroadcastChannel). The node preview also re-indexes a Lookup's table on every render, which is only slow for very large imported tables.
+- Upload audit (81fc521), not fixed (found by reading the code; none confirmed by running):
+  - After another tab's upgrade closes the connection, an in-flight call fails as STORE-BLOCKED ("work will be lost") instead of a reconnect.
+  - A future v3 upgrade would show STORE-BLOCKED where STORE-UPGRADE-BLOCKED fits.
+  - There is no handler for an abnormal close (site data cleared mid-session).
+  - The key column may be `valid_from`.
+  - Escape closes the drawer and drops a parsed-but-unsaved upload form. The file is still on disk, but this is borderline against "never lose work".

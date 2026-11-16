@@ -315,3 +315,41 @@ test('DATA-03 audit: tables that can not be loaded show the storage banner (cata
   await expect(page.getByText('This browser is not letting Stream Lab save.').first()).toBeVisible();
   expect(rejections).toEqual([]);
 });
+
+// ---- DATA-03 upload audit (81fc521): focus and the way back ----
+test('DATA-03 audit: focus returns to "Upload table" after Cancel, Save and Delete; a cancelled chooser has a way back', async ({
+  page,
+}) => {
+  await openBlank(page);
+  const upload = page
+    .getByRole('dialog', { name: 'Reference tables' })
+    .getByRole('button', { name: 'Upload table' });
+  // Cancel.
+  let d = await uploadTable(page, 'm.csv', CSV);
+  await d.getByRole('button', { name: 'Cancel' }).click();
+  await expect(upload).toBeFocused();
+  // Save.
+  const chooser = page.waitForEvent('filechooser');
+  await upload.click();
+  await (await chooser).setFiles({ name: 'm.csv', mimeType: 'text/csv', buffer: Buffer.from(CSV) });
+  d = page.getByRole('dialog', { name: 'Upload table' });
+  await d.getByRole('button', { name: 'Save table' }).click();
+  await expect(upload).toBeFocused();
+  // Delete.
+  await page.getByRole('dialog', { name: 'Reference tables' }).getByRole('row', { name: /^m / }).click();
+  await page.getByRole('button', { name: 'Delete table' }).click();
+  await page
+    .getByRole('dialog', { name: 'Delete table m?' })
+    .getByRole('button', { name: 'Delete', exact: true })
+    .click();
+  await expect(upload).toBeFocused();
+  // A cancelled chooser: the empty form has a way back.
+  const c2 = page.waitForEvent('filechooser');
+  await upload.click();
+  await (await c2).setFiles([]);
+  await page
+    .getByRole('dialog', { name: 'Upload table' })
+    .getByRole('button', { name: 'Back to tables' })
+    .click();
+  await expect(upload).toBeFocused();
+});

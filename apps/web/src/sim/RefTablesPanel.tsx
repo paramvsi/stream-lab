@@ -91,7 +91,7 @@ function DeleteTable({ t, onDeleted }: { t: BuiltinTable; onDeleted: () => void 
   );
 }
 
-function Detail({ t, onBack }: { t: BuiltinTable; onBack: () => void }) {
+function Detail({ t, onBack, onDeleted }: { t: BuiltinTable; onBack: () => void; onDeleted: () => void }) {
   const versions = versionsOf(t);
   // Default: the version valid when a run starts (what a default run joins), not the last one.
   const start = new Date(BASE_TIME).toISOString();
@@ -119,7 +119,7 @@ function Detail({ t, onBack }: { t: BuiltinTable; onBack: () => void }) {
       >
         All tables
       </Button>
-      {!BUILTIN_TABLES[t.name] && <DeleteTable t={t} onDeleted={onBack} />}
+      {!BUILTIN_TABLES[t.name] && <DeleteTable t={t} onDeleted={onDeleted} />}
       <p className="m-0 text-[13px] text-muted">
         {t.description}. Key: <span className="font-mono">{t.key}</span>.
       </p>
@@ -175,6 +175,13 @@ export function RefTablesButton() {
   const [q, setQ] = useState('');
   const [pick, setPick] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
+  // Focus goes back to "Upload table" after the form closes or a table is deleted (the trigger is gone by then).
+  const refocus = useRef(false);
+  const backToList = () => {
+    refocus.current = true;
+    setUploading(false);
+    setPick(null);
+  };
   const user = useRefTables((s) => s.user);
   const all = { ...user, ...BUILTIN_TABLES }; // as the checks and runs see them
   // Name, key or description (W13 "Search tables").
@@ -207,9 +214,9 @@ export function RefTablesButton() {
         size={560}
       >
         {uploading ? (
-          <RefTableUpload onDone={() => setUploading(false)} />
+          <RefTableUpload onDone={backToList} />
         ) : picked ? (
-          <Detail t={picked} onBack={() => setPick(null)} />
+          <Detail t={picked} onBack={() => setPick(null)} onDeleted={backToList} />
         ) : (
           <div className="flex flex-col gap-4">
             <div className="flex items-end gap-2">
@@ -217,7 +224,16 @@ export function RefTablesButton() {
                 <Input type="search" value={q} onChange={(e) => setQ(e.target.value)} />
               </Field>
               {/* Board W13: "Upload table" next to the search. */}
-              <Button icon={<Upload size={16} aria-hidden="true" />} onClick={() => setUploading(true)}>
+              <Button
+                ref={(el) => {
+                  if (el && refocus.current) {
+                    refocus.current = false;
+                    el.focus();
+                  }
+                }}
+                icon={<Upload size={16} aria-hidden="true" />}
+                onClick={() => setUploading(true)}
+              >
                 Upload table
               </Button>
             </div>

@@ -320,27 +320,39 @@ export function tableFromFile(
   const blank = (v: unknown) => v === null || v === undefined || v === '';
   const bad = [...p.bad];
   const rows: Event[] = [];
+  const versionedOk = o.versioned && p.columns.includes('valid_from');
   p.rows.forEach((r, i) => {
-    if (blank(r[o.key])) bad.push({ line: p.lines[i] ?? i + 2, reason: `no ${o.key}` });
-    else rows.push(r as Event);
+    const line = p.lines[i] ?? i + 2;
+    if (blank(r[o.key])) return bad.push({ line, reason: `no ${o.key}` });
+    // As-of lookups sort and search on valid_from: a time that can't be read would put rows in the wrong order.
+    const at = versionedOk ? parseTime(r['valid_from']) : 0;
+    if (Number.isNaN(at)) return bad.push({ line, reason: 'valid_from is not a time' });
+    // A copy: the form calls this on every render, so the parsed file must stay as read.
+    rows.push({ ...r, ...(versionedOk ? { valid_from: new Date(at).toISOString() } : {}) } as Event);
   });
   // An empty table would pass LOOKUP-NO-TABLE (checks see columns) and miss every event.
   if (!rows.length) issues.push({ field: 'file', code: 'LOOKUP-NO-TABLE', params: { t: o.name } });
+  // A number only when it reads back the same: plain decimals, no leading zeros (codes like 0742), no hex or
+  // Infinity, nothing past 15 digits (long ids would collapse into one value).
+  const num = (v: unknown) =>
+    typeof v === 'number'
+      ? Number.isFinite(v) && Math.abs(v) < 1e15
+      : typeof v === 'string' && /^-?(0|[1-9]\d{0,14})(\.\d+)?$/.test(v.trim());
+  const bool = (v: unknown) => typeof v === 'boolean' || v === 'true' || v === 'false';
   const columns = p.columns
     .filter((c) => c !== '')
     .map((name) => {
       const vals = rows.map((r) => r[name]).filter((v) => !blank(v));
-      const num = (v: unknown) =>
-        typeof v === 'number' || (typeof v === 'string' && v.trim() !== '' && !Number.isNaN(Number(v)));
-      const bool = (v: unknown) => typeof v === 'boolean' || v === 'true' || v === 'false';
       const type: FieldType =
-        name === 'valid_from' && o.versioned
+        name === 'valid_from' && versionedOk
           ? 'timestamp'
-          : vals.length && vals.every(bool)
-            ? 'boolean'
-            : vals.length && vals.every(num)
-              ? 'number'
-              : 'string';
+          : name === o.key // text, like the event fields it joins with (a number key would block the run)
+            ? 'string'
+            : vals.length && vals.every(bool)
+              ? 'boolean'
+              : vals.length && vals.every(num)
+                ? 'number'
+                : 'string';
       return { name, type, required: vals.length === rows.length };
     });
   for (const r of rows)
@@ -349,7 +361,8 @@ export function tableFromFile(
       if (blank(v)) continue;
       if (c.type === 'number') r[c.name] = Number(v);
       else if (c.type === 'boolean') r[c.name] = v === true || v === 'true';
-      else r[c.name] = String(v);
+      // Nested JSON stays readable JSON, not "[object Object]".
+      else r[c.name] = typeof v === 'object' ? JSON.stringify(v) : String(v);
     }
   const table: BuiltinTable = {
     name: o.name,

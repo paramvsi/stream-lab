@@ -168,6 +168,7 @@ export async function uploadedRows(
 async function load() {
   const { nodes, edges, seed, data, pipelineId } = useGraph.getState();
   const sig = signature();
+  const refTables = useRefTables.getState().user; // read with the signature, not after the await
   const { sourceData, unused } = await uploadedRows(pipelineId, nodes, data);
   useRun.setState({ unused });
   connect().postMessage({
@@ -178,7 +179,7 @@ async function load() {
       seed,
       sourceData,
       generator: effectiveGenerator(data.generator, seed),
-      refTables: useRefTables.getState().user, // DATA-03 imported tables
+      refTables, // DATA-03 imported tables
     },
   });
   connect().postMessage({ type: 'speed', speed: useRun.getState().speed });

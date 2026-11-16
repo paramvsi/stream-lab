@@ -259,3 +259,50 @@ describe('DATA-03 audit', () => {
     expect(r.issues).toEqual([{ field: 'file', code: 'LOOKUP-NO-TABLE', params: { t: 't' } }]);
   });
 });
+
+describe('DATA-03 upload audit (81fc521)', () => {
+  const t = (csv: string, key: string, versioned = false) =>
+    tableFromFile(parseCsv(csv), { name: 'x', key, versioned });
+  it('#1 valid_from that is not a time (or blank) is a bad row; good ones are stored as ISO', () => {
+    const r = t(
+      'cur,rate,valid_from\nAED,1,2026-01-01 08:00:00Z\nAED,2,not a date\nAED,3,\nAED,4,1767261600000\n',
+      'cur',
+      true,
+    );
+    expect(r.bad.map((b) => b.reason)).toEqual(['valid_from is not a time', 'valid_from is not a time']);
+    expect(r.table!.rows.map((x) => x['valid_from'])).toEqual([
+      '2026-01-01T08:00:00.000Z',
+      '2026-01-01T10:00:00.000Z',
+    ]);
+  });
+  it('#2 numbers only for plain decimals: leading zeros, hex, Infinity and long ids stay text; the key is always text', () => {
+    const r = t(
+      'id,mcc,hex,inf,big,amount\n7,0742,0x1A,Infinity,12345678901234567891,1.5\n8,0743,0x1B,Infinity,12345678901234567892,2\n',
+      'id',
+    );
+    const type = (n: string) => r.table!.columns.find((c) => c.name === n)!.type;
+    expect(['id', 'mcc', 'hex', 'inf', 'big', 'amount'].map(type)).toEqual([
+      'string',
+      'string',
+      'string',
+      'string',
+      'string',
+      'number',
+    ]);
+    expect(r.table!.rows.map((x) => x['big'])).toEqual(['12345678901234567891', '12345678901234567892']);
+    expect(r.table!.rows[0]!['mcc']).toBe('0742');
+  });
+  it('#3 the parsed file is not changed (the form calls this on every render)', () => {
+    const p = parseCsv('id,code\n1,7\n');
+    tableFromFile(p, { name: 'x', key: 'id', versioned: false });
+    expect(p.rows[0]).toEqual({ id: '1', code: '7' });
+  });
+  it('#8 nested JSON values are kept as JSON text, not "[object Object]"', () => {
+    const r = tableFromFile(parseJsonl('{"id":"a","meta":{"x":1},"tags":["a","b"]}\n'), {
+      name: 'x',
+      key: 'id',
+      versioned: false,
+    });
+    expect(r.table!.rows[0]).toMatchObject({ meta: '{"x":1}', tags: '["a","b"]' });
+  });
+});

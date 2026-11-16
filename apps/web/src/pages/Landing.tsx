@@ -257,7 +257,7 @@ export function Landing() {
         </div>
         <div
           aria-hidden="true"
-          className="sl-reveal-item flex items-center gap-6 rounded-2xl border border-line bg-subtle p-8"
+          className="sl-reveal-item flex flex-col items-start gap-6 rounded-2xl border border-line bg-subtle p-4 sm:flex-row sm:items-center sm:p-8"
           style={item(3)}
         >
           <div className="shrink-0 rounded-lg border-2 border-rose-600 bg-surface px-4 py-3 text-[14px] font-semibold whitespace-nowrap">

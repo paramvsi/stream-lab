@@ -39,7 +39,7 @@ export function Course() {
       {error && <Banner severity={present(error).severity}>{present(error).message}</Banner>}
       <section
         aria-label="Your progress"
-        className="flex w-[320px] flex-col gap-2 rounded-xl border border-line bg-surface p-5"
+        className="flex w-full max-w-[320px] flex-col gap-2 rounded-xl border border-line bg-surface p-5"
       >
         <p className="m-0 text-[13px] text-muted">Your progress</p>
         <p className="m-0 text-[28px] leading-tight font-bold">

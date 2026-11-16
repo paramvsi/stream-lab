@@ -3,13 +3,16 @@ import { AppError, ErrorBanner, present } from '@sl/errors';
 import { Banner, Button, Dialog, Tabs } from '@sl/ui';
 import { Link, useNavigate } from '@tanstack/react-router';
 import { Check, ChevronRight, Flag, X } from 'lucide-react';
-import { lazy, Suspense, useCallback, useEffect, useId, useRef, useState } from 'react';
+import { Suspense, useCallback, useEffect, useId, useRef, useState } from 'react';
 
 // LAND-06: the sandbox brings the simulator; the reading does not wait for it.
-const Sandbox = lazy(() => import('./Sandbox').then((m) => ({ default: m.Sandbox })));
+// Checked before the import: a browser that can not run it does not download the simulator for nothing.
+const Sandbox = lazyPage(() => import('./Sandbox').then((m) => m.Sandbox), true);
 import { getProgress, setChapterStatus } from '../storage';
 import { WithConcepts } from './Glossary';
 import { NotFound } from './NotFound';
+import { lazyPage, PageLoading } from './lazyPage';
+import { simulatorSupported } from '../support';
 import { SiteHeader, useDocTitle } from './SiteShell';
 
 /**
@@ -61,10 +64,11 @@ export function ChapterPage({ id }: { id: string }) {
   return (
     <div className="flex min-h-screen flex-col bg-surface">
       <SiteHeader />
-      <div className="flex flex-1">
+      {/* Stacks below lg: the chapter list, then the reading, then the sandbox. */}
+      <div className="flex flex-1 flex-col lg:flex-row">
         <nav
           aria-label="Chapters"
-          className="flex w-[240px] shrink-0 flex-col border-r border-line px-4 py-6"
+          className="flex w-full shrink-0 flex-col border-b border-line px-4 py-6 lg:w-[240px] lg:border-r lg:border-b-0"
         >
           <p className="m-0 mb-4 text-[12px] font-medium tracking-[0.04em] text-muted uppercase">Chapters</p>
           <ol className="m-0 flex list-none flex-col gap-1 p-0">
@@ -105,7 +109,7 @@ export function ChapterPage({ id }: { id: string }) {
             </div>
           </div>
         </nav>
-        <main className="flex w-full max-w-[580px] flex-col gap-4 px-8 py-8">
+        <main className="flex w-full min-w-0 flex-col gap-4 px-4 py-8 lg:max-w-[580px] lg:px-8">
           <p className="m-0 font-mono text-[13px] text-rose-700">
             CHAPTER {num} · {tab === 'challenge' ? 'CHALLENGE' : c.minutes ? `${c.minutes} MIN` : 'READING'}
           </p>
@@ -157,10 +161,15 @@ export function ChapterPage({ id }: { id: string }) {
             ]}
           />
         </main>
-        <div className="min-w-0 flex-1 py-8 pr-8">
-          <Suspense fallback={null}>
-            <Sandbox chapter={c.id} scenario={content.sandbox} />
-          </Suspense>
+        <div className="min-w-0 flex-1 px-4 pb-8 lg:py-8 lg:pr-8 lg:pl-0">
+          {simulatorSupported() ? (
+            <Suspense fallback={<PageLoading />}>
+              <Sandbox chapter={c.id} scenario={content.sandbox} />
+            </Suspense>
+          ) : (
+            // BROWSER-UNSUPPORTED: the chapter still reads.
+            <Banner severity="error">{present(new AppError('BROWSER-UNSUPPORTED')).message}</Banner>
+          )}
         </div>
       </div>
       <Complete open={complete} onOpenChange={setComplete} n={c.n} done={done} />

@@ -149,11 +149,35 @@ export function SiteHeader() {
       </nav>
       <a
         href={REPO}
-        className="sl-focus flex h-10 items-center gap-2 rounded-lg border border-line px-4 text-[14px] font-semibold text-ink no-underline hover:bg-subtle"
+        className="sl-focus ml-auto flex h-10 shrink-0 items-center gap-2 rounded-lg border border-line px-3 text-[14px] font-semibold text-ink no-underline hover:bg-subtle md:ml-0 md:px-4"
       >
         <Star size={16} aria-hidden="true" />
-        Star on GitHub
+        {/* The words go below md (the icon keeps the link's name). */}
+        <span className="sr-only md:not-sr-only">Star on GitHub</span>
       </a>
+      {/* Below 768 px (phones, zoomed windows): the same links behind a native disclosure. */}
+      <details className="relative md:hidden">
+        <summary className="sl-focus flex h-10 cursor-pointer list-none items-center rounded-lg border border-line px-3 text-[14px] font-semibold">
+          Menu
+        </summary>
+        <nav
+          aria-label="Main"
+          className="absolute right-0 z-50 mt-2 flex w-48 flex-col gap-1 rounded-lg border border-line bg-surface p-2 shadow-pop"
+        >
+          {(
+            [
+              ['/learn', 'Learn'],
+              ['/new', 'Simulator'],
+              ['/download', 'Desktop app'],
+              ['/glossary', 'Glossary'],
+            ] as const
+          ).map(([to, label]) => (
+            <Link key={to} to={to} className={`${navLink} rounded-md px-2 py-1.5`}>
+              {label}
+            </Link>
+          ))}
+        </nav>
+      </details>
     </header>
   );
 }

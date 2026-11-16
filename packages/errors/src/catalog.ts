@@ -149,6 +149,7 @@ export const CATALOG = {
   "EXPORT-UNSUPPORTED": {"code": "EXPORT-UNSUPPORTED", "area": "Web · Data, storage, share, browser", "severity": "warning", "placement": "banner in export dialog", "message": "{node} has no direct Flink SQL; it is exported as a comment with a TODO.", "actions": [], "board": "W17"},
   "DESKTOP-NOT-FOUND": {"code": "DESKTOP-NOT-FOUND", "area": "Web · Data, storage, share, browser", "severity": "info", "placement": "dialog", "message": "Stream Lab desktop did not open. Install it, or copy the SQL.", "actions": ["Download", "Copy SQL"], "board": "W17e"},
   "BROWSER-UNSUPPORTED": {"code": "BROWSER-UNSUPPORTED", "area": "Web · Data, storage, share, browser", "severity": "error", "placement": "full-page state", "message": "This browser can not run the simulator. You can still read every chapter.", "actions": ["Read the course"], "board": "WX07"},
+  "APP-LOAD-FAILED": {"code": "APP-LOAD-FAILED", "area": "Web · Data, storage, share, browser", "severity": "error", "placement": "full-page state", "message": "Part of Stream Lab could not load. Check your connection, then reload the page.", "actions": ["Reload"], "board": "WX07"},
   "COURSE-WRONG": {"code": "COURSE-WRONG", "area": "Web · Data, storage, share, browser", "severity": "warning", "placement": "inline under the challenge", "message": "Not yet: {hint}.", "actions": ["Show hint", "Reset"], "board": "W05d"},
 } as const satisfies Record<string, CatalogEntry>;
 

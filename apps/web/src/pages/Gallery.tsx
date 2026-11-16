@@ -49,7 +49,7 @@ export function Gallery() {
           <Skeleton height={16} width="60%" />
         </Loading>
       ) : (
-        <ul className="m-0 grid list-none grid-cols-[repeat(auto-fill,minmax(320px,1fr))] gap-4 p-0">
+        <ul className="m-0 grid list-none grid-cols-[repeat(auto-fill,minmax(min(320px,100%),1fr))] gap-4 p-0">
           {SCENARIOS.map((s) => (
             <li
               key={s.id}

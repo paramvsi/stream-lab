@@ -5,6 +5,7 @@ import {
   createRoute,
   createRouter,
   Outlet,
+  useRouterState,
 } from '@tanstack/react-router';
 import { ChapterPage } from './pages/Chapter';
 import { Course } from './pages/Course';
@@ -13,26 +14,29 @@ import { DownloadPage } from './pages/Download';
 import { ConceptDrawer, Glossary } from './pages/Glossary';
 import { NotFound } from './pages/NotFound';
 import { needsSimulator } from './pages/Unsupported';
-import { lazy, Suspense } from 'react';
+import { Suspense } from 'react';
+import { lazyPage, PageLoading } from './pages/lazyPage';
 
 // LAND-06: the simulator (canvas, engine, CEL, React Flow) loads with its pages, not with the landing or the course.
-const Gallery = lazy(() => import('./pages/Gallery').then((m) => ({ default: m.Gallery })));
-const MyPipelines = lazy(() => import('./pages/MyPipelines').then((m) => ({ default: m.MyPipelines })));
-const WorkspaceRoute = lazy(() =>
-  import('./sim/WorkspaceRoute').then((m) => ({ default: m.WorkspaceRoute })),
-);
-const SharedRoute = lazy(() => import('./sim/SharedRoute').then((m) => ({ default: m.SharedRoute })));
+const Gallery = lazyPage(() => import('./pages/Gallery').then((m) => m.Gallery));
+const MyPipelines = lazyPage(() => import('./pages/MyPipelines').then((m) => m.MyPipelines));
+const WorkspaceRoute = lazyPage(() => import('./sim/WorkspaceRoute').then((m) => m.WorkspaceRoute));
+const SharedRoute = lazyPage(() => import('./sim/SharedRoute').then((m) => m.SharedRoute));
 
 const root = createRootRoute({
-  component: () => (
-    <ErrorBoundary>
-      <Suspense fallback={null}>
-        <Outlet />
-      </Suspense>
-      {/* LEARN-04: a concept opens over any page (a chapter, the glossary), without leaving it. */}
-      <ConceptDrawer />
-    </ErrorBoundary>
-  ),
+  component: function Root() {
+    // Keyed by the page: an error on one page does not stay on the next (it used to need a full reload).
+    const path = useRouterState({ select: (r) => r.location.pathname });
+    return (
+      <ErrorBoundary key={path}>
+        <Suspense fallback={<PageLoading />}>
+          <Outlet />
+        </Suspense>
+        {/* LEARN-04: a concept opens over any page (a chapter, the glossary), without leaving it. */}
+        <ConceptDrawer />
+      </ErrorBoundary>
+    );
+  },
   notFoundComponent: NotFound,
 });
 
@@ -78,6 +82,8 @@ const shared = createRoute({
 export const router = createRouter({
   routeTree: root.addChildren([index, gallery, pipelines, sim, shared, learn, chapter, glossary, download]),
   history: createHashHistory(),
+  // A lazy page suspends inside the router's own boundary: this is what shows meanwhile (not a blank screen).
+  defaultPendingComponent: PageLoading,
 });
 
 declare module '@tanstack/react-router' {

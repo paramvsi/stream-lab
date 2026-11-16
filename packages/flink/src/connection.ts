@@ -25,6 +25,8 @@ export const ConnectionSchema = z.object({
   url: z.string(),
   kind: z.enum(['standalone', 'kubernetes', 'yarn', 'gateway', 'ververica', 'amazon']),
   env: z.enum(['prod', 'staging', 'dev', 'none']),
+  /** CONN-09: the tag's colour (board D02 swatches); the environment's own when absent. */
+  color: z.enum(['red', 'orange', 'green', 'rose', 'grey']).optional(),
   readOnly: z.boolean(),
   basePath: z.string(),
   auth: Auth,

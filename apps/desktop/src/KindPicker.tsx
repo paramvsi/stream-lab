@@ -11,16 +11,18 @@ const BADGE: Record<Support, [string, BadgeTone]> = {
 
 /**
  * CONN-01 / board C01: step 1 of 3, where the cluster runs. One choice (a radio group); Confluent Cloud is listed
- * but can not be picked further (CONN-KIND-UNSUPPORTED, inline in the picker). Continue goes to the form (step 2, next slice).
+ * but can not be picked further (CONN-KIND-UNSUPPORTED, inline in the picker). Continue goes to the form (step 2).
  */
 export function KindPicker({
   value,
   onChange,
   onBack,
+  onContinue,
 }: {
   value: KindChoice | null;
   onChange: (k: KindChoice) => void;
   onBack: () => void;
+  onContinue: () => void;
 }) {
   const name = useId();
   useEffect(() => {
@@ -70,14 +72,12 @@ export function KindPicker({
         <Button onClick={onBack}>Back</Button>
         <Button
           variant="primary"
-          // ponytail: step 2 (the connection form, D02) is the next slice; until then Continue says so.
-          disabledReason={
-            !picked
-              ? 'Choose where your cluster runs.'
-              : unsupported
-                ? 'This platform is not supported.'
-                : 'The connection form (step 2) is not built yet.'
-          }
+          onClick={onContinue}
+          {...(!picked
+            ? { disabledReason: 'Choose where your cluster runs.' }
+            : unsupported
+              ? { disabledReason: 'This platform is not supported.' }
+              : {})}
         >
           Continue
         </Button>

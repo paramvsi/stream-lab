@@ -4,3 +4,4 @@ export * from './endpoints/overview';
 export * from './http';
 export * from './testConnection';
 export * from './connection';
+export * from './poll';

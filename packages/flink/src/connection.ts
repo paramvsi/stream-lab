@@ -323,10 +323,11 @@ export function importConnections(
   for (const [i, c] of r.data.connections.entries()) {
     const problems = Object.entries(validateConnection(c, []));
     if (problems.length) {
-      const [field, e] = problems[0]!;
+      const [, e] = problems[0]!;
       return invalid(
         lineOf(i),
-        `${c.name || 'a connection'}, ${FIELD_LABEL[field as ConnectionField]}: ${present(e!).message.replace(/\.$/, '')}`,
+        // The catalog message names the field itself ("JobManager REST URL is required").
+        `${c.name || 'a connection'}: ${present(e!).message.replace(/\.$/, '')}`,
       );
     }
     const k = c.name.trim().toLowerCase();
@@ -342,9 +343,14 @@ export function importConnections(
     if (existingId) duplicates.push({ index, existingId });
     // Fresh ids: secrets are keyed by id, and a file's ids may match connections here or each other. Secret values
     // in a file (hand-written: export never writes them) are not taken: secrets only come from the keychain.
+    // Addresses stored as they were checked (trimmed): an untrimmed one (a no-break space…) passes the check
+    // but does not parse, and would then be cut wrongly on the way out.
     return {
       ...c,
       id: newId(),
+      url: c.url.trim(),
+      ...(c.transport.type === 'proxy' ? { transport: { ...c.transport, url: c.transport.url.trim() } } : {}),
+      ...(c.gateway ? { gateway: { ...c.gateway, url: c.gateway.url.trim() } } : {}),
       headers: c.headers.map((h) => (isSecretHeader(h) ? { name: h.name, secret: true } : h)),
     };
   });

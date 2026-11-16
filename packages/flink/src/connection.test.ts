@@ -377,3 +377,29 @@ describe('audit of 276dfa0', () => {
     expect(t).not.toContain('p/ss');
   });
 });
+
+describe('audit of 17e57df', () => {
+  it('#1 an imported address with a no-break space keeps its host on export; #2 the reason names the field once', () => {
+    const file = JSON.stringify({
+      format: 'streamlab.connections',
+      version: 1,
+      connections: [conn({ url: ' https://flink.example.com:8081/proxy/a@b' })],
+    });
+    const r = importConnections('c.json', file, []);
+    if ('error' in r) throw r.error;
+    const out = JSON.parse(exportConnections(r.connections)).connections[0].url as string;
+    expect(new URL(out).host).toBe('flink.example.com:8081');
+    const bad = JSON.stringify({
+      format: 'streamlab.connections',
+      version: 1,
+      connections: [conn({ name: 'p', url: '' })],
+    });
+    expect(importConnections('c.json', bad, [])).toMatchObject({
+      error: { params: { reason: 'p: JobManager REST URL is required' } },
+    });
+  });
+  it('#3 Hangul fillers, variation selectors and the combining grapheme joiner are shown escaped', () => {
+    const e = validateConnection(conn({ headers: [{ name: 'Xㅤ️͏T', value: 'v', secret: false }] }), []);
+    expect(e.headers!.params).toMatchObject({ name: 'X\\u{3164}\\u{fe0f}\\u{34f}T' });
+  });
+});

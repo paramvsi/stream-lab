@@ -170,6 +170,7 @@ describe('audit of 3b050a8', () => {
     expect(screen.getByRole('button', { name: 'Test connection' }).getAttribute('aria-disabled')).toBe(
       'true',
     );
+    await userEvent.click(screen.getByRole('button', { name: 'Test connection' }));
     expect(seen).toEqual([]);
   });
   it('#2 a header error marks only its own row and input, and Save goes there', async () => {
@@ -201,9 +202,11 @@ describe('audit of 3b050a8', () => {
     const box = screen.getByRole('checkbox', { name: 'Header 1 in keychain' }) as HTMLInputElement;
     expect(box.disabled).toBe(false);
     expect(box.getAttribute('aria-disabled')).toBe('true');
-    expect(document.getElementById(box.getAttribute('aria-describedby')!)!.textContent).toBe(
-      'X-Api-Key always goes to the keychain.',
+    expect(document.getElementById(box.getAttribute('aria-describedby')!)!.textContent).toContain(
+      'always for X-Api-Key',
     );
+    // Seen, not only heard: the reason is not hidden from view.
+    expect(document.getElementById(box.getAttribute('aria-describedby')!)!.className).not.toMatch(/sr-only/);
     await userEvent.click(box);
     expect(box.checked).toBe(true);
   });
@@ -214,5 +217,46 @@ describe('audit of 3b050a8', () => {
     await userEvent.selectOptions(screen.getByLabelText('SQL Gateway login'), 'basic');
     await userEvent.click(screen.getByRole('button', { name: 'Save' }));
     expect(screen.getByText('SQL Gateway user is required.')).toBeTruthy();
+  });
+});
+
+describe('audit of 66fa0a5', () => {
+  it('base path: nothing invisible, no dot segment, no broken %-escape; "/" saves as none', async () => {
+    const onSave = form();
+    await basics();
+    const bp = screen.getByLabelText('Base path');
+    for (const bad of ['/a\u200b', '/a\u202e', '/../admin', '/a/./b', '/%zz']) {
+      await userEvent.clear(bp);
+      await userEvent.type(bp, bad);
+      await userEvent.click(screen.getByRole('button', { name: 'Save' }));
+      expect(onSave).not.toHaveBeenCalled();
+    }
+    await userEvent.clear(bp);
+    await userEvent.type(bp, '/');
+    await userEvent.click(screen.getByRole('button', { name: 'Save' }));
+    expect(onSave.mock.calls[0]![0].connection.basePath).toBe('');
+  });
+  it('a keychain header value of only spaces is empty', async () => {
+    const onSave = form();
+    await basics();
+    await userEvent.click(screen.getByRole('button', { name: 'Add header' }));
+    await userEvent.type(screen.getByLabelText('Header 1 name'), 'X-Api-Key');
+    await userEvent.type(screen.getByLabelText('Header 1 value'), '   ');
+    await userEvent.click(screen.getByRole('button', { name: 'Save' }));
+    expect(onSave).not.toHaveBeenCalled();
+    expect(screen.getByText('The value of header "X-Api-Key" is required.')).toBeTruthy();
+  });
+  it('clicking the always-on Keychain box leaves a finished test result in place', async () => {
+    form(() => async () => {
+      throw new TypeError('no transport');
+    });
+    await basics();
+    await userEvent.click(screen.getByRole('button', { name: 'Add header' }));
+    await userEvent.type(screen.getByLabelText('Header 1 name'), 'X-Api-Key');
+    await userEvent.type(screen.getByLabelText('Header 1 value'), 'K');
+    await userEvent.click(screen.getByRole('button', { name: 'Test connection' }));
+    expect(await screen.findByText(/the test could not run/)).toBeTruthy();
+    await userEvent.click(screen.getByRole('checkbox', { name: 'Header 1 in keychain' }));
+    expect(screen.getByText(/the test could not run/)).toBeTruthy();
   });
 });

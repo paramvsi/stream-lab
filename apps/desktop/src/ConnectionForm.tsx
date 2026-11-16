@@ -601,8 +601,9 @@ export function ConnectionForm({
                     />
                     Keychain
                     {!h.secret && isSecretHeader(h) && (
-                      <span id={`${keychainNote}-${i}`} className="sr-only">
-                        {h.name.trim()} always goes to the keychain.
+                      // Seen as well as heard: the box ignores clicks, so it says why.
+                      <span id={`${keychainNote}-${i}`} className="text-muted">
+                        <span aria-hidden="true">· </span>always for {h.name.trim()}
                       </span>
                     )}
                   </label>

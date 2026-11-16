@@ -619,7 +619,7 @@ describe('EXP-01 SQL export audit 3 (13fea6b)', () => {
     { name: 'rate', type: 'number' as const, required: true },
     { name: 'valid_from', type: 'timestamp' as const, required: true },
   ];
-  it('#1 a lookup on a table that lists valid_from selects it (the schema and the sink have it)', () => {
+  it('#1 / audit 4 #8 valid_from is not joined into events: SQL, schema and simulator agree (no sink column it can not fill)', () => {
     const { sql } = toFlinkSql(
       {
         nodes: [
@@ -638,7 +638,10 @@ describe('EXP-01 SQL export audit 3 (13fea6b)', () => {
       { refTables: { fx: FX } },
       { versioned: ['fx'] },
     );
-    expect(sql).toContain('T.`valid_from`');
+    expect(sql).not.toContain('T.`valid_from`');
+    const ddl = sql.slice(sql.indexOf('CREATE TABLE `out`'));
+    expect(ddl.slice(0, ddl.indexOf(') WITH'))).not.toContain('valid_from');
+    expect(sql).toContain('WATERMARK FOR `valid_from`'); // the table itself keeps it
   });
   it('#2 a Dead-letter fed by updating rows is flagged, not written append-only', () => {
     const { sql, unsupported } = toFlinkSql({
@@ -728,5 +731,39 @@ describe('EXP-01 SQL export audit 3 (13fea6b)', () => {
       edges: [edge('src', 't'), edge('t', 'o')],
     });
     expect(unsupported.map((u) => u.id)).toEqual(['o']);
+  });
+});
+
+describe('EXP-01 SQL export audit 4', () => {
+  it('#9 a Dead-letter with two updating inputs is listed once', () => {
+    const top = (id: string) =>
+      node(id, 'Top-N', {
+        partitionBy: ['merchant_id'],
+        orderBy: 'amount',
+        desc: true,
+        n: 3,
+        withinWindow: false,
+      });
+    const val = (id: string) =>
+      node(id, 'Validate', { rules: [{ name: 'p', expr: 'amount > 0.0', severity: 'error' }] });
+    const { unsupported } = toFlinkSql({
+      nodes: [
+        node('src', 'Source', SRC),
+        top('t1'),
+        top('t2'),
+        val('v1'),
+        val('v2'),
+        node('d', 'Dead-letter', { reasonField: 'reason', retentionMs: 0 }),
+      ],
+      edges: [
+        edge('src', 't1'),
+        edge('src', 't2'),
+        edge('t1', 'v1'),
+        edge('t2', 'v2'),
+        edge('v1', 'd', 'rejected'),
+        edge('v2', 'd', 'rejected'),
+      ],
+    });
+    expect(unsupported.filter((u) => u.id === 'd')).toHaveLength(1);
   });
 });

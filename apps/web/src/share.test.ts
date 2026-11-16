@@ -37,3 +37,19 @@ describe('EXP-04 share link', () => {
     expect(SHARE_WARN_AT).toBe(8000);
   });
 });
+
+describe('EXP-04 share audit (ff0aa65)', () => {
+  it('#4 a link that expands to more than the cap is SHARE-BROKEN, not decoded into memory', async () => {
+    const huge = { ...p, name: 'x'.repeat(40 * 1024 * 1024) };
+    await expect(decodeShare(await encodeShare(huge))).rejects.toMatchObject({ code: 'SHARE-BROKEN' });
+  });
+  it("#10 rows must be an object keyed by the pipeline's own uploaded Sources", async () => {
+    const up = { ...p, data: { ...p.data, uploads: { g: { file: 'pay.csv', rows: 1 } } } };
+    await expect(decodeShare(await encodeShare(up, [] as never))).rejects.toMatchObject({
+      code: 'SHARE-BROKEN',
+    });
+    await expect(decodeShare(await encodeShare(up, { toString: [{}] } as never))).rejects.toMatchObject({
+      code: 'SHARE-BROKEN',
+    });
+  });
+});

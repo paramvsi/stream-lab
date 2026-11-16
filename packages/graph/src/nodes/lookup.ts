@@ -23,7 +23,8 @@ export const lookup = defineNode({
   outputs: () => [MAIN_OUT, REJECTED],
   summary: (c) => (c.table ? `${c.table} on ${c.key}` : 'no table'),
   outputSchema: (i, c, ctx) => {
-    const table = without(ctx.refTables[c.table] ?? [], [c.tableKey]);
+    // valid_from is a version's metadata, not enrichment: the engine leaves it out of joined events too.
+    const table = without(ctx.refTables[c.table] ?? [], [c.tableKey, 'valid_from']);
     // A miss passes the event through without the table's fields, so they are optional.
     return {
       main: merge(

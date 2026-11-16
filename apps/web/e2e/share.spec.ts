@@ -17,7 +17,7 @@ test('EXP-04 Share copies a link that carries the whole pipeline (W18b); axe cle
   const d = page.getByRole('dialog', { name: 'Share pipeline' });
   await expect(d).toContainText('The whole pipeline travels in the link, after the #. Nothing is uploaded.');
   await expect(d.getByLabel('Link')).toHaveValue(/#\/s\/1\./);
-  await expect(d.getByRole('checkbox', { name: /Include uploaded data/ })).toBeDisabled(); // nothing uploaded
+  await expect(d.getByRole('switch', { name: /Include uploaded data/ })).toBeDisabled(); // nothing uploaded
   await d.getByRole('button', { name: 'Copy link' }).click();
   await expect(page.getByText('Link copied').first()).toBeVisible();
   const link = await page.evaluate(() => navigator.clipboard.readText());
@@ -60,16 +60,20 @@ test('SHARE-TOO-LONG over 8,000 characters (WX05): Leave out data, Export JSON, 
   const d = page.getByRole('dialog', { name: 'Share pipeline' });
   await expect(d.getByLabel('Link')).toHaveValue(/#\/s\/1\./);
   await expect(d).not.toContainText('some apps cut long links');
-  await d.getByRole('checkbox', { name: /Include uploaded data/ }).check();
-  await expect(d).toContainText(/This link is [\d,]+ characters; some apps cut long links\./);
-  await expect(d.getByRole('button', { name: 'Copy link' })).toHaveCount(0); // WX05: Copy anyway instead
+  await d.getByRole('switch', { name: /Include uploaded data/ }).check();
+  // WX05: the message is the Link field's error; Export JSON and Copy anyway take the footer.
+  await expect(d.getByLabel('Link')).toHaveAttribute('aria-invalid', 'true');
+  await expect(d).toContainText(
+    /This link is [\d,]+ characters; some apps cut long links\. Leave out uploaded data/,
+  );
+  await expect(d.getByRole('button', { name: 'Copy link' })).toHaveCount(0);
   await d.getByRole('button', { name: 'Copy anyway' }).click();
   await expect(page.getByText('Link copied').first()).toBeVisible();
   const dl = page.waitForEvent('download');
   await d.getByRole('button', { name: 'Export JSON' }).click();
   expect((await dl).suggestedFilename()).toMatch(/\.json$/);
-  await d.getByRole('button', { name: 'Leave out data' }).click();
-  await expect(d.getByRole('checkbox', { name: /Include uploaded data/ })).not.toBeChecked();
+  // "Leave out data" is the switch.
+  await d.getByRole('switch', { name: /Include uploaded data/ }).uncheck();
   await expect(d).not.toContainText('some apps cut long links');
 });
 
@@ -124,4 +128,43 @@ test('SHARE-BROKEN a damaged link shows the full-page state; Open a new pipeline
   await expect(page.getByRole('heading', { name: 'This link is damaged or incomplete' })).toBeVisible();
   await page.getByRole('button', { name: 'Open a new pipeline' }).click();
   await expect(page).toHaveURL(/#\/new/);
+});
+
+test('EXP-04 audit: an unticked link carries nothing about uploads; the switch is off each time; a read error is DATA-READ-FAILED', async ({
+  page,
+}) => {
+  await openBlank(page);
+  const src = await page.evaluate(async () => {
+    const m = await import('/src/sim/store.ts');
+    const u = await import('/src/sim/uploads.ts');
+    const g = m.useGraph.getState();
+    const id = g.addNode('Source', { x: 0, y: 0 });
+    await u.saveRows(g.pipelineId, id, [{ a: 1 }]);
+    m.useGraph.getState().setUpload(id, { file: 'customers_PII_march.csv', rows: 1 });
+    return id;
+  });
+  await page.getByRole('button', { name: 'Share', exact: true }).click();
+  const d = page.getByRole('dialog', { name: 'Share pipeline' });
+  await d.evaluate((e) => Promise.all(e.getAnimations().map((x) => x.finished)));
+  expect((await d.boundingBox())!.width).toBe(560);
+  await expect(d.getByLabel('Link')).toHaveValue(/#\/s\/1\./);
+  const link = await d.getByLabel('Link').inputValue();
+  const decoded = await page.evaluate(
+    async (l) => await (await import('/src/share.ts')).decodeShare(l.slice(l.indexOf('#/s/') + 4)),
+    link,
+  );
+  expect(JSON.stringify(decoded)).not.toContain('customers_PII_march');
+  await d.getByRole('switch', { name: /Include uploaded data/ }).check();
+  await page.keyboard.press('Escape');
+  await page.getByRole('button', { name: 'Share', exact: true }).click();
+  await expect(d.getByRole('switch', { name: /Include uploaded data/ })).not.toBeChecked();
+  // A stored file that can not be read: said in catalog words, not a link that never comes.
+  await page.evaluate(() => {
+    File.prototype.stream = function () {
+      throw new DOMException('gone', 'NotReadableError');
+    };
+  });
+  await d.getByRole('switch', { name: /Include uploaded data/ }).check();
+  await expect(d).toContainText('customers_PII_march.csv could not be read: the browser could not read it.');
+  void src;
 });

@@ -126,3 +126,7 @@ Overnight log. **Decisions** need your call; **Commands** need you to run them. 
   - The union-tag test passes on the old code too: the old SQL used `SELECT *`, so the duplicate column was not visible in the text.
 - Escape with a toast showing closes the toast first; a second Escape closes the dialog under it. This is the shared Toast component's behaviour (Radix layers), seen after Export → Copy and Data → Copy seed. Should Escape skip toasts and close the dialog?
 - SQL export audit 3, not settled (needs a Flink 1.20 EXPLAIN, which I don't run): keep-first dedup into a kafka sink needs upsert on 1.20 (the earlier planner run). If 1.20 also treats it as updating for a following Window, interval Join or as-of Lookup, those should be flagged too; the export lets them through.
+- Share audit (ff0aa65/ca8c9ff), not fixed:
+  - Imported reference tables (this browser's) do not travel in a share link, so a Lookup on one opens broken for the recipient, although the dialog says "The whole pipeline travels in the link". Carry the tables too (bigger links), or say which ones are left out?
+  - WX05's "Export JSON" downloads the pipeline without its uploaded rows.
+- Flaky test, named: `drawer.spec.ts` "NODE-07 a typed edit is one undo step" failed once as the first test of a gate run (toHaveText at 9.2 s; probably the dev server's first compile). It passed 3/3 alone and in a full rerun (64/64).

@@ -497,8 +497,9 @@ export function toFlinkSql(
             continue;
           }
           if (updating.has(i.from) || firstRow.has(i.from)) {
-            // A dead letter has no key to upsert by.
-            unsupported.push({ id: n.id, label: labelOf(n), type: n.type });
+            // A dead letter has no key to upsert by (listed once, however many inputs).
+            if (!unsupported.some((u) => u.id === n.id))
+              unsupported.push({ id: n.id, label: labelOf(n), type: n.type });
             parts.push(
               `-- TODO (EXPORT-UNSUPPORTED): ${labelOf(n)} — input ${i.from} carries updating results, which an append-only dead-letter table can not take.`,
             );
@@ -670,7 +671,7 @@ export function toFlinkSql(
         const ev = inSchema(n);
         const evNames = new Set(ev.map((f) => f.name));
         const extra = cols
-          .filter((f) => f.name !== tk) // valid_from too when the table lists it: the schema has it
+          .filter((f) => f.name !== tk && f.name !== 'valid_from') // as the schema and the simulator
           .map((f) => `T.${q(f.name)}${evNames.has(f.name) ? ` AS ${q(`right_${f.name}`)}` : ''}`);
         const join = (kind: string) =>
           `FROM ${q(probe)} AS E\n${kind} ${q(tname)} FOR SYSTEM_TIME AS OF ${at} AS T\nON E.${q(String(c['key']))} = T.${q(tk)}`;

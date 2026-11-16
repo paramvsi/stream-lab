@@ -49,7 +49,7 @@ export function SiteShell({
       )}
       <SiteHeader />
       <main
-        className={`relative mx-auto flex w-full flex-1 flex-col gap-6 px-8 py-12 ${narrow ? 'max-w-[896px]' : 'max-w-[1120px]'}`}
+        className={`relative mx-auto flex w-full flex-1 flex-col gap-6 px-4 py-12 md:px-8 ${narrow ? 'max-w-[896px]' : 'max-w-[1120px]'}`}
       >
         {title && (
           <div className="flex flex-wrap items-end justify-between gap-4">
@@ -72,7 +72,7 @@ export function SiteShell({
         )}
         {children}
       </main>
-      <footer className="flex flex-wrap justify-between gap-10 border-t border-line px-16 py-12 text-[14px] text-muted">
+      <footer className="flex flex-wrap justify-between gap-10 border-t border-line px-4 py-12 md:px-16 text-[14px] text-muted">
         <div className="flex max-w-[460px] flex-col gap-3">
           <p className="m-0 text-[17px] font-semibold text-ink">
             stream<span className="text-rose-700">lab</span>
@@ -83,7 +83,7 @@ export function SiteShell({
             affiliated with the ASF.
           </p>
         </div>
-        <nav aria-label="Footer" className="flex gap-16">
+        <nav aria-label="Footer" className="flex flex-wrap gap-10 md:gap-16">
           <div className="flex flex-col gap-2">
             <p className="m-0 mb-1 text-[14px] font-semibold text-ink">Product</p>
             <Link to="/learn" className="sl-focus rounded-sm text-muted no-underline hover:text-ink">
@@ -119,7 +119,7 @@ export function SiteHeader() {
   const path = useRouterState({ select: (r) => r.location.pathname });
   const onSim = path === '/new' || path === '/pipelines';
   return (
-    <header className="relative flex h-[72px] items-center border-b border-line px-16">
+    <header className="relative flex h-[72px] items-center gap-4 border-b border-line px-4 md:px-16">
       <Link
         to="/"
         className="sl-focus flex items-center gap-2.5 rounded-sm text-[17px] font-semibold tracking-[-0.02em] text-ink no-underline"
@@ -130,7 +130,7 @@ export function SiteHeader() {
           stream<span className="text-rose-600">lab</span>
         </span>
       </Link>
-      <nav aria-label="Main" className="mx-auto flex gap-8 text-[15px] font-medium">
+      <nav aria-label="Main" className="mx-auto hidden gap-8 text-[15px] font-medium md:flex">
         <Link to="/learn" className={navLink}>
           Learn
         </Link>

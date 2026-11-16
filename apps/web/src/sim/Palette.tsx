@@ -56,11 +56,10 @@ export function Palette({ onAdd }: { onAdd: (type: NodeType) => void }) {
       </label>
 
       <div className="-mx-1 flex flex-1 flex-col gap-3 overflow-y-auto px-1 pb-2">
-        {hits.length === 0 && (
-          <p role="status" className="m-0 px-1 text-[13px] text-muted">
-            No nodes match &ldquo;{q.trim()}&rdquo;.
-          </p>
-        )}
+        {/* Always there, so its first message is announced. */}
+        <p role="status" className={hits.length === 0 ? 'm-0 px-1 text-[13px] text-muted' : 'sr-only'}>
+          {hits.length === 0 ? <>No nodes match &ldquo;{q.trim()}&rdquo;.</> : ''}
+        </p>
         {CATEGORIES.map((c) => {
           const items = hits.filter((n) => n.category === c);
           if (!items.length) return null;

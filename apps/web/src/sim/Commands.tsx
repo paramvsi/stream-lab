@@ -152,11 +152,9 @@ export function CommandPalette({
         }}
         className="sl-focus h-10 rounded-md border border-line-strong px-3 text-[14px] text-ink"
       />
-      {items.length === 0 && (
-        <p role="status" className="m-0 text-[14px]">
-          No commands match.
-        </p>
-      )}
+      <p role="status" className={items.length === 0 ? 'm-0 text-[14px]' : 'sr-only'}>
+        {items.length === 0 ? 'No commands match.' : ''}
+      </p>
       <ul
         id={listId}
         role="listbox"

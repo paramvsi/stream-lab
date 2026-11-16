@@ -40,9 +40,13 @@ test.describe('reduced motion', () => {
     await page.goto('/#/');
     await expect(hero(page).getByText('12:00–12:05 · c_4471 · 1,940.00')).toBeVisible();
     expect(await running(page)).toBe(0);
-    await expect(
-      page.getByRole('region', { name: 'Course' }).getByRole('link', { name: /Windows/ }),
-    ).toHaveCSS('opacity', '1');
+    // The reveal hides the list item (not the link): every item is there, unanimated.
+    const hidden = await page.evaluate(
+      () =>
+        [...document.querySelectorAll('.sl-reveal-item')].filter((e) => getComputedStyle(e).opacity !== '1')
+          .length,
+    );
+    expect(hidden).toBe(0);
   });
 });
 
@@ -99,4 +103,32 @@ test('LAND-06 the landing, the course and the glossary do not load the simulator
   await page.goto('/#/learn/windows');
   await expect(page.getByRole('region', { name: 'Sandbox' })).toBeVisible();
   expect(loaded.some((u) => /\/src\/sim\/Workspace\.tsx/.test(u))).toBe(true);
+});
+
+// ---- Audit of 2951ab2 / 56db0e4 ----
+test.describe('phone width', () => {
+  test.use({ viewport: { width: 375, height: 800 } });
+  test('LAND-06 audit 3: no sideways scroll on the landing, the course, the glossary and the download page', async ({
+    page,
+  }) => {
+    for (const route of ['/#/', '/#/learn', '/#/glossary', '/#/download']) {
+      await page.goto(route);
+      await expect(page.getByRole('heading', { level: 1 })).toBeVisible();
+      expect(await page.evaluate(() => document.documentElement.scrollWidth), route).toBeLessThanOrEqual(375);
+    }
+  });
+});
+
+test('LAND-04 audit 2+7: without IntersectionObserver the landing still shows; the Explain node stays on one line', async ({
+  page,
+}) => {
+  await page.addInitScript(() => {
+    // @ts-expect-error an old browser
+    delete window.IntersectionObserver;
+  });
+  await page.goto('/#/');
+  await expect(page.getByRole('heading', { level: 1 })).toBeVisible();
+  await expect(page.getByRole('region', { name: 'How it works' })).toHaveAttribute('data-in', 'true');
+  const node = page.getByText('Bursts per card', { exact: true });
+  expect((await node.boundingBox())!.height).toBeLessThan(60);
 });

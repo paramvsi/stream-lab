@@ -101,11 +101,9 @@ export function QuickAdd({
         }}
         className="sl-focus h-9 rounded-md border border-line-strong px-2.5 text-[14px]"
       />
-      {items.length === 0 && (
-        <p role="status" className="m-0 px-2.5 py-2 text-[13px] text-muted">
-          No nodes match
-        </p>
-      )}
+      <p role="status" className={items.length === 0 ? 'm-0 px-2.5 py-2 text-[13px] text-muted' : 'sr-only'}>
+        {items.length === 0 ? 'No nodes match' : ''}
+      </p>
       <ul
         id={listId}
         role="listbox"

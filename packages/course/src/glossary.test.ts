@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { CHAPTERS } from './chapters';
-import { searchTerms, TERMS, termById } from './glossary';
+import { CONCEPT_LINK, searchTerms, TERMS, termById } from './glossary';
 
 describe('LEARN-04 glossary', () => {
   it('search covers names and aliases, names first; nothing found is an empty list', () => {
@@ -33,11 +33,10 @@ describe('LEARN-04 concept links in the chapters', () => {
       ),
     );
     expect(links.length).toBeGreaterThan(0);
-    // Every "[[" is a link the parser reads (a malformed one would show as raw brackets).
-    const opened = Object.values(CONTENT).flatMap((c) =>
-      c.sections.flatMap((s) => s.points.flatMap((p) => p.split('[[').length - 1)),
-    );
-    expect(opened.reduce((a, b) => a + b, 0)).toBe(links.length);
+    // Every "[[" is a link the parser itself reads (its own pattern, closing brackets included).
+    const all = new RegExp(CONCEPT_LINK.source, 'g');
+    const texts = Object.values(CONTENT).flatMap((c) => c.sections.flatMap((s) => s.points));
+    for (const t of texts) expect(t.split('[[').length - 1, t).toBe([...t.matchAll(all)].length);
     for (const id of links) expect(termById(id), id).toBeDefined();
   });
 });

@@ -22,7 +22,8 @@ function Reveal({
   label: string;
 }) {
   const ref = useRef<HTMLElement>(null);
-  const [seen, setSeen] = useState(false);
+  // Without IntersectionObserver (old browsers): shown at once.
+  const [seen, setSeen] = useState(() => typeof IntersectionObserver === 'undefined');
   useEffect(() => {
     const el = ref.current;
     if (!el || seen) return;
@@ -51,6 +52,7 @@ function Hero() {
   const ref = useRef<HTMLDivElement>(null);
   const [onScreen, setOnScreen] = useState(true);
   useEffect(() => {
+    if (typeof IntersectionObserver === 'undefined') return; // keeps playing; nothing else breaks
     const io = new IntersectionObserver((es) => setOnScreen(es.some((e) => e.isIntersecting)));
     if (ref.current) io.observe(ref.current);
     return () => io.disconnect();
@@ -67,19 +69,19 @@ function Hero() {
       role="img"
       aria-label="A payments pipeline: events flow through Rules into a 5-minute window; when the watermark passes 12:05 the window fires and two fraud alerts come out."
       data-paused={onScreen ? undefined : ''}
-      className="sl-hero mx-auto flex w-full max-w-[1080px] flex-col gap-8 rounded-2xl border border-line bg-surface p-10 shadow-pop"
+      className="sl-hero mx-auto flex w-full max-w-[1080px] flex-col gap-8 rounded-2xl border border-line bg-surface p-5 shadow-pop md:p-10"
     >
-      <div className="flex items-center">
+      <div className="grid grid-cols-2 gap-3 md:flex md:items-center md:gap-0">
         {nodes.map(([kind, name], i) => (
-          <div key={name} className="flex flex-1 items-center last:flex-none">
+          <div key={name} className="flex min-w-0 items-center md:flex-1 md:last:flex-none">
             <div
-              className={`flex w-[170px] flex-col rounded-lg border border-line px-4 py-3 ${kind === 'WINDOW' ? 'sl-hero-fire' : ''}`}
+              className={`flex w-full flex-col md:w-[170px] rounded-lg border border-line px-4 py-3 ${kind === 'WINDOW' ? 'sl-hero-fire' : ''}`}
             >
               <span className="font-mono text-[11px] font-semibold text-rose-700">{kind}</span>
               <span className="text-[14px] font-semibold">{name}</span>
             </div>
             {i < nodes.length - 1 && (
-              <div className="relative mx-3 h-px flex-1 bg-rose-100">
+              <div className="relative mx-3 hidden h-px flex-1 bg-rose-100 md:block">
                 {[0, 0.8, 1.6].map((d) => (
                   <span
                     key={d}
@@ -92,8 +94,8 @@ function Hero() {
           </div>
         ))}
       </div>
-      <div className="flex items-end gap-10">
-        <div className="relative h-12 flex-1">
+      <div className="flex flex-col gap-6 md:flex-row md:items-end md:gap-10">
+        <div className="relative h-12 w-full md:flex-1">
           <div className="absolute top-1/2 right-0 left-0 h-2 -translate-y-1/2 rounded-full bg-rose-50" />
           {[4, 12, 20, 30, 34, 40, 50, 58].map((x, i) => (
             <span
@@ -115,7 +117,7 @@ function Hero() {
             </span>
           </div>
         </div>
-        <div className="flex w-[300px] flex-col gap-1.5">
+        <div className="flex w-full flex-col gap-1.5 md:w-[300px]">
           <span className="text-[12px] font-medium tracking-[0.04em] text-muted uppercase">Output</span>
           {['12:00–12:05 · c_4471 · 1,940.00', '12:05–12:10 · c_4471 · 12,400.00'].map((r, i) => (
             <span
@@ -154,7 +156,13 @@ export function Landing() {
   // Progress only changes the pill: a storage problem here just means the "new visitor" view.
   useEffect(() => void getProgress().then(setProgress, () => setProgress({})), []);
   const started = CHAPTERS.find((c) => !c.v1 && progress[c.id] === 'started');
-  const os = PLATFORMS[detectOs(nav.userAgentData?.platform, navigator.userAgent)].name;
+  const detected = detectOs(nav.userAgentData?.platform, navigator.userAgent);
+  const os = PLATFORMS[detected].name;
+  // Board W01: "Windows and Linux" next to "for macOS": the two other platforms.
+  const others = (Object.keys(PLATFORMS) as (keyof typeof PLATFORMS)[])
+    .filter((o) => o !== detected)
+    .map((o) => PLATFORMS[o].name)
+    .join(' and ');
   return (
     <SiteShell grid docTitle="Watch Apache Flink® think">
       <div className="flex flex-col items-center gap-5 pt-6 text-center">
@@ -177,14 +185,14 @@ export function Landing() {
             <span className="font-semibold">Try it</span>
           </Link>
         )}
-        <h1 className="m-0 max-w-[820px] text-[64px] leading-[1.05] font-bold tracking-[-0.03em]">
+        <h1 className="m-0 max-w-[820px] text-[40px] leading-[1.05] font-bold tracking-[-0.03em] md:text-[64px]">
           Watch Apache Flink® think, one event at a time.
         </h1>
         <p className="m-0 max-w-[640px] text-[18px] text-muted">
           Build a streaming pipeline in your browser, feed it late and messy data, and let Stream Lab show you
           exactly why every result came out the way it did.
         </p>
-        <div className="flex gap-3 pt-2">
+        <div className="flex flex-wrap justify-center gap-3 pt-2">
           {/* LAND-02: the primary CTA opens the scenario gallery, the secondary the course. */}
           <Link to="/new" className={`${btn} bg-rose-600 text-white hover:bg-rose-700`}>
             Start building
@@ -205,7 +213,7 @@ export function Landing() {
         <h2 className="sl-reveal-item m-0 text-[32px] font-bold tracking-[-0.02em]" style={item(1)}>
           Build it. Break it. Understand it. Ship it.
         </h2>
-        <ul className="m-0 grid list-none grid-cols-4 gap-4 p-0">
+        <ul className="m-0 grid list-none grid-cols-1 gap-4 p-0 sm:grid-cols-2 lg:grid-cols-4">
           {STEPS.map(([Icon, t, d], i) => (
             <li
               key={t}
@@ -221,7 +229,7 @@ export function Landing() {
           ))}
         </ul>
       </Reveal>
-      <Reveal label="Explain this run" className="grid grid-cols-2 items-center gap-10 pt-16">
+      <Reveal label="Explain this run" className="grid grid-cols-1 items-center gap-10 pt-16 md:grid-cols-2">
         <div className="flex flex-col gap-4">
           <p className="sl-reveal-item m-0 text-[12px] font-medium tracking-[0.04em] text-muted uppercase">
             Explain this run
@@ -233,13 +241,26 @@ export function Landing() {
             Step through a run with the path of each event highlighted on the canvas. Stream Lab tells you why
             a window fired, why an event was late, and where it went.
           </p>
+          <ul
+            className="sl-reveal-item m-0 flex list-none flex-wrap gap-2 p-0 text-[12px] font-medium"
+            style={item(3)}
+          >
+            {['Spotlight on each step', 'Plain-language narration', 'Jump to any event'].map((t, i) => (
+              <li
+                key={t}
+                className={`rounded-md border px-2.5 py-1 ${i === 0 ? 'border-rose-100 bg-rose-50 text-rose-700' : 'border-line text-ink'}`}
+              >
+                {t}
+              </li>
+            ))}
+          </ul>
         </div>
         <div
           aria-hidden="true"
           className="sl-reveal-item flex items-center gap-6 rounded-2xl border border-line bg-subtle p-8"
           style={item(3)}
         >
-          <div className="rounded-lg border-2 border-rose-600 bg-surface px-4 py-3 text-[14px] font-semibold">
+          <div className="shrink-0 rounded-lg border-2 border-rose-600 bg-surface px-4 py-3 text-[14px] font-semibold whitespace-nowrap">
             Bursts per card
           </div>
           <div className="flex flex-col gap-2 rounded-xl border-t-[3px] border-rose-600 bg-surface p-4 shadow-pop">
@@ -249,6 +270,11 @@ export function Landing() {
               The watermark passed 12:05, so the 12:00–12:05 window for card c_4471 is complete: 3 payments,
               1,940.00.
             </span>
+            <span className="flex items-center gap-3 pt-1 text-[12px]">
+              <span className="text-muted underline">Skip tour</span>
+              <span className="ml-auto font-semibold">Back</span>
+              <span className="rounded-md bg-rose-600 px-2.5 py-1 font-semibold text-white">Next</span>
+            </span>
           </div>
         </div>
       </Reveal>
@@ -256,7 +282,7 @@ export function Landing() {
         <p className="sl-reveal-item m-0 text-[12px] font-medium tracking-[0.04em] text-muted uppercase">
           Course
         </p>
-        <div className="sl-reveal-item flex items-end justify-between" style={item(1)}>
+        <div className="sl-reveal-item flex flex-wrap items-end justify-between gap-2" style={item(1)}>
           <h2 className="m-0 text-[32px] font-bold tracking-[-0.02em]">
             Ten chapters, each with a live pipeline.
           </h2>
@@ -267,7 +293,7 @@ export function Landing() {
             See all chapters
           </Link>
         </div>
-        <ul className="m-0 grid list-none grid-cols-3 gap-3 p-0">
+        <ul className="m-0 grid list-none grid-cols-1 gap-3 p-0 sm:grid-cols-2 lg:grid-cols-3">
           {CHAPTERS.filter((c) => !c.v1).map((c, i) => (
             <li key={c.id} className="sl-reveal-item" style={item(i + 2)}>
               <Link
@@ -291,7 +317,7 @@ export function Landing() {
             Connect to any Flink cluster from your laptop. History, explanations and safe stop-with-savepoint,
             with no server of ours in between.
           </p>
-          <div className="flex items-center gap-4">
+          <div className="flex flex-wrap items-center gap-4">
             <Link to="/download" className={`${btn} bg-ink text-surface hover:opacity-90`}>
               <Download size={16} aria-hidden="true" />
               Desktop app for {os}
@@ -300,7 +326,7 @@ export function Landing() {
               to="/download"
               className="sl-focus rounded-sm text-[14px] text-rose-700 underline underline-offset-2"
             >
-              All platforms
+              {others}
             </Link>
           </div>
         </div>

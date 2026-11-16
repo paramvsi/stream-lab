@@ -1,3 +1,4 @@
+import { SharedRoute } from './sim/SharedRoute';
 import { ErrorBoundary } from '@sl/errors';
 import { Button, EmptyState } from '@sl/ui';
 import {
@@ -64,9 +65,19 @@ const sim = createRoute({
   },
 });
 
+// EXP-04 share links: #/s/<data> (D51).
+const shared = createRoute({
+  getParentRoute: () => root,
+  path: '/s/$data',
+  component: function Shared() {
+    const { data } = shared.useParams();
+    return <SharedRoute key={data} data={data} />;
+  },
+});
+
 /** Hash history: the site is static files with no server rewrites (ARCHITECTURE.md). */
 export const router = createRouter({
-  routeTree: root.addChildren([index, gallery, pipelines, sim]),
+  routeTree: root.addChildren([index, gallery, pipelines, sim, shared]),
   history: createHashHistory(),
 });
 

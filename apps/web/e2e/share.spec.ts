@@ -72,3 +72,56 @@ test('SHARE-TOO-LONG over 8,000 characters (WX05): Leave out data, Export JSON, 
   await expect(d.getByRole('checkbox', { name: /Include uploaded data/ })).not.toBeChecked();
   await expect(d).not.toContainText('some apps cut long links');
 });
+
+test('EXP-04 opening a link shows the pipeline unsaved (W18); Make a copy saves it with its uploaded rows', async ({
+  page,
+}) => {
+  await openBlank(page);
+  const link = await page.evaluate(async () => {
+    const m = await import('/src/sim/store.ts');
+    const s = await import('/src/share.ts');
+    const g = m.useGraph.getState();
+    const src = g.addNode('Source', { x: 0, y: 0 });
+    g.setName('Shared fraud check');
+    m.useGraph.getState().setUpload(src, { file: 'pay.csv', rows: 2 });
+    const d = (await import('/src/sim/ShareDialog.tsx')).currentPipeline();
+    return { data: await s.encodeShare(d, { [src]: [{ a: 1 }, { a: 2 }] }), src };
+  });
+  await page.goto(`/#/s/${link.data}`);
+  await expect(
+    page.getByText('You are viewing a shared pipeline. Changes are not saved until you make a copy.'),
+  ).toBeVisible();
+  await expect(page.locator('.react-flow__node')).toHaveCount(1);
+  // Not saved: My pipelines has only the original (the pipeline the link was made from).
+  const named = () =>
+    page.evaluate(
+      async () =>
+        (await (await import('/src/storage.ts')).listPipelines()).filter(
+          (p) => p.name === 'Shared fraud check',
+        ).length,
+    );
+  expect(await named()).toBe(1);
+  await page.getByRole('button', { name: 'Make a copy' }).click();
+  await expect(page).toHaveURL(/#\/sim\/p_/);
+  await expect(page.getByText('You are viewing a shared pipeline.')).toHaveCount(0);
+  const saved = await page.evaluate(async (src) => {
+    const st = await import('/src/storage.ts');
+    const u = await import('/src/sim/uploads.ts');
+    const id = location.hash.split('/sim/')[1]!;
+    return {
+      names: (await st.listPipelines()).map((p) => p.name),
+      rows: (await u.loadRows(id, src))?.length,
+    };
+  }, link.src);
+  expect(saved.names.filter((n) => n === 'Shared fraud check')).toHaveLength(2);
+  expect(saved.rows).toBe(2);
+});
+
+test('SHARE-BROKEN a damaged link shows the full-page state; Open a new pipeline goes to the gallery', async ({
+  page,
+}) => {
+  await page.goto('/#/s/1.not-a-real-link');
+  await expect(page.getByRole('heading', { name: 'This link is damaged or incomplete' })).toBeVisible();
+  await page.getByRole('button', { name: 'Open a new pipeline' }).click();
+  await expect(page).toHaveURL(/#\/new/);
+});

@@ -138,3 +138,14 @@
   pointer-events: none;
   animation: sl-late-drop 560ms ease-out both;
 }
+
+/* WM01 output row: 240 ms ease-out, 6 px drop (board WM01). Off under reduced motion via tokens.css. */
+@keyframes sl-row-in {
+  from {
+    transform: translateY(-6px);
+    opacity: 0;
+  }
+}
+.sl-rows-arrive tbody tr {
+  animation: sl-row-in 240ms ease-out both;
+}

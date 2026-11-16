@@ -185,3 +185,20 @@ test('WM01/WM02 a window flashes when it fires and a late event drops to the lat
   await page.emulateMedia({ reducedMotion: 'reduce' });
   expect(await win.locator('.sl-late-dot').evaluate((e) => getComputedStyle(e).animationName)).toBe('none');
 });
+
+test('WM01 output rows drop in (240 ms ease-out); off under reduced motion', async ({ page }) => {
+  await scenario(page, 'Card fraud bursts');
+  await page.getByText('10×', { exact: true }).click();
+  await page.locator('.react-flow__panel.top').getByRole('button', { name: 'Run', exact: true }).click();
+  await expect(status(page)).toHaveText(/^Finished/, { timeout: 15000 });
+  const row = page
+    .getByRole('table', { name: /^Output of / })
+    .locator('tbody tr')
+    .first();
+  await expect(row).toBeVisible();
+  expect(
+    await row.evaluate((e) => [getComputedStyle(e).animationName, getComputedStyle(e).animationDuration]),
+  ).toEqual(['sl-row-in', '0.24s']);
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  expect(await row.evaluate((e) => getComputedStyle(e).animationName)).toBe('none');
+});

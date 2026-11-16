@@ -139,7 +139,13 @@ function Output({ stats }: { stats: RunStats | null }) {
           </select>
         </label>
       )}
-      <Events rows={rows} label={`Output of ${labelOf(current)}`} empty="Nothing reached this sink." />
+      <Events
+        key={current.id}
+        arrive
+        rows={rows}
+        label={`Output of ${labelOf(current)}`}
+        empty="Nothing reached this sink."
+      />
     </div>
   );
 }

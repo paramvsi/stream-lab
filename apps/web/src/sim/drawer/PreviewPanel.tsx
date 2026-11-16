@@ -18,14 +18,17 @@ export function Events({
   rows,
   label,
   empty = 'No events.',
+  arrive = false,
 }: {
   rows: Event[];
   label: string;
   empty?: string;
+  /** WM01: new rows drop in (rows are keyed by position, so only appended rows mount and animate). */
+  arrive?: boolean;
 }) {
   const keys = [...new Set(rows.flatMap((r) => Object.keys(r)))];
   if (!rows.length) return <p className="m-0 text-[13px] text-muted">{empty}</p>;
-  return (
+  const table = (
     <Table
       dense
       label={label}
@@ -42,6 +45,7 @@ export function Events({
       }))}
     />
   );
+  return arrive ? <div className="sl-rows-arrive">{table}</div> : table;
 }
 
 const Count = ({ label, n, after }: { label: string; n: number; after?: string }) => (

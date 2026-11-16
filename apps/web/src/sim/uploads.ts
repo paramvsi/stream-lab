@@ -200,10 +200,10 @@ async function purgePass(existing: Set<string>, now: number): Promise<void> {
           newest = Math.max(newest, (await (f as FileSystemFileHandle).getFile()).lastModified);
       if (now - newest >= UPLOAD_GRACE_MS) await deleteUploads(name);
     } catch (e) {
-      // Another tab holds this folder (or it just went): leave it for the next pass. Anything else is real.
-      const n = (e as { name?: string } | null)?.name;
-      if (n !== 'NoModificationAllowedError' && n !== 'NotFoundError' && n !== 'InvalidStateError')
-        throw new AppError('STORE-BLOCKED', {}, e);
+      // Best effort, per folder: one folder that can't be handled (another tab holds it, or the browser refuses)
+      // is left for the next visit and must not stop the pass or the page (it is housekeeping, not a save). It is
+      // logged for diagnosis, never shown as user feedback.
+      console.warn(`Stream Lab: cleanup of uploads/${name} skipped`, e);
     }
   }
 }

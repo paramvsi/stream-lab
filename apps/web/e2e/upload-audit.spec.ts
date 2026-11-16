@@ -377,3 +377,50 @@ test('purge audit 4: a failed "Delete uploaded data" leaves the pipeline using i
   await page.getByRole('dialog', { name: 'Data' }).getByRole('tab', { name: 'Upload file' }).click();
   await expect(page.getByText('Payments reads cards.csv (3 events).')).toBeVisible();
 });
+
+// ---- Purge audit (007dbab) ----
+test('purge audit 5: a folder cleanup can not handle does not break My pipelines (usage and delete stay)', async ({
+  page,
+}) => {
+  await upload(page);
+  await page.evaluate(async () => {
+    const u = await import('/src/sim/uploads.ts');
+    await u.saveRows('p_bad', 'pay', [{ a: 1 }]);
+    await u.deleteUploads('p_bad');
+    // Pretend the marker is old, and that removing that one folder fails with an unexpected error.
+    const d = await (
+      await (await navigator.storage.getDirectory()).getDirectoryHandle('uploads')
+    ).getDirectoryHandle('p_bad');
+    const w = await (await d.getFileHandle('.deleted')).createWritable();
+    await w.write('1');
+    await w.close();
+    const orig = FileSystemDirectoryHandle.prototype.removeEntry;
+    FileSystemDirectoryHandle.prototype.removeEntry = function (name: string, o?: FileSystemRemoveOptions) {
+      if (name === 'p_bad') return Promise.reject(new DOMException('odd', 'UnknownError'));
+      return orig.call(this, name, o);
+    };
+    sessionStorage.setItem('keep-patch', '1');
+  });
+  await page.getByRole('link', { name: 'stream lab' }).click(); // to My pipelines, same page (patch kept)
+  await expect(page.getByText(/^Storage: /)).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Delete uploaded data of Refunds matching' })).toBeVisible();
+  expect(await page.getByText(/not letting Stream Lab save/).count()).toBe(0);
+});
+
+test('purge audit 6: a stale unsaved entry in this tab does not undo another tab’s delete marker', async ({
+  page,
+}) => {
+  await upload(page);
+  await page.evaluate(async () => {
+    const u = await import('/src/sim/uploads.ts');
+    const s = await import('/src/storage.ts');
+    await u.saveRows('p_x', 'pay', [{ a: 1 }]);
+    s.unsaved.set('p_x', { id: 'p_x' } as never); // a failed autosave long ago, then the user left it
+    await u.deleteUploads('p_x'); // another tab deleted it
+  });
+  await page.getByRole('link', { name: 'stream lab' }).click();
+  await expect(page.getByText(/^Storage: /)).toBeVisible();
+  await page.waitForTimeout(300);
+  const files = await opfs(page);
+  expect(files).toContain('p_x/.deleted');
+});

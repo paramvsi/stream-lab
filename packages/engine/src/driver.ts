@@ -19,7 +19,8 @@ export const TICK_MS = 100;
 export class Driver {
   state: RunState = 'ready';
   speed = 1;
-  private run: Run;
+  // Null when building the run failed (a crash was posted).
+  private run: Run | null = null;
   private clock = 0;
   private slowSent = false;
 
@@ -29,7 +30,15 @@ export class Driver {
     private post: (m: DriverMessage) => void,
     private wall: () => number = () => performance.now(),
   ) {
-    this.run = createRun(graph, opts);
+    this.build();
+  }
+
+  /** Build the run inside the guard: a throw here (bad graph, out of memory) is a crash too (SIM-19). */
+  private build() {
+    this.run = null;
+    this.guard(() => {
+      this.run = createRun(this.graph, this.opts);
+    });
   }
 
   private guard(fn: () => void) {
@@ -39,17 +48,18 @@ export class Driver {
       this.state = 'crashed';
       this.post({
         type: 'crash',
-        n: this.run.stats().processed,
+        n: this.run?.stats().processed ?? 0,
         reason: (err as Error)?.message?.split('\n')[0] || 'unknown error',
       });
     }
   }
 
   private send() {
-    this.post({ type: 'stats', state: this.state, speed: this.speed, stats: this.run.stats() });
+    if (this.run) this.post({ type: 'stats', state: this.state, speed: this.speed, stats: this.run.stats() });
   }
 
   play() {
+    if (!this.run) return;
     if (this.state === 'ready' || this.state === 'paused') this.state = 'running';
     this.send();
   }
@@ -60,6 +70,7 @@ export class Driver {
   }
 
   setSpeed(speed: number) {
+    if (!(speed > 0) || !Number.isFinite(speed)) return; // 0 would freeze the run
     this.speed = speed;
     this.slowSent = false;
     this.send();
@@ -69,17 +80,23 @@ export class Driver {
   step() {
     if (this.state !== 'paused' && this.state !== 'ready') return;
     this.guard(() => {
+      const run = this.run!;
       this.state = 'paused';
-      if (!this.run.step()) this.state = 'finished';
-      this.clock = this.run.stats().now;
+      run.step();
+      // The last event also ends the input: flush the final watermark and finish.
+      if (run.next() === undefined) {
+        run.step();
+        this.state = 'finished';
+      }
+      this.clock = run.stats().now;
     });
     this.send();
   }
 
   reset() {
-    this.run = createRun(this.graph, this.opts);
     this.clock = 0;
     this.state = 'ready';
+    this.build();
     this.send();
   }
 
@@ -89,10 +106,10 @@ export class Driver {
     const t0 = this.wall();
     this.guard(() => {
       this.clock += TICK_MS * this.speed;
-      for (let at = this.run.next(); at !== undefined && at <= this.clock; at = this.run.next())
-        this.run.step();
-      if (this.run.next() === undefined) {
-        this.run.step(); // flush: final watermark
+      const run = this.run!;
+      for (let at = run.next(); at !== undefined && at <= this.clock; at = run.next()) run.step();
+      if (run.next() === undefined) {
+        run.step(); // flush: final watermark
         this.state = 'finished';
       }
     });

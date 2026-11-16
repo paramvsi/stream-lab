@@ -164,6 +164,15 @@ export function nodeIssues(n: PipelineNode, inputs: Record<string, Schema[]>, ct
             field: 'slideMs',
           }),
         );
+      else if (kind === 'cumulate' && size % slide !== 0)
+        // Flink rejects CUMULATE when the max size is not a multiple of the step (planning error).
+        out.push(
+          at({
+            code: 'WIN-SIZE',
+            params: { reason: 'The window size must be a whole number of steps' },
+            field: 'slideMs',
+          }),
+        );
       if (kind === 'session' && (cfg.gapMs as number) <= 0)
         out.push(
           at({ code: 'WIN-SIZE', params: { reason: 'The session gap must be more than 0' }, field: 'gapMs' }),

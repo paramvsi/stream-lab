@@ -295,6 +295,16 @@ describe('M2 audit · checks', () => {
     });
   });
 
+  it('engine audit 6: WIN-SIZE when a cumulating window size is not a multiple of its step', () => {
+    expect(issuesOf(node('Window', { kind: 'cumulate', sizeMs: 60000, slideMs: 25000 }))[0]).toMatchObject({
+      code: 'WIN-SIZE',
+      field: 'slideMs',
+    });
+    expect(codes(node('Window', { kind: 'cumulate', sizeMs: 60000, slideMs: 20000 }))).not.toContain(
+      'WIN-SIZE',
+    );
+  });
+
   it('#12 NODE-REQUIRED names nested settings by their row', () => {
     const src = node('Source', { schema: [{ name: '', type: 'string', required: true }] });
     const k = node('Sink');

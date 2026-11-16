@@ -240,8 +240,22 @@ interface Operator {
   /** Called when the input watermark advances (before it is forwarded downstream). */
   advance?(wm: number): void;
   keys?(): number;
+  /** Output watermark = input watermark − delay (interval join). */
+  delay?: number;
   /** Open state per key, as rows (NODE-04 "state per key"). */
   snapshot?(): Event[];
+}
+
+/**
+ * Event time from an uploaded value: epoch ms as a number, or ISO text. Text without a zone is UTC, so runs do
+ * not depend on the machine's time zone (SIM-24). NaN when unreadable.
+ */
+export function parseTime(v: unknown): number {
+  if (typeof v === 'number') return v;
+  const t = String(v ?? '').trim();
+  if (/^-?\d+$/.test(t)) return Number(t);
+  const iso = t.replace(' ', 'T');
+  return Date.parse(/(Z|[+-]\d\d:?\d\d)$/.test(iso) ? iso : `${iso}Z`);
 }
 
 const keyOf = (e: Event, keys: string[]) => keys.map((k) => String(e[k] ?? '∅')).join('|');
@@ -253,7 +267,8 @@ interface Agg {
   field: string;
   as: string;
 }
-type Acc = { n: number; sum: number; min: Event[string]; max: Event[string] };
+/** n: rows; nn: non-null values (COUNT(field), SUM and AVG skip nulls, as in SQL). */
+type Acc = { n: number; nn: number; sum: number; min: Event[string]; max: Event[string] };
 const rank = (v: Event[string]) => {
   if (typeof v === 'number') return v;
   const t = Date.parse(String(v ?? ''));
@@ -272,6 +287,7 @@ function windowsFor(c: Cfg, ts: number): [number, number][] {
     }
     case 'cumulate': {
       // FLINK: CUMULATE(step = slide, max size = size): [start, start + k·step) for every k with end > ts.
+      // Size must be a multiple of the step (WIN-SIZE; Flink rejects it at planning).
       const start = ts - (((ts % size) + size) % size);
       const out: [number, number][] = [];
       for (let e = start + slide; e <= start + size; e += slide) if (e > ts) out.push([start, e]);
@@ -286,37 +302,95 @@ function windowsFor(c: Cfg, ts: number): [number, number][] {
   }
 }
 
+interface Win {
+  key: string;
+  start: number;
+  end: number;
+  acc: Acc[];
+  keyData: Event;
+  fired: boolean;
+  /** Merged into another session or cleaned up: its pending timers are ignored. */
+  dead: boolean;
+}
+
+/** Timers by timestamp, popped in timestamp order (InternalTimerService's queue), without scanning all state. */
+class Timers {
+  private at = new Map<number, Win[]>();
+  private times: number[] = [];
+  add(t: number, w: Win) {
+    const list = this.at.get(t);
+    if (list) return void list.push(w);
+    this.at.set(t, [w]);
+    // Binary insert: timer times are few (windows share ends) and mostly arrive in order.
+    let lo = 0;
+    let hi = this.times.length;
+    while (lo < hi) {
+      const mid = (lo + hi) >> 1;
+      if (this.times[mid]! < t) lo = mid + 1;
+      else hi = mid;
+    }
+    this.times.splice(lo, 0, t);
+  }
+  /** Every window whose timer is ≤ wm, in timer order. */
+  *due(wm: number) {
+    while (this.times.length && this.times[0]! <= wm) {
+      const t = this.times.shift()!;
+      const ws = this.at.get(t)!;
+      this.at.delete(t);
+      yield* ws;
+    }
+  }
+}
+
 function windowOp(n: PipelineNode, x: Ctx): Operator {
   const c = cfg(n);
   const keyBy = (c.keyBy as string[]) ?? [];
   const aggs = (c.aggregates as Agg[]) ?? [];
   const lateness = Number(c.allowedLatenessMs ?? 0);
+  const session = c.kind === 'session';
   // key → window "start:end" → state
-  const state = new Map<
-    string,
-    Map<string, { start: number; end: number; acc: Acc[]; keyData: Event; fired: boolean }>
-  >();
+  const state = new Map<string, Map<string, Win>>();
+  const fireAt = new Timers(); // end − 1
+  const cleanAt = new Timers(); // end − 1 + allowed lateness
   let wm = -Infinity;
+  const blank = (): Acc[] => aggs.map(() => ({ n: 0, nn: 0, sum: 0, min: null, max: null }));
   const add = (acc: Acc[], e: Event) =>
     aggs.forEach((a, i) => {
       const s = acc[i]!;
-      const v = e[a.field] ?? null;
+      const v = a.field ? (e[a.field] ?? null) : null;
       s.n++;
+      if (v === null) return;
+      s.nn++;
       if (typeof v === 'number') s.sum += v;
-      if (v !== null && (s.min === null || rank(v) < rank(s.min))) s.min = v;
-      if (v !== null && (s.max === null || rank(v) > rank(s.max))) s.max = v;
+      if (s.min === null || rank(v) < rank(s.min)) s.min = v;
+      if (s.max === null || rank(v) > rank(s.max)) s.max = v;
     });
-  const result = (w: { start: number; end: number; acc: Acc[]; keyData: Event }): SimEvent => {
+  const combine = (into: Acc[], from: Acc[]) =>
+    into.forEach((s, i) => {
+      const f = from[i]!;
+      s.n += f.n;
+      s.nn += f.nn;
+      s.sum += f.sum;
+      if (f.min !== null && (s.min === null || rank(f.min) < rank(s.min))) s.min = f.min;
+      if (f.max !== null && (s.max === null || rank(f.max) > rank(s.max))) s.max = f.max;
+    });
+  const result = (w: Win): SimEvent => {
     const data: Event = { ...w.keyData, window_start: iso(w.start), window_end: iso(w.end) };
     aggs.forEach((a, i) => {
       const s = w.acc[i]!;
       data[a.as] =
         a.fn === 'count'
-          ? s.n
+          ? a.field
+            ? s.nn
+            : s.n
           : a.fn === 'sum'
-            ? round(s.sum)
+            ? s.nn
+              ? round(s.sum)
+              : null
             : a.fn === 'avg'
-              ? round(s.sum / (s.n || 1))
+              ? s.nn
+                ? round(s.sum / s.nn)
+                : null
               : a.fn === 'min'
                 ? s.min
                 : s.max;
@@ -324,45 +398,72 @@ function windowOp(n: PipelineNode, x: Ctx): Operator {
     // FLINK: a window result's timestamp is window.maxTimestamp() = end − 1.
     return { ts: w.end - 1, data };
   };
-  const fire = (w: { start: number; end: number; acc: Acc[]; keyData: Event; fired: boolean }) => {
+  const fire = (w: Win) => {
     w.fired = true;
     x.fire(w.end - 1);
     x.emit('main', result(w));
+  };
+  const put = (ws: Map<string, Win>, w: Win) => {
+    ws.set(`${w.start}:${w.end}`, w);
+    fireAt.add(w.end - 1, w);
+    cleanAt.add(w.end - 1 + lateness, w);
   };
   return {
     process(_p, ev) {
       const key = keyOf(ev.data, keyBy);
       x.keyed(key);
-      const ws = state.get(key) ?? new Map();
-      state.set(key, ws);
+      let ws = state.get(key);
+      if (!ws) state.set(key, (ws = new Map()));
       let live = 0;
       for (let [start, end] of windowsFor(c, ev.ts)) {
-        // FLINK: WindowOperator.isWindowLate — maxTimestamp + allowedLateness <= watermark.
+        const merged: Win[] = [];
+        if (session) {
+          // FLINK: MergingWindowSet.addWindow first — every session this one intersects (inclusive, as
+          // TimeWindow.intersects) merges into one, keeping all their accumulators.
+          for (let grew = true; grew;) {
+            grew = false;
+            for (const w of ws.values())
+              if (!merged.includes(w) && w.start <= end && start <= w.end) {
+                merged.push(w);
+                start = Math.min(start, w.start);
+                end = Math.max(end, w.end);
+                grew = true;
+              }
+          }
+        }
+        // FLINK: WindowOperator.isWindowLate (on the merged window) — maxTimestamp + allowedLateness <= wm.
         if (end - 1 + lateness <= wm) continue;
         live++;
-        if (c.kind === 'session') {
-          // Merge every session this one overlaps (MergingWindowAssigner).
-          for (const [id, w] of [...ws])
-            if (w.start < end && start < w.end) {
-              start = Math.min(start, w.start);
-              end = Math.max(end, w.end);
-              ws.delete(id);
-              // ponytail: merged accumulators are rebuilt from the kept one; exact for count/sum/min/max.
-              const nw = { start, end, acc: w.acc, keyData: w.keyData, fired: false };
-              ws.set(`${start}:${end}`, nw);
-            }
-        }
-        const id = `${start}:${end}`;
-        let w = ws.get(id);
-        if (!w) {
-          w = {
+        let w = ws.get(`${start}:${end}`);
+        if (merged.length && !(merged.length === 1 && merged[0] === w)) {
+          const nw: Win = {
+            key,
             start,
             end,
-            acc: aggs.map(() => ({ n: 0, sum: 0, min: null, max: null })),
+            acc: blank(),
+            keyData: merged[0]!.keyData,
+            fired: false,
+            dead: false,
+          };
+          for (const m of merged) {
+            combine(nw.acc, m.acc);
+            m.dead = true;
+            ws.delete(`${m.start}:${m.end}`);
+          }
+          put(ws, nw);
+          w = nw;
+        }
+        if (!w) {
+          w = {
+            key,
+            start,
+            end,
+            acc: blank(),
             keyData: Object.fromEntries(keyBy.map((k) => [k, ev.data[k] ?? null])),
             fired: false,
+            dead: false,
           };
-          ws.set(id, w);
+          put(ws, w);
         }
         add(w.acc, ev.data);
         // FLINK: EventTimeTrigger.onElement fires at once for a late-but-allowed element.
@@ -373,16 +474,14 @@ function windowOp(n: PipelineNode, x: Ctx): Operator {
     },
     advance(next) {
       wm = next;
-      // FLINK: event-time timers fire in timestamp order (InternalTimerService's priority queue).
-      const ready = [...state.values()]
-        .flatMap((ws) => [...ws.values()])
-        .filter((w) => !w.fired && w.end - 1 <= wm)
-        .sort((a, b) => a.end - b.end);
-      for (const w of ready) fire(w);
-      for (const [key, ws] of state) {
-        // FLINK: cleanup at maxTimestamp + allowedLateness.
-        for (const [id, w] of ws) if (w.end - 1 + lateness <= wm) ws.delete(id);
-        if (!ws.size) state.delete(key);
+      for (const w of fireAt.due(wm)) if (!w.dead && !w.fired) fire(w);
+      // FLINK: cleanup at maxTimestamp + allowedLateness.
+      for (const w of cleanAt.due(wm)) {
+        if (w.dead) continue;
+        w.dead = true;
+        const ws = state.get(w.key);
+        ws?.delete(`${w.start}:${w.end}`);
+        if (ws && !ws.size) state.delete(w.key);
       }
     },
     keys: () => state.size,
@@ -392,36 +491,48 @@ function windowOp(n: PipelineNode, x: Ctx): Operator {
           const r = result(w).data;
           // Board W10y: key, window as a range, then the aggregates.
           const hm = (ms: number) => iso(ms).slice(11, 19);
-          const aggs = Object.entries(r).filter(
+          const vals = Object.entries(r).filter(
             ([k]) => !(k in w.keyData) && k !== 'window_start' && k !== 'window_end',
           );
-          return { ...w.keyData, window: `${hm(w.start)}–${hm(w.end)}`, ...Object.fromEntries(aggs) };
+          return { ...w.keyData, window: `${hm(w.start)}–${hm(w.end)}`, ...Object.fromEntries(vals) };
         }),
       ),
   };
 }
 
-function joinOp(n: PipelineNode, x: Ctx): Operator {
+function joinOp(n: PipelineNode, x: Ctx, rightSchema: Schema): Operator {
   const c = cfg(n);
   const lo = (c.lowerMs as number | null) ?? -Infinity;
   const hi = (c.upperMs as number | null) ?? Infinity;
   const left = new Map<string, { ev: SimEvent; matched: boolean }[]>();
   const right = new Map<string, SimEvent[]>();
+  const rename = (k: string, l: Event) => (k in l ? `right_${k}` : k);
   const merge = (l: SimEvent, r: SimEvent): SimEvent => ({
     // FLINK: interval join output timestamp = max(left, right).
     ts: Math.max(l.ts, r.ts),
     data: {
       ...l.data,
-      ...Object.fromEntries(Object.entries(r.data).map(([k, v]) => [k in l.data ? `right_${k}` : k, v])),
+      ...Object.fromEntries(Object.entries(r.data).map(([k, v]) => [rename(k, l.data), v])),
     },
+  });
+  // A left row with no match is padded with the right side's fields as NULL (join.ts output schema).
+  const pad = (l: SimEvent): SimEvent => ({
+    ts: l.ts,
+    data: { ...l.data, ...Object.fromEntries(rightSchema.map((f) => [rename(f.name, l.data), null])) },
   });
   // FLINK: IntervalJoinOperator — l.ts + lower <= r.ts <= l.ts + upper.
   const ok = (l: SimEvent, r: SimEvent) => r.ts - l.ts >= lo && r.ts - l.ts <= hi;
+  let nulls = 0;
   return {
+    // FLINK: the SQL row-time interval join (KeyedCoProcessOperatorWithWatermarkDelay) holds its output
+    // watermark back by max(−lower, upper), so rows it emits late (left-join padding) are not late downstream.
+    delay: Number.isFinite(lo) && Number.isFinite(hi) ? Math.max(-lo, hi, 0) : 0,
     process(port, ev) {
+      const raw = ev.data[String(port === 'left' ? c.leftKey : c.rightKey)] ?? null;
+      // NULL keys never match (SQL equi-join): a left row with one waits alone, for padding.
+      const k = raw === null ? `\u0000null${nulls++}` : String(raw);
+      x.keyed(String(raw));
       if (port === 'left') {
-        const k = String(ev.data[String(c.leftKey)] ?? '');
-        x.keyed(k);
         const rec = { ev, matched: false };
         for (const r of right.get(k) ?? [])
           if (ok(ev, r)) {
@@ -430,8 +541,7 @@ function joinOp(n: PipelineNode, x: Ctx): Operator {
           }
         left.set(k, [...(left.get(k) ?? []), rec]);
       } else {
-        const k = String(ev.data[String(c.rightKey)] ?? '');
-        x.keyed(k);
+        if (raw === null) return;
         for (const l of left.get(k) ?? [])
           if (ok(l.ev, ev)) {
             l.matched = true;
@@ -441,10 +551,11 @@ function joinOp(n: PipelineNode, x: Ctx): Operator {
       }
     },
     advance(wm) {
-      // Drop state that can no longer match; a left row leaves unmatched → emitted alone for a left join.
+      // Drop state that can no longer match; a left row leaves unmatched → emitted padded for a left join.
       for (const [k, ls] of left) {
         const keep = ls.filter((l) => l.ev.ts + hi > wm);
-        for (const l of ls) if (!keep.includes(l) && !l.matched && c.kind === 'left') x.emit('main', l.ev);
+        for (const l of ls)
+          if (!keep.includes(l) && !l.matched && c.kind === 'left') x.emit('main', pad(l.ev));
         if (keep.length) left.set(k, keep);
         else left.delete(k);
       }
@@ -462,6 +573,7 @@ function operator(
   n: PipelineNode,
   x: Ctx,
   inSchema: Schema,
+  rightSchema: Schema,
   o: Required<Pick<RunOptions, 'refTables'>>,
   labels: Map<string, string>,
 ): Operator {
@@ -576,16 +688,20 @@ function operator(
       if (c.withinWindow) {
         // FLINK: window Top-N ranks per (window_start, window_end, partition) and emits when the window closes.
         const buf = new Map<string, { end: number; es: SimEvent[] }>();
+        let wm = -Infinity;
         return {
           process: (_p, ev) => {
             const end = Date.parse(String(ev.data['window_end'] ?? '')) || ev.ts + 1;
+            // FLINK: a record for a window already ranked is late and dropped (numLateRecordsDropped).
+            if (end - 1 <= wm) return;
             const k = `${end}|${keyOf(ev.data, parts)}`;
             x.keyed(keyOf(ev.data, parts));
             const b = buf.get(k) ?? { end, es: [] };
             b.es.push(ev);
             buf.set(k, b);
           },
-          advance: (wm) => {
+          advance: (next) => {
+            wm = next;
             for (const [k, b] of buf)
               if (b.end - 1 <= wm) {
                 sorted(b.es)
@@ -617,15 +733,16 @@ function operator(
       const tkey = String(c.tableKey);
       return {
         process: (_p, ev) => {
-          const rows = (t?.rows ?? []).filter((r) => String(r[tkey]) === String(ev.data[key]));
+          // NULL never equals anything (SQL equi-join).
+          const v = ev.data[key] ?? null;
+          const rows =
+            v === null ? [] : (t?.rows ?? []).filter((r) => r[tkey] != null && String(r[tkey]) === String(v));
           // As of event time: the latest version whose valid_from is not after the event (temporal join).
           const row =
             t?.versioned && c.asOf
               ? rows
-                  .filter((r) => Date.parse(String(r['valid_from'])) <= ev.ts)
-                  .sort(
-                    (a, b) => Date.parse(String(b['valid_from'])) - Date.parse(String(a['valid_from'])),
-                  )[0]
+                  .filter((r) => parseTime(r['valid_from']) <= ev.ts)
+                  .sort((a, b) => parseTime(b['valid_from']) - parseTime(a['valid_from']))[0]
               : rows[rows.length - 1];
           if (row) {
             const extra = Object.fromEntries(
@@ -641,7 +758,7 @@ function operator(
     case 'Window':
       return windowOp(n, x);
     case 'Join':
-      return joinOp(n, x);
+      return joinOp(n, x, rightSchema);
     default:
       // Sink and Dead-letter collect (see createRun); Pattern and SQL are v1: pass through.
       return { process: (_p, ev) => x.emit('main', ev) };
@@ -709,7 +826,8 @@ export function createRun(g: Graph, opts: RunOptions = {}): Run {
     const evs = uploaded
       ? uploaded.map((data, i) => ({
           at: i * (opts.sourceGapMs?.[n.id] ?? 20),
-          ev: { ts: Date.parse(String(data[timeField])) || BASE_TIME, data },
+          // ponytail: an unreadable time falls back to BASE_TIME; the upload step reports it (DATA-PARSE, DATA-02).
+          ev: { ts: Number.isNaN(parseTime(data[timeField])) ? BASE_TIME : parseTime(data[timeField]), data },
         }))
       : generate(
           schema,
@@ -784,33 +902,45 @@ export function createRun(g: Graph, opts: RunOptions = {}): Run {
             rows.push(reasonField ? { ...ev.data, [reasonField]: ev.reason ?? null } : ev.data);
         },
       });
-    } else if (spec(t).category !== 'Sources') ops.set(n.id, operator(n, x, inSchema, { refTables }, labels));
+    } else if (spec(t).category !== 'Sources')
+      ops.set(n.id, operator(n, x, inSchema, s.in.get(n.id)?.['right']?.[0] ?? [], { refTables }, labels));
   }
 
   // Watermarks: per source (max ts − out-of-orderness − 1), min over a node's active inputs.
+  const included = new Set(order.map((n) => n.id));
+  const idleOut = new Map<string, boolean>();
   const propagateWm = () => {
     for (const n of order) {
       let wm: number;
+      let idle: boolean;
       const w = srcWm.get(n.id);
       if (w) {
         // FLINK: BoundedOutOfOrdernessWatermarks emits maxTimestamp − outOfOrderness − 1; a finished
         // bounded source emits Long.MAX_VALUE.
         wm = w.left === 0 && (!opts.holdFinalWatermark || ended) ? Infinity : w.max - w.ooo - 1;
+        // FLINK: withIdleness — no events for idleTimeout marks the source idle.
+        idle = w.idle > 0 && w.left > 0 && stats.now - w.last >= w.idle;
       } else {
-        const ins = (inEdges.get(n.id) ?? []).filter((e) => {
-          const up = srcWm.get(e.source);
-          // FLINK: withIdleness — an idle split does not hold back the watermark.
-          return !(up && up.idle > 0 && up.left > 0 && stats.now - up.last >= up.idle);
-        });
+        // A disabled source sends nothing, not even watermarks: it is not an input (graph.ts agrees).
+        const ins = (inEdges.get(n.id) ?? []).filter((e) => included.has(e.source));
         if (!ins.length) continue;
-        wm = Math.min(...ins.map((e) => wmOut.get(e.source) ?? -Infinity));
+        // FLINK: WatermarkStatus.IDLE travels through operators; an idle input does not hold back the min.
+        const active = ins.filter((e) => !idleOut.get(e.source));
+        idle = active.length === 0;
+        if (idle) {
+          idleOut.set(n.id, true);
+          continue;
+        }
+        wm = Math.min(...active.map((e) => wmOut.get(e.source) ?? -Infinity));
       }
+      idleOut.set(n.id, idle);
       const st = ns(n.id);
       if (wm > st.watermark) {
         st.watermark = wm;
         ops.get(n.id)?.advance?.(wm);
       }
-      wmOut.set(n.id, st.watermark);
+      // A join holds its output watermark back (see joinOp's delay).
+      wmOut.set(n.id, st.watermark - (ops.get(n.id)?.delay ?? 0));
     }
   };
 

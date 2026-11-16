@@ -30,7 +30,8 @@ self.onmessage = (e: MessageEvent<WorkerCommand>) => {
   if (!driver) return;
   if (c.type === 'play') {
     driver.play();
-    timer ??= setInterval(() => driver?.tick(), TICK_MS);
+    // Only a run that is now running gets a timer (a finished or crashed one would leak it).
+    if (driver.state === 'running') timer ??= setInterval(() => driver?.tick(), TICK_MS);
   } else if (c.type === 'pause') driver.pause();
   else if (c.type === 'step') driver.step();
   else if (c.type === 'reset') driver.reset();

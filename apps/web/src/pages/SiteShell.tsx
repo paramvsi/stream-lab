@@ -116,7 +116,7 @@ export function SiteHeader() {
     <header className="relative flex h-[72px] items-center border-b border-line px-16">
       <Link
         to="/"
-        className="flex items-center gap-2.5 text-[17px] font-semibold tracking-[-0.02em] text-ink no-underline"
+        className="sl-focus flex items-center gap-2.5 rounded-sm text-[17px] font-semibold tracking-[-0.02em] text-ink no-underline"
       >
         <img src="/logo-mark.svg" width={28} height={28} alt="" />
         {/* One element: the link's gap would split the wordmark. */}

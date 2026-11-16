@@ -146,14 +146,17 @@ export const CONTENT: Record<string, ChapterContent> = {
       {
         id: 'sliding',
         title: 'Sliding',
-        points: ['Size and slide (HOP): windows overlap, so one event counts in several of them.'],
+        points: [
+          'Size and slide (HOP): windows overlap, so one event counts in several of them.',
+          'Cumulating windows (CUMULATE), a relative: early results that grow step by step until the window ends.',
+        ],
       },
       {
         id: 'session',
         title: 'Session',
         points: [
           'A session closes after a gap with no events (SESSION); its length depends on the data.',
-          'Cumulating windows (CUMULATE): early results that grow until the window ends.',
+          'Each key has its own sessions: one card can be in a session while another is not.',
         ],
       },
     ],
@@ -193,7 +196,7 @@ export const CONTENT: Record<string, ChapterContent> = {
         id: 'topn',
         title: 'Top-N',
         points: [
-          'ROW_NUMBER() OVER (PARTITION BY window ORDER BY total DESC) with a filter on the rank.',
+          'ROW_NUMBER() OVER (PARTITION BY window_start, window_end ORDER BY total DESC) with a filter on the rank.',
           'Inside a window the top 3 is final when the window fires; over a stream it is updated as it changes.',
         ],
       },
@@ -221,7 +224,8 @@ export const CONTENT: Record<string, ChapterContent> = {
         id: 'keep-first',
         title: 'Keep the first',
         points: [
-          'ROW_NUMBER() OVER (PARTITION BY payment_id ORDER BY time ASC) = 1 keeps the first and never changes it.',
+          'ROW_NUMBER() OVER (PARTITION BY payment_id ORDER BY proc_time ASC) = 1 keeps the first to arrive and never changes it.',
+          'ORDER BY must be a time attribute (otherwise it is a plain Top-N). Ordered by event time, keep-first can change: a copy with an earlier timestamp replaces the row.',
           'Keep the last instead: the result is updated each time a newer copy arrives.',
           'Keys are kept in state; state expiry (TTL) bounds it (chapter 7).',
         ],
@@ -229,10 +233,10 @@ export const CONTENT: Record<string, ChapterContent> = {
     ],
     challenge: [
       {
-        q: 'Deduplicating on payment_id, keeping the first: a second copy arrives 3 minutes later. What happens?',
+        q: 'Deduplicating on payment_id by processing time, keeping the first: a second copy arrives 3 minutes later. What happens?',
         options: ['It replaces the first', 'It is dropped', 'Both are kept'],
         answer: 1,
-        hint: 'keep-first never changes a row it has written',
+        hint: 'by processing time, keep-first never changes a row it has written',
         why: 'The first copy was written; later copies with the same key are dropped.',
       },
     ],

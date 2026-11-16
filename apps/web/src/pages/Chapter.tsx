@@ -3,7 +3,7 @@ import { AppError, ErrorBanner, present } from '@sl/errors';
 import { Banner, Button, Dialog, Tabs } from '@sl/ui';
 import { Link, useNavigate } from '@tanstack/react-router';
 import { Check, ChevronRight, Flag, X } from 'lucide-react';
-import { useEffect, useId, useState } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
 import { getProgress, setChapterStatus } from '../storage';
 import { NotFound } from './NotFound';
 import { Sandbox } from './Sandbox';
@@ -22,10 +22,17 @@ export function ChapterPage({ id }: { id: string }) {
   const [error, setError] = useState<AppError | null>(null);
   const [tab, setTab] = useState(content?.sections[0]?.id ?? 'challenge');
   const [complete, setComplete] = useState(false);
+  const [at, setAt] = useState<{ qi: number; pick: number | null }>({ qi: 0, pick: null });
   const save = (status: 'started' | 'done') =>
     setChapterStatus(id, status).then(
-      () => setProgress((p) => ({ ...p, [id]: status })),
-      (e: unknown) => setError(e instanceof AppError ? e : new AppError('STORE-BLOCKED', {}, e)),
+      () => {
+        setProgress((p) => ({ ...p, [id]: status }));
+        return true;
+      },
+      (e: unknown) => {
+        setError(e instanceof AppError ? e : new AppError('STORE-BLOCKED', {}, e));
+        return false;
+      },
     );
   useEffect(() => {
     if (!c) return;
@@ -38,7 +45,12 @@ export function ChapterPage({ id }: { id: string }) {
     );
     // eslint-disable-next-line react-hooks/exhaustive-deps -- once per chapter (the route keys the page by id)
   }, []);
-  useDocTitle(c?.title);
+  useDocTitle(c ? c.title : 'Page not found'); // this effect runs after NotFound's: it must agree with it
+  // A new chapter ("Start chapter N+1", the chapter list) starts at its heading, not on <body>.
+  const h1 = useRef<HTMLHeadingElement>(null);
+  useEffect(() => {
+    if (document.activeElement === document.body || !document.activeElement) h1.current?.focus();
+  }, []);
   if (!c || !content) return <NotFound />;
   const done = CHAPTERS.filter((x) => progress[x.id] === 'done').length;
   const pct = Math.round((done / CHAPTERS.length) * 100);
@@ -94,7 +106,13 @@ export function ChapterPage({ id }: { id: string }) {
           <p className="m-0 font-mono text-[13px] text-rose-700">
             CHAPTER {num} · {tab === 'challenge' ? 'CHALLENGE' : c.minutes ? `${c.minutes} MIN` : 'READING'}
           </p>
-          <h1 className="m-0 text-[40px] leading-[1.1] font-bold tracking-[-0.02em]">{c.title}</h1>
+          <h1
+            ref={h1}
+            tabIndex={-1}
+            className="m-0 text-[40px] leading-[1.1] font-bold tracking-[-0.02em] outline-none"
+          >
+            {c.title}
+          </h1>
           {error && <ErrorBanner error={error} />}
           <Tabs
             pill
@@ -123,12 +141,11 @@ export function ChapterPage({ id }: { id: string }) {
                 label: 'Challenge',
                 content: (
                   <Challenge
-                    key={id}
                     questions={content.challenge}
-                    onPass={() => {
-                      void save('done');
-                      setComplete(true);
-                    }}
+                    at={at}
+                    onAt={setAt}
+                    // The dialog says "complete" only once it is saved; a failure shows the storage banner.
+                    onPass={() => void save('done').then((ok) => ok && setComplete(true))}
                   />
                 ),
               },
@@ -144,15 +161,44 @@ export function ChapterPage({ id }: { id: string }) {
   );
 }
 
-/** LEARN-03: one question at a time; a wrong pick says COURSE-WRONG with the hint, a right one "Correct." */
-function Challenge({ questions, onPass }: { questions: Question[]; onPass: () => void }) {
-  const [qi, setQi] = useState(0);
-  const [pick, setPick] = useState<number | null>(null);
+/**
+ * LEARN-03: one question at a time; a wrong pick says COURSE-WRONG with the hint, a right one "Correct." Each
+ * answer is a button (activating it answers): radios would answer on every arrow key. Focus moves to the
+ * result's action, and back to the first answer on Reset or the next question. The state lives in the page,
+ * so reading a section and coming back keeps the place (Tabs unmount hidden panels).
+ */
+function Challenge({
+  questions,
+  at,
+  onAt,
+  onPass,
+}: {
+  questions: Question[];
+  at: { qi: number; pick: number | null };
+  onAt: (a: { qi: number; pick: number | null }) => void;
+  onPass: () => void;
+}) {
+  const { qi, pick } = at;
   const name = useId();
+  const first = useRef<HTMLButtonElement>(null);
+  const moved = useRef(false); // focus only after a user action, not on mount
   const q = questions[qi]!;
   const result = pick === null ? null : check(q, pick);
   const last = qi === questions.length - 1;
   const wrong = result && !result.pass ? present(new AppError('COURSE-WRONG', { hint: result.hint })) : null;
+  // Back to the first answer after Reset or Next question.
+  useEffect(() => {
+    if (moved.current && pick === null) first.current?.focus();
+  }, [qi, pick]);
+  // The result's action takes focus when it mounts (a Banner shows its actions a moment after the message,
+  // so the live region is announced).
+  const action = (el: HTMLButtonElement | null) => {
+    if (el && moved.current) el.focus();
+  };
+  const go = (a: { qi: number; pick: number | null }) => {
+    moved.current = true;
+    onAt(a);
+  };
   return (
     <section aria-labelledby={`${name}-t`} className="flex flex-col gap-4 rounded-xl border border-line p-5">
       <div className="flex items-center gap-3">
@@ -164,75 +210,77 @@ function Challenge({ questions, onPass }: { questions: Question[]; onPass: () =>
           {qi + 1} of {questions.length}
         </span>
       </div>
-      <fieldset className="m-0 flex flex-col gap-2 border-0 p-0">
-        <legend className="mb-2 p-0 text-[16px] font-medium">{q.q}</legend>
+      <p id={`${name}-q`} className="m-0 text-[16px] font-medium">
+        {q.q}
+      </p>
+      <ul aria-labelledby={`${name}-q`} className="m-0 flex list-none flex-col gap-2 p-0">
         {q.options.map((o, i) => {
           const chosen = pick === i;
           const tone = !chosen
-            ? 'border-line'
+            ? 'border-line hover:bg-subtle'
             : result?.pass
               ? 'border-success-600 bg-success-50'
               : 'border-rose-600 bg-rose-50';
           return (
-            <label
-              key={o}
-              className={`flex cursor-pointer items-center gap-3 rounded-lg border px-4 py-3 text-[15px] has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-rose-600 ${tone}`}
-            >
-              <input
-                type="radio"
-                name={name}
-                className="size-4 accent-rose-600"
-                checked={chosen}
-                disabled={!!result?.pass}
-                onChange={() => setPick(i)}
-              />
-              {chosen &&
-                result &&
-                (result.pass ? (
-                  <Check size={16} aria-label="Right" className="text-success-600" />
+            <li key={o}>
+              <button
+                ref={i === 0 ? first : undefined}
+                type="button"
+                aria-pressed={chosen}
+                aria-disabled={result?.pass ? true : undefined}
+                onClick={() => !result?.pass && go({ qi, pick: i })}
+                className={`sl-focus flex w-full items-center gap-3 rounded-lg border px-4 py-3 text-left text-[15px] text-ink ${tone}`}
+              >
+                {chosen && result ? (
+                  result.pass ? (
+                    <Check size={16} aria-label="Right:" className="shrink-0 text-success-600" />
+                  ) : (
+                    <X size={16} aria-label="Wrong:" className="shrink-0 text-rose-700" />
+                  )
                 ) : (
-                  <X size={16} aria-label="Wrong" className="text-rose-700" />
-                ))}
-              {o}
-            </label>
+                  <span
+                    aria-hidden="true"
+                    className="size-4 shrink-0 rounded-full border border-line-strong"
+                  />
+                )}
+                {o}
+              </button>
+            </li>
           );
         })}
-      </fieldset>
-      <div aria-live="polite">
-        {wrong && (
-          // COURSE-WRONG, inline under the challenge (catalog). Reset clears the pick.
-          <Banner
-            severity={wrong.severity}
-            actions={
-              <Button size="sm" onClick={() => setPick(null)}>
-                Reset
-              </Button>
-            }
-          >
-            {wrong.message}
-          </Banner>
-        )}
-        {result?.pass && (
-          <Banner
-            severity="success"
-            actions={
-              <Button
-                size="sm"
-                variant="primary"
-                onClick={() => {
-                  if (last) return onPass();
-                  setQi(qi + 1);
-                  setPick(null);
-                }}
-              >
-                {last ? 'Finish chapter' : 'Next question'}
-              </Button>
-            }
-          >
-            <b>Correct.</b> {q.why}
-          </Banner>
-        )}
-      </div>
+      </ul>
+      {/* Banners are live regions (role=status); keyed by the pick, so a second wrong pick is said again. */}
+      {wrong && (
+        // COURSE-WRONG, inline under the challenge (catalog). Reset clears the pick.
+        <Banner
+          key={`w${pick}`}
+          severity={wrong.severity}
+          actions={
+            <Button ref={action} size="sm" onClick={() => go({ qi, pick: null })}>
+              Reset
+            </Button>
+          }
+        >
+          {wrong.message}
+        </Banner>
+      )}
+      {result?.pass && (
+        <Banner
+          severity="success"
+          actions={
+            <Button
+              ref={action}
+              size="sm"
+              variant="primary"
+              onClick={() => (last ? onPass() : go({ qi: qi + 1, pick: null }))}
+            >
+              {last ? 'Finish chapter' : 'Next question'}
+            </Button>
+          }
+        >
+          <b>Correct.</b> {q.why}
+        </Banner>
+      )}
     </section>
   );
 }

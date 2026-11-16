@@ -130,3 +130,12 @@ describe('LEARN-01 · course progress', () => {
     expect(await getProgress()).toEqual({ 'event-time': 'done', watermarks: 'started' });
   });
 });
+
+describe('STORE-UPGRADE-BLOCKED · this tab is older than the database', () => {
+  it('a VersionError on open says reload, not "not letting Stream Lab save"', async () => {
+    const req = indexedDB.open('streamlab', 99); // another tab, on newer code
+    await new Promise((r) => (req.onsuccess = r));
+    req.result.close();
+    await expect(getProgress()).rejects.toMatchObject({ code: 'STORE-UPGRADE-BLOCKED' });
+  });
+});

@@ -36,7 +36,16 @@ const healthy =
               'jobs-cancelled': 0,
               'jobs-failed': 0,
             }
-          : { jobs: [{ jid: 'a', name: 'fraud-scoring', state: 'RESTARTING' }] },
+          : {
+              jobs: [
+                ...Array.from({ length: running }, (_, i) => ({
+                  jid: `r${i}`,
+                  name: `job-${i}`,
+                  state: 'RUNNING',
+                })),
+                { jid: 'a', name: 'fraud-scoring', state: 'RESTARTING' },
+              ],
+            },
     );
 const show = (connections: Connection[], transport: (c: Connection) => FlinkHttp) =>
   render(
@@ -94,5 +103,101 @@ describe('FLEET-01 the fleet (boards D04, D04b, D04c, D04d)', () => {
     expect(within(card('payments-prod')).getByText('Healthy')).toBeTruthy();
     expect(http.mock.calls.length).toBe(calls);
     vi.restoreAllMocks();
+  });
+});
+
+describe('audit of 23b9f80', () => {
+  const refused = new TransportError({ kind: 'refused', host: 'h.example.com', port: 8081 });
+  it('#4 one failure keeps the card; two mark it Stale; three show the message, keeping the version and job count', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      let fail = false;
+      show([conn('payments-staging', 'staging')], () => async (req) => {
+        if (fail) throw refused;
+        return healthy(9)(req);
+      });
+      const c = card('payments-staging');
+      expect(await within(c).findByText('Healthy')).toBeTruthy();
+      fail = true;
+      await act(async () => vi.advanceTimersByTime(15_000));
+      expect(within(c).getByText('Healthy')).toBeTruthy();
+      await act(async () => vi.advanceTimersByTime(30_000));
+      expect(within(c).getByText('Stale')).toBeTruthy();
+      expect(c.textContent).toContain('Running9');
+      await act(async () => vi.advanceTimersByTime(30_000));
+      expect(within(c).getByText('Unreachable')).toBeTruthy();
+      expect(c.textContent).toContain('Staging · Flink 2.3.0');
+      expect(screen.getByText('1 connection · 10 jobs')).toBeTruthy();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+  it('#1 #2 Retry asks only its own cluster, once, and says it is retrying; #11 focus goes to the card after', async () => {
+    const asked: string[] = [];
+    let downB = true;
+    let release!: () => void;
+    const held = new Promise<void>((r) => (release = r));
+    show([conn('a'), conn('b')], (c) => async (req) => {
+      asked.push(c.name);
+      if (c.name === 'b' && downB) throw refused;
+      if (c.name === 'b') await held;
+      return healthy(1)(req);
+    });
+    const b = card('b');
+    expect(await within(b).findByText('Unreachable')).toBeTruthy();
+    expect(await within(card('a')).findByText('Healthy')).toBeTruthy();
+    const before = asked.filter((n) => n === 'a').length;
+    downB = false;
+    const retry = within(b).getByRole('button', { name: 'Retry b' });
+    retry.focus();
+    await userEvent.click(retry);
+    expect(within(b).getByRole('button', { name: 'Retry b' }).getAttribute('aria-disabled')).toBe('true');
+    expect(within(b).getByText('Retrying…')).toBeTruthy();
+    await act(async () => release());
+    expect(await within(b).findByText('Healthy')).toBeTruthy();
+    expect(asked.filter((n) => n === 'a').length).toBe(before);
+    await vi.waitFor(() =>
+      expect(document.activeElement).toBe(within(b).getByRole('heading', { name: 'b' })),
+    );
+  });
+  it('#3 no polling while the window is hidden; #5 a transport that throws is a catalog error, not a crash', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    const hidden = vi.spyOn(document, 'hidden', 'get').mockReturnValue(false);
+    try {
+      const http = vi.fn(healthy(1));
+      show([conn('a'), conn('broken')], (c) => {
+        if (c.name === 'broken') throw new Error('no transport for this kind');
+        return http;
+      });
+      expect(await within(card('a')).findByText('Healthy')).toBeTruthy();
+      expect(within(card('broken')).getByText('Unreachable')).toBeTruthy();
+      hidden.mockReturnValue(true);
+      const n = http.mock.calls.length;
+      await act(async () => vi.advanceTimersByTime(60_000));
+      expect(http.mock.calls.length).toBe(n);
+    } finally {
+      hidden.mockRestore();
+      vi.useRealTimers();
+    }
+  });
+  it('#6 a 401 says Signed out, a reply it can not read says Error (not Unreachable); #7 offline with no data says so', async () => {
+    show(
+      [conn('a'), conn('b')],
+      (c) => async () => (c.name === 'a' ? { status: 401, headers: {}, body: '', url: '' } : ok({ nope: 1 })),
+    );
+    expect(await within(card('a')).findByText('Signed out')).toBeTruthy();
+    expect(await within(card('b')).findByText('Error')).toBeTruthy();
+  });
+  it('#7 opened offline: no "data from never", cards say Offline, nothing is asked', async () => {
+    const online = vi.spyOn(navigator, 'onLine', 'get').mockReturnValue(false);
+    try {
+      const http = vi.fn(healthy(1));
+      show([conn('a')], () => http);
+      expect(within(card('a')).getByText('Offline')).toBeTruthy();
+      expect(screen.queryByText(/never/)).toBeNull();
+      expect(http).not.toHaveBeenCalled();
+    } finally {
+      online.mockRestore();
+    }
   });
 });

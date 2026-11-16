@@ -89,5 +89,8 @@ describe('FLEET-01 home', () => {
     expect(await screen.findByText(/local-docker had an internal error while reading/)).toBeTruthy();
     await userEvent.click(screen.getByRole('button', { name: 'Connections' }));
     expect(screen.getByRole('heading', { level: 1, name: 'Connections' })).toBeTruthy();
+    // audit of 23b9f80 #8: and back
+    await userEvent.click(screen.getByRole('button', { name: 'Fleet' }));
+    expect(screen.getByRole('heading', { level: 1, name: 'Fleet' })).toBeTruthy();
   });
 });

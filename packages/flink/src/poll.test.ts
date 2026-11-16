@@ -36,8 +36,9 @@ describe('FLINK_API concurrency: at most 6 requests in flight per connection', (
 });
 
 describe('FLINK_API polling', () => {
-  it('backs off on failures in a row (2×, 4×, at most 8×) and resets on success', () => {
-    expect([0, 1, 2, 3, 9].map((f) => nextDelay(5000, f))).toEqual([5000, 10000, 20000, 40000, 40000]);
+  it('backs off on failures in a row (doubling, capped at 30 s) and resets on success', () => {
+    expect([0, 1, 2, 3, 9].map((f) => nextDelay(5000, f))).toEqual([5000, 10000, 20000, 30000, 30000]);
+    expect([0, 1, 5].map((f) => nextDelay(15000, f))).toEqual([15000, 30000, 30000]);
   });
   it('counts failures in a row, skips hidden windows, stops cleanly', async () => {
     const timers: { f: () => void; ms: number }[] = [];
@@ -56,7 +57,7 @@ describe('FLINK_API polling', () => {
     timers.shift()!.f();
     await flush();
     expect(results).toEqual(['fail 1', 'fail 2']); // the fleet's "stale" point (2 failures)
-    expect(timers[0]!.ms).toBe(60000);
+    expect(timers[0]!.ms).toBe(30000); // doubled twice, capped at 30 s
     visible = false;
     timers.shift()!.f();
     await flush();

@@ -1,6 +1,6 @@
 import type { Connection } from '@sl/flink';
 import { Button, Dialog, IconButton, StatusBadge, Table } from '@sl/ui';
-import { Download, Plus, Trash2, Upload } from 'lucide-react';
+import { Download, LayoutGrid, Plus, Trash2, Upload } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { ExportDialog } from './ExportDialog';
 import { useScreenHeading } from './focus';
@@ -46,11 +46,14 @@ export const shortAddress = (u: string) => {
 export function Connections({
   connections,
   onAdd,
+  onFleet,
   onImport,
   onRemove,
 }: {
   connections: Connection[];
   onAdd: () => void;
+  /** Back to the fleet, when the app has one (a transport). */
+  onFleet?: () => void;
   onImport: () => void;
   onRemove: (id: string) => void;
 }) {
@@ -75,6 +78,11 @@ export function Connections({
           </p>
         </div>
         <div className="flex gap-3">
+          {onFleet && (
+            <Button icon={<LayoutGrid size={16} aria-hidden="true" />} onClick={onFleet}>
+              Fleet
+            </Button>
+          )}
           <Button icon={<Upload size={16} aria-hidden="true" />} onClick={onImport}>
             Import
           </Button>

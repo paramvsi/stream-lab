@@ -13,12 +13,20 @@ export const JobsOverviewSchema = z.looseObject({
 });
 /** A job in trouble right now (board D04 "Failing"): not FAILED, which is history. */
 const FAILING = new Set(['FAILING', 'RESTARTING']);
+/**
+ * Done jobs. Every other state counts as running in Flink's own overview (jobs-running includes RESTARTING), so
+ * both numbers come from /jobs/overview, one snapshot: running = active − failing, as board D04 shows them.
+ * FLINK: https://github.com/apache/flink/blob/master/flink-runtime/src/main/java/org/apache/flink/runtime/messages/webmonitor/JobsOverview.java
+ */
+const DONE = new Set(['FINISHED', 'CANCELED', 'FAILED']);
 
 /** One fleet card (FLEET-01, board D04): what a cluster says about itself, or why it did not answer (D04b). */
 export type FleetStatus =
   | {
       state: 'up';
       version: string;
+      /** Jobs not done (Flink's "running", which includes the failing ones): the fleet's job count. */
+      jobs: number;
       running: number;
       /** Jobs restarting or failing now. */
       failing: number;
@@ -59,18 +67,30 @@ async function getJson<S extends z.ZodType>(
  * Any failure is the card's error: unreachable, refused, signed out, a reply it can not read.
  * FLINK: https://nightlies.apache.org/flink/flink-docs-stable/docs/ops/rest_api/#overview
  */
-export async function fleetStatus(http: FlinkHttp, conn: string): Promise<FleetStatus> {
+function counts(states: string[]) {
+  const active = states.filter((x) => !DONE.has(x)).length;
+  const failing = states.filter((x) => FAILING.has(x)).length;
+  return { jobs: active, running: active - failing, failing };
+}
+
+export async function fleetStatus(http: FlinkHttp, conn: string, timeoutMs?: number): Promise<FleetStatus> {
+  const t = timeoutMs ? { timeoutMs } : {};
   try {
     const [cfg, ov, jobs] = await Promise.all([
-      getJson(http, conn, { method: 'GET', path: '/config' }, ConfigSchema, 'reading its version'),
-      getJson(http, conn, { method: 'GET', path: '/overview' }, OverviewSchema, 'reading the overview'),
-      getJson(http, conn, { method: 'GET', path: '/jobs/overview' }, JobsOverviewSchema, 'reading its jobs'),
+      getJson(http, conn, { method: 'GET', path: '/config', ...t }, ConfigSchema, 'reading its version'),
+      getJson(http, conn, { method: 'GET', path: '/overview', ...t }, OverviewSchema, 'reading the overview'),
+      getJson(
+        http,
+        conn,
+        { method: 'GET', path: '/jobs/overview', ...t },
+        JobsOverviewSchema,
+        'reading its jobs',
+      ),
     ]);
     return {
       state: 'up',
       version: cfg['flink-version'].replace(/^v/i, ''),
-      running: ov['jobs-running'],
-      failing: jobs.jobs.filter((j) => FAILING.has(j.state)).length,
+      ...counts(jobs.jobs.map((j) => j.state)),
       slotsFree: ov['slots-available'],
       slotsTotal: ov['slots-total'],
       taskmanagers: ov.taskmanagers,

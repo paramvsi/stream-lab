@@ -47,9 +47,9 @@ export const POLL = {
   logs: { everyMs: 2_000 },
 } as const;
 
-/** The wait before the next poll: the interval, doubled per failure in a row, at most 8×. */
+/** The wait before the next poll: the interval, doubled per failure in a row, capped at 30 s (ERRORS_AND_ALERTS). */
 export function nextDelay(everyMs: number, failures: number): number {
-  return everyMs * 2 ** Math.min(Math.max(failures, 0), 3);
+  return Math.min(everyMs * 2 ** Math.max(failures, 0), Math.max(everyMs, 30_000));
 }
 
 export interface Poller {

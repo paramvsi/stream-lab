@@ -31,11 +31,12 @@ const fake =
   };
 
 describe('FLEET-01 fleetStatus', () => {
-  it('a healthy cluster: version, running, failing now (not FAILED history), slots', async () => {
+  it('a healthy cluster: version, jobs not done (running includes restarting, as Flink counts), failing now (not FAILED history), slots', async () => {
     expect(await fleetStatus(fake(), 'payments-prod')).toEqual({
       state: 'up',
       version: '2.3.0',
-      running: 13,
+      jobs: 2,
+      running: 1,
       failing: 1,
       slotsFree: 6,
       slotsTotal: 32,

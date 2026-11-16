@@ -89,6 +89,7 @@ export function App({ transport }: { transport?: (c: Connection) => FlinkHttp } 
       <Connections
         connections={connections}
         onAdd={add}
+        {...(transport ? { onFleet: () => setScreen({ name: 'home' }) } : {})}
         onImport={() => setImporting(true)}
         onRemove={(id) => setConnections((cs) => cs.filter((c) => c.id !== id))}
       />

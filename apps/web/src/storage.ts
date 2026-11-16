@@ -1,4 +1,5 @@
 import { AppError } from '@sl/errors';
+import type { ChapterStatus, Progress } from '@sl/course';
 import type { BuiltinTable } from '@sl/engine';
 import type { Pipeline } from '@sl/graph';
 import { openDB, type IDBPDatabase } from 'idb';
@@ -6,7 +7,7 @@ import { deleteUploads } from './sim/uploads';
 
 /** ARCHITECTURE.md § Website data flow: IndexedDB `pipelines` (versioned JSON), BroadcastChannel `streamlab`. */
 const DB = 'streamlab';
-const VERSION = 2; // 2: the `refTables` store (DATA-03)
+const VERSION = 3; // 2: the `refTables` store (DATA-03); 3: `progress` (LEARN-01)
 
 let dbp: Promise<IDBPDatabase> | null = null;
 function db() {
@@ -19,6 +20,7 @@ function db() {
           if (!d.objectStoreNames.contains('pipelines')) d.createObjectStore('pipelines', { keyPath: 'id' });
           if (!d.objectStoreNames.contains('refTables'))
             d.createObjectStore('refTables', { keyPath: 'name' });
+          if (!d.objectStoreNames.contains('progress')) d.createObjectStore('progress', { keyPath: 'id' });
         },
         // A tab still open on an older version holds the upgrade: say so instead of waiting forever.
         blocked() {
@@ -196,6 +198,19 @@ export async function saveRefTable(t: BuiltinTable): Promise<void> {
 export async function deleteRefTable(name: string): Promise<void> {
   try {
     await (await db()).delete('refTables', name);
+  } catch (e) {
+    throw await storeError(e);
+  }
+}
+
+/** LEARN-01 course progress, per chapter ("Saved in this browser"). */
+export async function getProgress(): Promise<Progress> {
+  const all = (await (await db()).getAll('progress')) as { id: string; status: ChapterStatus }[];
+  return Object.fromEntries(all.map((r) => [r.id, r.status]));
+}
+export async function setChapterStatus(id: string, status: ChapterStatus): Promise<void> {
+  try {
+    await (await db()).put('progress', { id, status });
   } catch (e) {
     throw await storeError(e);
   }

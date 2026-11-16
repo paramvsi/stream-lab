@@ -86,3 +86,19 @@
 .sl-toast[data-state='closed'] {
   animation: sl-fade-out var(--sl-motion-fast) var(--sl-motion-ease-out) both;
 }
+
+/* The background grid with rose nodes (DESIGN_SYSTEM.md): 80 px cells on the boards, nodes at the
+   intersections, fading out from the top left. Subtle; never behind text that needs contrast. */
+.sl-grid {
+  background-image:
+    radial-gradient(circle, var(--sl-color-rose-500) 1.5px, transparent 2px),
+    linear-gradient(var(--sl-color-line) 1px, transparent 1px),
+    linear-gradient(90deg, var(--sl-color-line) 1px, transparent 1px);
+  background-size: 80px 80px;
+  background-position:
+    -40px -40px,
+    0 0,
+    0 0;
+  opacity: 0.6;
+  mask-image: radial-gradient(ellipse 70% 100% at 0 0, black, transparent 70%);
+}

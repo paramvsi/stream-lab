@@ -1,6 +1,5 @@
 import { SharedRoute } from './sim/SharedRoute';
 import { ErrorBoundary } from '@sl/errors';
-import { Button, EmptyState } from '@sl/ui';
 import {
   createHashHistory,
   createRootRoute,
@@ -8,33 +7,13 @@ import {
   createRouter,
   Outlet,
   redirect,
-  useNavigate,
 } from '@tanstack/react-router';
-import { Compass } from 'lucide-react';
+import { ChapterPage } from './pages/Chapter';
+import { Course } from './pages/Course';
 import { Gallery } from './pages/Gallery';
 import { MyPipelines } from './pages/MyPipelines';
+import { NotFound } from './pages/NotFound';
 import { WorkspaceRoute } from './sim/WorkspaceRoute';
-
-/** W03 (LAND-05): the full 404 page with course links lands in M5; this is its copy, minus the course. */
-function NotFound() {
-  const navigate = useNavigate();
-  return (
-    <main className="flex min-h-screen items-center justify-center">
-      <h1 className="sr-only">Page not found</h1>
-      <EmptyState
-        icon={Compass}
-        title="404 · event arrived after the watermark"
-        actions={
-          <Button variant="primary" onClick={() => void navigate({ to: '/new' })}>
-            Open the simulator
-          </Button>
-        }
-      >
-        This page was dropped as late data. The link may be old, or the page moved.
-      </EmptyState>
-    </main>
-  );
-}
 
 const root = createRootRoute({
   component: () => (
@@ -54,6 +33,15 @@ const index = createRoute({
   },
 });
 const gallery = createRoute({ getParentRoute: () => root, path: '/new', component: Gallery });
+const learn = createRoute({ getParentRoute: () => root, path: '/learn', component: Course });
+const chapter = createRoute({
+  getParentRoute: () => root,
+  path: '/learn/$chapter',
+  component: function Chapter() {
+    const { chapter: id } = chapter.useParams();
+    return <ChapterPage key={id} id={id} />;
+  },
+});
 const pipelines = createRoute({ getParentRoute: () => root, path: '/pipelines', component: MyPipelines });
 const sim = createRoute({
   getParentRoute: () => root,
@@ -77,7 +65,7 @@ const shared = createRoute({
 
 /** Hash history: the site is static files with no server rewrites (ARCHITECTURE.md). */
 export const router = createRouter({
-  routeTree: root.addChildren([index, gallery, pipelines, sim, shared]),
+  routeTree: root.addChildren([index, gallery, pipelines, sim, shared, learn, chapter]),
   history: createHashHistory(),
 });
 

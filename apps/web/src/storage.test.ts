@@ -6,6 +6,8 @@ import {
   _resetForTests,
   deletePipeline,
   getPipeline,
+  getProgress,
+  setChapterStatus,
   listPipelines,
   onSavedElsewhere,
   savePipeline,
@@ -115,5 +117,16 @@ describe('SIM-20 · unload rescue', () => {
     expect(peekRescue('d')).toBeNull();
     expect(heard).toContain('deleted:d');
     other.close();
+  });
+});
+
+describe('LEARN-01 · course progress', () => {
+  it('is saved per chapter and read back', async () => {
+    expect(await getProgress()).toEqual({});
+    await setChapterStatus('event-time', 'started');
+    await setChapterStatus('event-time', 'done');
+    await setChapterStatus('watermarks', 'started');
+    await _resetForTests(); // a new visit
+    expect(await getProgress()).toEqual({ 'event-time': 'done', watermarks: 'started' });
   });
 });

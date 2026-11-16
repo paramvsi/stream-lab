@@ -1,6 +1,7 @@
+import { Link, useNavigate } from '@tanstack/react-router';
 import { AppError } from '@sl/errors';
 import { Button, Loading, Skeleton } from '@sl/ui';
-import { useNavigate } from '@tanstack/react-router';
+
 import { ArrowRight } from 'lucide-react';
 import { useState } from 'react';
 import { fromScenario, SCENARIOS, type Scenario } from '../sim/scenarios';
@@ -25,7 +26,19 @@ export function Gallery() {
   };
 
   return (
-    <SiteShell eyebrow="Simulator" title="Start a pipeline">
+    <SiteShell
+      eyebrow="Simulator"
+      title="Start a pipeline"
+      // Not on board W07: with the site header's Simulator link (W01–W08), this is the way to saved pipelines.
+      actions={
+        <Link
+          to="/pipelines"
+          className="sl-focus rounded-lg border border-line px-4 py-2 text-[14px] font-semibold text-ink no-underline hover:bg-subtle"
+        >
+          My pipelines
+        </Link>
+      }
+    >
       <p className="m-0 text-[16px] text-muted">
         Pick a scenario with data and a starter pipeline, or start blank.
       </p>

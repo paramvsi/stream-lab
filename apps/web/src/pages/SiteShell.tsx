@@ -1,69 +1,120 @@
 import { Link } from '@tanstack/react-router';
+import { Star } from 'lucide-react';
 import type { ReactNode } from 'react';
 
+export const REPO = 'https://github.com/paramvsi/stream-lab';
+
+const navLink = 'text-muted no-underline hover:text-ink [&.active]:text-ink [&.active]:font-semibold';
+
 /**
- * Site header + footer from boards W07/W08 (the full landing/course chrome is M5).
- * ponytail: only links to pages that exist; Learn, Desktop app and Docs arrive in M5.
+ * The site's header and footer (every web board: W01–W08). The header: Learn, Simulator, Star on GitHub.
+ * ponytail: links only to pages that exist — Desktop app (W02), Docs, Changelog, Glossary, Privacy and Why
+ * Stream Lab are added as their pages land.
+ * `grid`: the background grid with rose nodes, top left (boards W01, W03, W04).
  */
 export function SiteShell({
   title,
   eyebrow,
+  lede,
   actions,
+  narrow = false,
+  grid = false,
   children,
 }: {
-  title: string;
+  title?: string;
   eyebrow?: string;
+  lede?: ReactNode;
   actions?: ReactNode;
+  /** The course's 832px column (W04, W05) instead of 1120px. */
+  narrow?: boolean;
+  grid?: boolean;
   children: ReactNode;
 }) {
   return (
-    <div className="flex min-h-screen flex-col bg-surface">
-      <header className="flex h-16 items-center gap-8 border-b border-line px-8">
+    <div className="relative flex min-h-screen flex-col bg-surface">
+      {grid && (
+        <div aria-hidden="true" className="sl-grid pointer-events-none absolute inset-x-0 top-16 h-[420px]" />
+      )}
+      <header className="relative flex h-[72px] items-center border-b border-line px-16">
         <Link
-          to="/new"
+          to="/"
           className="flex items-center gap-2.5 text-[17px] font-semibold tracking-[-0.02em] text-ink no-underline"
         >
           <img src="/logo-mark.svg" width={28} height={28} alt="" />
           stream<span className="text-rose-600">lab</span>
         </Link>
-        <nav aria-label="Main" className="flex gap-6 text-[14px] font-medium">
-          <Link to="/new" className="text-muted no-underline hover:text-ink [&.active]:text-ink">
-            New pipeline
+        <nav aria-label="Main" className="mx-auto flex gap-8 text-[15px] font-medium">
+          <Link to="/learn" className={navLink}>
+            Learn
           </Link>
-          <Link to="/pipelines" className="text-muted no-underline hover:text-ink [&.active]:text-ink">
-            My pipelines
+          {/* The simulator's pages: the gallery and My pipelines. */}
+          <Link to="/new" className={navLink} activeOptions={{ exact: false }}>
+            Simulator
           </Link>
         </nav>
+        <a
+          href={REPO}
+          className="sl-focus flex h-10 items-center gap-2 rounded-lg border border-line px-4 text-[14px] font-semibold text-ink no-underline hover:bg-subtle"
+        >
+          <Star size={16} aria-hidden="true" />
+          Star on GitHub
+        </a>
       </header>
-      <main className="mx-auto flex w-full max-w-[1120px] flex-1 flex-col gap-6 px-8 py-10">
-        <div className="flex flex-wrap items-end justify-between gap-4">
-          <div className="flex flex-col gap-1.5">
-            {eyebrow && (
-              <span className="text-[12px] font-medium tracking-[0.04em] text-muted uppercase">
-                {eyebrow}
-              </span>
-            )}
-            <h1
-              tabIndex={-1}
-              className="m-0 text-[36px] leading-[1.2] font-bold tracking-[-0.02em] outline-none"
-            >
-              {title}
-            </h1>
+      <main
+        className={`relative mx-auto flex w-full flex-1 flex-col gap-6 px-8 py-12 ${narrow ? 'max-w-[896px]' : 'max-w-[1120px]'}`}
+      >
+        {title && (
+          <div className="flex flex-wrap items-end justify-between gap-4">
+            <div className="flex flex-col gap-3">
+              {eyebrow && (
+                <span className="text-[12px] font-medium tracking-[0.04em] text-muted uppercase">
+                  {eyebrow}
+                </span>
+              )}
+              <h1
+                tabIndex={-1}
+                className="m-0 text-[36px] leading-[1.2] font-bold tracking-[-0.02em] outline-none"
+              >
+                {title}
+              </h1>
+              {lede && <p className="m-0 text-[16px] text-muted">{lede}</p>}
+            </div>
+            {actions && <div className="flex gap-3">{actions}</div>}
           </div>
-          {actions && <div className="flex gap-3">{actions}</div>}
-        </div>
+        )}
         {children}
       </main>
-      <footer className="border-t border-line bg-subtle px-8 py-8 text-[13px] text-muted">
-        <p className="m-0">
-          {/* rose-700: rose-600 on the subtle footer is below AA. */}
-          stream<span className="text-rose-700">lab</span> · Learn and run Apache Flink® with your own eyes.
-          Free and open source.
-        </p>
-        <p className="m-0 mt-1">
-          Apache Flink and Flink are trademarks of the Apache Software Foundation. Stream Lab is not
-          affiliated with the ASF.
-        </p>
+      <footer className="flex flex-wrap justify-between gap-10 border-t border-line px-16 py-12 text-[14px] text-muted">
+        <div className="flex max-w-[460px] flex-col gap-3">
+          <p className="m-0 text-[17px] font-semibold text-ink">
+            stream<span className="text-rose-700">lab</span>
+          </p>
+          <p className="m-0">Learn and run Apache Flink® with your own eyes. Free and open source.</p>
+          <p className="m-0 text-[12px]">
+            Apache Flink and Flink are trademarks of the Apache Software Foundation. Stream Lab is not
+            affiliated with the ASF.
+          </p>
+        </div>
+        <nav aria-label="Footer" className="flex gap-16">
+          <div className="flex flex-col gap-2">
+            <p className="m-0 mb-1 text-[14px] font-semibold text-ink">Product</p>
+            <Link to="/learn" className="text-muted no-underline hover:text-ink">
+              Learn
+            </Link>
+            <Link to="/new" className="text-muted no-underline hover:text-ink">
+              Simulator
+            </Link>
+          </div>
+          <div className="flex flex-col gap-2">
+            <p className="m-0 mb-1 text-[14px] font-semibold text-ink">Resources</p>
+            <a href={REPO} className="text-muted no-underline hover:text-ink">
+              GitHub
+            </a>
+            <a href={`${REPO}/issues`} className="text-muted no-underline hover:text-ink">
+              Report an issue
+            </a>
+          </div>
+        </nav>
       </footer>
     </div>
   );

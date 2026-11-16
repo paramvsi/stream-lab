@@ -103,6 +103,9 @@ importers:
       '@lezer/highlight':
         specifier: ^1.2.5
         version: 1.2.5
+      '@sl/course':
+        specifier: workspace:*
+        version: link:../../packages/course
       '@sl/engine':
         specifier: workspace:*
         version: link:../../packages/engine

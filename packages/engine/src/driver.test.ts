@@ -66,13 +66,22 @@ describe('SIM-16 · run controls', () => {
 });
 
 describe('SIM-SLOW · SIM-ENGINE-CRASH', () => {
-  it('a tick slower than 100 ms of wall time reports SIM-SLOW once', () => {
+  it('SIM-SLOW once, after ticks below 20 % of the target rate for 5 s (catalog trigger)', () => {
     let t = 0;
-    const { d, msgs } = setup(() => (t += 150));
+    let cost = 600; // each tick takes 600 ms of wall time: over 5× its 100 ms budget
+    let calls = 0; // wall() is read twice per tick: start and end
+    const { d, msgs } = setup(() => (t += calls++ % 2 ? cost : 0));
     d.play();
-    d.tick();
+    for (let i = 0; i < 8; i++) d.tick(); // 4.8 s
+    expect(msgs.filter((m) => m.type === 'slow')).toEqual([]);
+    d.tick(); // 5.4 s
     d.tick();
     expect(msgs.filter((m) => m.type === 'slow')).toEqual([{ type: 'slow', speed: 1 }]);
+    cost = 300; // under 5×: a single slow tick does not count
+    const fresh = setup(() => (t += calls++ % 2 ? cost : 0));
+    fresh.d.play();
+    fresh.d.tick();
+    expect(fresh.msgs.filter((m) => m.type === 'slow')).toEqual([]);
   });
 
   it('an engine error becomes a crash message with the event number; the run stops', () => {

@@ -6,7 +6,9 @@ export type RunState = 'ready' | 'running' | 'paused' | 'finished' | 'crashed';
 export type DriverMessage =
   | { type: 'stats'; state: RunState; speed: number; stats: RunStats }
   | { type: 'crash'; n: number; reason: string }
-  | { type: 'slow'; speed: number };
+  | { type: 'slow'; speed: number }
+  /** Sent every second by the worker (SIM-ENGINE-CRASH heartbeat). */
+  | { type: 'beat' };
 
 /** Wall-clock budget per tick before the run reports SIM-SLOW. */
 export const TICK_MS = 100;
@@ -23,6 +25,7 @@ export class Driver {
   private run: Run | null = null;
   private clock = 0;
   private slowSent = false;
+  private slowFor = 0;
 
   constructor(
     private graph: Graph,
@@ -115,8 +118,10 @@ export class Driver {
     });
     if ((this.state as RunState) === 'crashed') return;
     const took = this.wall() - t0;
-    // SIM-SLOW: the tick could not keep up with the requested speed.
-    if (took > TICK_MS && !this.slowSent) {
+    // SIM-SLOW (catalog): events/s below 20 % of target for 5 s — ticks taking over 5× their budget, back to
+    // back, for 5 s of wall time. One slow tick (a GC pause, warm-up) is not enough.
+    this.slowFor = took > TICK_MS * 5 ? this.slowFor + took : 0;
+    if (this.slowFor >= 5000 && !this.slowSent) {
       this.slowSent = true;
       this.post({ type: 'slow', speed: this.speed });
     }

@@ -79,3 +79,12 @@
 .sl-animate-layout .react-flow__node {
   transition: transform 300ms var(--sl-motion-ease-out);
 }
+
+/* SIM-17: under reduced motion the busiest node keeps a static ring instead of the pulsing glow. */
+@media (prefers-reduced-motion: reduce) {
+  .sl-glow {
+    box-shadow:
+      0 0 0 3px var(--sl-color-rose-100),
+      0 0 0 4.5px var(--sl-color-rose-600);
+  }
+}

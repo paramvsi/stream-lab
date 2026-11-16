@@ -5,7 +5,7 @@ exports[`SIM-24 · deterministic > the same seed and pipeline give identical out
   "counts": {
     "dlq": {
       "failed": 0,
-      "in": 35,
+      "in": 49,
       "late": 0,
       "out": {},
       "watermark": Infinity,

@@ -1,7 +1,8 @@
 import AxeBuilder from '@axe-core/playwright';
 import { expect, test, type Page } from '@playwright/test';
 
-const status = (page: Page) => page.locator('.react-flow__panel.top').getByRole('status');
+// The visible run label (the live region only announces state changes).
+const status = (page: Page) => page.locator('.react-flow__panel.top [data-run-label]');
 async function scenario(page: Page, title: string) {
   await page.goto('/#/new');
   await page.getByRole('button', { name: new RegExp(`^Use this scenario.*${title}`) }).click();
@@ -88,7 +89,7 @@ test('SIM-18 runtime expression failures are counted on the node, in words', asy
     page
       .locator('.react-flow__node')
       .filter({ hasText: 'Rules' })
-      .getByText(/events failed in this node/),
+      .getByText(/events failed in Rules/),
   ).toHaveCount(1);
 });
 

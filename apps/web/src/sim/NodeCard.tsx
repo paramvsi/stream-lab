@@ -2,11 +2,11 @@ import { AppError, present } from '@sl/errors';
 import { configOf, labelOf, spec, type PipelineNode } from '@sl/graph';
 import { Button } from '@sl/ui';
 import { Handle, NodeToolbar, Position, type Node, type NodeProps } from '@xyflow/react';
-import { Cable, Copy, Play, Power, Settings2, Trash2 } from 'lucide-react';
+import { AlertTriangle, Cable, Copy, Play, Power, Settings2, Trash2 } from 'lucide-react';
 import { memo } from 'react';
 import { useNodeActions } from './CanvasExtras';
 import { useIssues } from './issues';
-import { countsLabel, fmt, useBusiest, useNodeRun } from './run';
+import { fmt, useIsBusiest, useNodeCounts, useNodeFailed, useNodeFailReason } from './run';
 import { useGraph } from './store';
 import { accent, ELLIPSIS, NodeIcon, tint } from './look';
 
@@ -23,8 +23,11 @@ export const NodeCard = memo(function NodeCard({ data, selected, dragging }: Nod
   const s = spec(n.type);
   const cfg = configOf(n);
   const issues = useIssues((st) => st.byNode[n.id] ?? EMPTY);
-  const run = useNodeRun(n.id);
-  const busiest = useBusiest() === n.id;
+  const kind = s.inputs(cfg).length === 0 ? 'source' : s.outputs(cfg).length === 0 ? 'sink' : 'node';
+  const counts = useNodeCounts(n.id, kind);
+  const failed = useNodeFailed(n.id);
+  const failReason = useNodeFailReason(n.id);
+  const busiest = useIsBusiest(n.id);
   const single = useGraph((st) => st.selected.length === 1);
   const shown = issues.map((i) => present(new AppError(i.code, i.params)));
   const errors = shown.filter((p) => p.severity === 'error');
@@ -70,7 +73,7 @@ export const NodeCard = memo(function NodeCard({ data, selected, dragging }: Nod
           <span className={`text-[13.5px] font-semibold text-ink ${ELLIPSIS}`}>{labelOf(n)}</span>
           {/* SIM-17: live counts replace the summary while a run exists (board W09i). */}
           <span className={`font-mono text-[10.5px] text-muted tabular-nums ${ELLIPSIS}`}>
-            {run ? countsLabel(run, ins.length === 0) : s.summary(cfg)}
+            {counts ?? s.summary(cfg)}
           </span>
         </span>
         {/* Screen readers: the problems in words (never colour alone). */}
@@ -115,15 +118,8 @@ export const NodeCard = memo(function NodeCard({ data, selected, dragging }: Nod
         ))}
 
         {/* SIM-18: events whose expression failed in this run (SIM-RUNTIME-EXPR), as a count with words. */}
-        {run && run.failed > 0 && (
-          <span
-            className="absolute -top-2 -left-2 flex h-5 min-w-5 items-center justify-center rounded-pill border-2 border-surface bg-orange-700 px-1 text-[11px] font-bold text-white"
-            title={`${run.failed} events failed in this node`}
-          >
-            <span aria-hidden="true">{fmt(run.failed)}</span>
-            <span className="sr-only">{fmt(run.failed)} events failed in this node</span>
-          </span>
-        )}
+        {failed > 0 && <FailedBadge n={failed} node={labelOf(n)} reason={failReason} />}
+        {busiest && <span className="sr-only">Busiest node right now.</span>}
         {errors.length > 0 && (
           <span
             aria-hidden="true"
@@ -207,5 +203,25 @@ function Toolbar({ node }: { node: PipelineNode }) {
         <Trash2 size={16} aria-hidden="true" />
       </Button>
     </div>
+  );
+}
+
+/**
+ * SIM-18 badge: the count of events whose expression failed, with an icon (never colour alone); the words come from
+ * the catalog (SIM-RUNTIME-EXPR) for screen readers and the tooltip.
+ */
+function FailedBadge({ n, node, reason }: { n: number; node: string; reason: string }) {
+  const words = present(
+    new AppError('SIM-RUNTIME-EXPR', { n: fmt(n), node, reason: reason || 'the expression failed' }),
+  ).message;
+  return (
+    <span
+      className="absolute -top-2 -left-2 flex h-5 items-center gap-0.5 rounded-pill border-2 border-surface bg-orange-700 px-1 text-[11px] font-bold text-white"
+      title={words}
+    >
+      <AlertTriangle size={10} aria-hidden="true" />
+      <span aria-hidden="true">{fmt(n)}</span>
+      <span className="sr-only">{words}</span>
+    </span>
   );
 }

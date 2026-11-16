@@ -870,6 +870,7 @@ export function createRun(g: Graph, opts: RunOptions = {}): Run {
     if (id === opts.tap) (tapped.input[port] ??= []).push(ev.data);
     ops.get(id)?.process(port, ev, from);
   };
+  const deadLetters = order.filter((n) => n.type === 'Dead-letter').map((n) => n.id);
   for (const n of order) {
     const st = ns(n.id);
     const t = n.type;
@@ -882,6 +883,8 @@ export function createRun(g: Graph, opts: RunOptions = {}): Run {
         st.failed++;
         if (stats.deadLetter.length < keep) stats.deadLetter.push({ node: n.id, reason, data: ev.data });
         log({ kind: 'fail', node: n.id, at: stats.now, ts: ev.ts, watermark: st.watermark, reason });
+        // SIM-RUNTIME-EXPR: "They were sent to Dead-letter" — every Dead-letter node receives the event.
+        for (const d of deadLetters) receive(d, 'main', { ...ev, reason }, n.id);
       },
       late: (ev) => {
         st.late++;

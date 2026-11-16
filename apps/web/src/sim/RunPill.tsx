@@ -16,7 +16,7 @@ const n = (x: number) => x.toLocaleString('en-US');
 export function RunPill() {
   const all = useIssues((s) => s.all);
   const blocker = runBlocker(all);
-  const { state, speed, stats, crash, slow } = useRun();
+  const { state, speed, stats, crash, slow, stale } = useRun();
   const toast = useToast();
   const speedId = useId();
 
@@ -26,16 +26,22 @@ export function RunPill() {
   useEffect(() => {
     if (slow === null) return;
     const p = present(new AppError('SIM-SLOW', { speed: `${slow}×` }));
+    const i = SPEEDS.indexOf(slow as never);
     toast({
       severity: p.severity,
       message: p.message,
-      action: {
-        label: 'Lower speed',
-        onClick: () => runner.speed(SPEEDS[Math.max(0, SPEEDS.indexOf(slow as never) - 1)]!),
-      },
+      // Nothing to lower at the lowest speed.
+      ...(i > 0 ? { action: { label: 'Lower speed', onClick: () => runner.speed(SPEEDS[i - 1]!) } } : {}),
     });
     useRun.setState({ slow: null });
   }, [slow, toast]);
+
+  // SIM-RUN-CHANGED: an edit (or undo/redo) during a run paused it; the next Run starts over.
+  useEffect(() => {
+    if (!stale) return;
+    const p = present(new AppError('SIM-RUN-CHANGED'));
+    toast({ severity: p.severity, message: p.message, action: { label: 'Run again', onClick: runner.play } });
+  }, [stale, toast]);
 
   const processed = stats?.processed ?? 0;
   const total = stats?.total ?? 0;
@@ -51,12 +57,21 @@ export function RunPill() {
           : blocker
             ? 'Not ready'
             : 'Ready';
+  // Screen readers hear state changes, not the event counter ticking 10×/s.
+  const announce = state === 'running' ? 'Running' : label;
   const why = blocker ? present(new AppError(blocker.code, blocker.params)).message : undefined;
 
   return (
     <div className="flex items-center gap-2 rounded-pill border border-line bg-surface py-1 pr-1 pl-3.5 shadow-card">
-      <span role="status" className="text-[13px] font-medium whitespace-nowrap text-muted tabular-nums">
+      <span
+        aria-hidden="true"
+        data-run-label
+        className="text-[13px] font-medium whitespace-nowrap text-muted tabular-nums"
+      >
         {label}
+      </span>
+      <span role="status" className="sr-only">
+        {announce}
       </span>
       {state === 'running' ? (
         <Button size="sm" icon={<Pause size={14} aria-hidden="true" />} onClick={runner.pause}>
@@ -70,7 +85,7 @@ export function RunPill() {
           onClick={runner.play}
           {...(why ? { disabledReason: why } : {})}
         >
-          {state === 'paused' ? 'Resume' : state === 'finished' ? 'Run again' : 'Run'}
+          {state === 'paused' && !stale ? 'Resume' : state === 'finished' || stale ? 'Run again' : 'Run'}
         </Button>
       )}
       {(state === 'ready' || state === 'paused') && (

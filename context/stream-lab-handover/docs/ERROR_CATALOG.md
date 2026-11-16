@@ -156,6 +156,7 @@ Total: **138 codes** (128 from the handover + `CONN-SSH-HOSTKEY`, `API-4XX`, `CO
 | `SIM-RUN-BLOCKED` | Run pressed while errors exist | Problems count | error | Run button tooltip + Problems tab opens | Fix {n} error(s) to run. | Go to first error | WX02 |
 | `SIM-ENGINE-CRASH` | Worker throws or runs out of memory | worker.onerror / onmessageerror / heartbeat miss 3 s | error | dialog | The simulator stopped at event {n}: {reason}. Your pipeline is safe. | Reload simulator, Copy details | WX03 |
 | `SIM-SLOW` | Events/s below 20% of target for 5 s | Engine stats | info | toast | Running slower than {speed}. Try fewer events. | Lower speed | W09i |
+| `SIM-RUN-CHANGED` | The pipeline is edited, undone or redone during a run | Graph store change while a run exists (SIMULATOR.md "Undo while running → pauses run first") | info | toast | The pipeline changed, so the run paused. Run again to use your changes. | Run again | W09i |
 | `SIM-RUNTIME-EXPR` | Expression throws at runtime for an event (e.g. divide by zero, null field) | Engine try/catch per event | warning | node badge count + Problems row + event marked in Timeline | {n} events failed in {node}: {reason}. They were sent to Dead-letter. | Show events | W09l |
 | `SIM-DELETE-UNDO` | Node(s) deleted | User action | success | toast with Undo (8 s) | Deleted {n} node(s). | Undo | W09n |
 | `SIM-UNDO-EMPTY` | Undo with no history | History stack | info | button disabled + tooltip | Nothing to undo. | — | W09m |

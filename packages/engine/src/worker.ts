@@ -20,6 +20,9 @@ const stop = () => {
   timer = null;
 };
 
+// SIM-ENGINE-CRASH: the page treats 3 s without this as a crash (an engine stuck in a loop sends nothing).
+setInterval(() => self.postMessage({ type: 'beat' } satisfies DriverMessage), 1000);
+
 self.onmessage = (e: MessageEvent<WorkerCommand>) => {
   const c = e.data;
   if (c.type === 'load') {

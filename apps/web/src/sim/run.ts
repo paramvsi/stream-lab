@@ -5,7 +5,9 @@ import { useGraph } from './store';
 
 /**
  * Run store (ARCHITECTURE: separate from the graph store, not in undo history) and the Worker client.
- * The run uses a snapshot of the pipeline taken when it starts; Reset takes a new one.
+ * A run uses the pipeline as it was when it started. Changing the pipeline during a run (an edit, undo,
+ * redo) pauses it and marks it stale (SIMULATOR.md "Undo while running → pauses run first"); the next Run
+ * starts over on the current pipeline (SIM-RUN-CHANGED).
  */
 export interface RunStore {
   state: RunState;
@@ -14,58 +16,114 @@ export interface RunStore {
   crash: { n: number; reason: string } | null;
   /** SIM-SLOW: the speed that could not be kept up, until the toast is shown. */
   slow: number | null;
+  /** The pipeline changed since this run started. */
+  stale: boolean;
+  /** SIM-17: the node with most events in (computed once per stats message). */
+  busiest: string | null;
 }
-const initial: RunStore = { state: 'ready', speed: 1, stats: null, crash: null, slow: null };
+const initial: RunStore = {
+  state: 'ready',
+  speed: 1,
+  stats: null,
+  crash: null,
+  slow: null,
+  stale: false,
+  busiest: null,
+};
 export const useRun = create<RunStore>(() => initial);
 
 // SIM-16 speeds. MORNING D19: the board shows 1× / 4× / 16×, SIM-16 says 0.25×–10×; these stay in that range.
 export const SPEEDS = [0.25, 1, 4, 10] as const;
 
+const HEARTBEAT_MISS_MS = 3000; // catalog SIM-ENGINE-CRASH: heartbeat miss 3 s
+
 let worker: Worker | null = null;
 let loaded = false;
+let loadedSig: unknown[] = [];
+let lastSeen = 0;
+let watchdog: ReturnType<typeof setInterval> | null = null;
+
+const crash = (reason: string) => {
+  useRun.setState((s) => ({ state: 'crashed', crash: { n: s.stats?.processed ?? 0, reason } }));
+  dispose();
+};
+
+function busiestOf(stats: RunStats): string | null {
+  let best: string | null = null;
+  let most = 0;
+  for (const [id, n] of Object.entries(stats.nodes))
+    if (n.in > most) {
+      most = n.in;
+      best = id;
+    }
+  return best;
+}
 
 function connect(): Worker {
   if (worker) return worker;
   const w = new RunWorker();
+  lastSeen = Date.now();
   w.onmessage = (e: MessageEvent<DriverMessage>) => {
+    lastSeen = Date.now();
     const m = e.data;
-    if (m.type === 'stats') useRun.setState({ state: m.state, speed: m.speed, stats: m.stats });
+    if (m.type === 'beat') return;
+    if (m.type === 'stats')
+      useRun.setState({ state: m.state, speed: m.speed, stats: m.stats, busiest: busiestOf(m.stats) });
     else if (m.type === 'slow') useRun.setState({ slow: m.speed });
     else useRun.setState({ state: 'crashed', crash: { n: m.n, reason: m.reason } });
   };
   // Out of memory or an uncaught error kills the worker: SIM-ENGINE-CRASH, the pipeline is untouched.
   w.onerror = (e) => {
     e.preventDefault();
-    useRun.setState((s) => ({
-      state: 'crashed',
-      crash: { n: s.stats?.processed ?? 0, reason: 'the engine ran out of memory or hit an internal error' },
-    }));
-    dispose();
+    crash('the engine ran out of memory or hit an internal error');
   };
+  w.onmessageerror = () => crash('a message from the engine could not be read');
+  // A worker stuck in a loop sends nothing: 3 s without its 1 s heartbeat is a crash.
+  watchdog = setInterval(() => {
+    if (Date.now() - lastSeen > HEARTBEAT_MISS_MS) crash('the engine stopped responding');
+  }, 1000);
   worker = w;
   return w;
 }
+
+/** What a run depends on: node types, settings, disabled flags and edges (not positions). */
+const signature = (): unknown[] => {
+  const { nodes, edges } = useGraph.getState();
+  return [edges, ...nodes.flatMap((n) => [n.id, n.type, n.config, n.disabled ?? false])];
+};
+const sameSig = (a: unknown[], b: unknown[]) => a.length === b.length && a.every((x, i) => x === b[i]);
 
 function load() {
   const { nodes, edges } = useGraph.getState();
   connect().postMessage({ type: 'load', graph: { nodes, edges }, opts: {} });
   connect().postMessage({ type: 'speed', speed: useRun.getState().speed });
   loaded = true;
+  loadedSig = signature();
+  useRun.setState({ stale: false });
 }
+
+// A change to the pipeline during a run: pause, and start over on the next Run.
+useGraph.subscribe(() => {
+  if (!loaded || useRun.getState().stale || sameSig(signature(), loadedSig)) return;
+  if (useRun.getState().state === 'running') worker?.postMessage({ type: 'pause' });
+  useRun.setState({ stale: true });
+});
 
 export const runner = {
   play() {
-    if (!loaded || useRun.getState().state === 'finished') load();
+    const { state, stale } = useRun.getState();
+    if (!loaded || stale || state === 'finished') load();
     connect().postMessage({ type: 'play' });
   },
   pause: () => worker?.postMessage({ type: 'pause' }),
   step() {
-    if (!loaded) load();
+    if (!loaded || useRun.getState().stale) load();
     connect().postMessage({ type: 'step' });
   },
+  /** Back to Ready: the next Run or Step loads the pipeline as it is then. */
   reset() {
-    load();
-    useRun.setState({ stats: null });
+    loaded = false;
+    useRun.setState({ state: 'ready', stats: null, stale: false, busiest: null });
   },
   speed(speed: number) {
     useRun.setState({ speed });
@@ -81,36 +139,40 @@ export const runner = {
 export function dispose() {
   worker?.terminate();
   worker = null;
+  if (watchdog) clearInterval(watchdog);
+  watchdog = null;
   loaded = false;
-  useRun.setState({ ...initial, crash: useRun.getState().crash });
+  useRun.setState({ ...initial, speed: useRun.getState().speed, crash: useRun.getState().crash });
 }
 
 const fmt = (x: number) => x.toLocaleString('en-US');
+export { fmt };
 
-/** SIM-17: live counts for one node while a run exists (null when idle). */
-export const useNodeRun = (id: string) =>
-  useRun((s) => (s.state !== 'ready' ? (s.stats?.nodes[id] ?? null) : null));
+const live = (s: RunStore) => s.state !== 'ready' && s.stats !== null;
 
-/** SIM-17: the busiest non-source node (most events in), which glows while running. */
-export const useBusiest = () =>
+/**
+ * SIM-17 count label for a node while a run exists, as on board W09i: "out" is the main output (side outputs show
+ * on their edges); a source shows in = out; a sink or dead letter shows what it wrote. A string, so nodes
+ * re-render only when it changes.
+ */
+export const useNodeCounts = (id: string, kind: 'source' | 'sink' | 'node') =>
   useRun((s) => {
-    if (s.state !== 'running' || !s.stats) return null;
-    let best: string | null = null;
-    let most = 0;
-    for (const [id, n] of Object.entries(s.stats.nodes))
-      if (n.in > most) {
-        most = n.in;
-        best = id;
-      }
-    return best;
+    const n = live(s) ? s.stats!.nodes[id] : undefined;
+    if (!n) return null;
+    const main = n.out['main'] ?? Object.values(n.out)[0] ?? 0;
+    const [i, o] = kind === 'source' ? [main, main] : kind === 'sink' ? [n.in, n.in] : [n.in, main];
+    return `in ${fmt(i)} · out ${fmt(o)}`;
   });
 
-/** SIM-17: events that crossed one edge, or null when idle. */
-export const useEdgeCount = (id: string) =>
-  useRun((s) => (s.state !== 'ready' ? (s.stats?.edges[id] ?? 0) : null));
+/** SIM-18: events whose expression failed in this node during the run (0 when idle). */
+export const useNodeFailed = (id: string) => useRun((s) => (live(s) ? (s.stats!.nodes[id]?.failed ?? 0) : 0));
 
-export const countsLabel = (n: { in: number; out: Record<string, number> }, source: boolean) => {
-  const out = Object.values(n.out).reduce((a, b) => a + b, 0);
-  return source ? `out ${fmt(out)}` : `in ${fmt(n.in)} · out ${fmt(out)}`;
-};
-export { fmt };
+/** The first failure reason for a node (catalog SIM-RUNTIME-EXPR {reason}). */
+export const useNodeFailReason = (id: string) =>
+  useRun((s) => s.stats?.deadLetter.find((d) => d.node === id)?.reason ?? '');
+
+/** SIM-17: true for the busiest node while running. */
+export const useIsBusiest = (id: string) => useRun((s) => s.state === 'running' && s.busiest === id);
+
+/** SIM-17: events that crossed one edge, or null when idle. */
+export const useEdgeCount = (id: string) => useRun((s) => (live(s) ? (s.stats!.edges[id] ?? 0) : null));

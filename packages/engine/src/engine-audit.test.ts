@@ -285,3 +285,23 @@ describe('engine audit · driver', () => {
     expect(d.speed).toBeGreaterThan(0);
   });
 });
+
+describe('run audit · dead letter', () => {
+  it('events whose expression failed reach the Dead-letter node, with the reason (SIM-RUNTIME-EXPR)', () => {
+    const g: Graph = {
+      nodes: [
+        node('src', 'Source', { schema: SCHEMA, outOfOrdernessMs: 0 }),
+        node('f', 'Filter', { expr: 'amount > 5.0' }),
+        node('out', 'Sink'),
+        node('dlq', 'Dead-letter'),
+      ],
+      edges: [edge('src', 'f'), edge('f', 'out')],
+    };
+    const r = createRun(g, { sourceData: { src: [row(0, 'c_1', 10), row(1, 'c_1', null)] } });
+    r.advance(Infinity);
+    const dl = r.stats().outputs['dlq']!;
+    expect(dl).toHaveLength(1);
+    expect(dl[0]!['amount']).toBeNull();
+    expect(String(dl[0]!['reason'])).not.toBe('');
+  });
+});

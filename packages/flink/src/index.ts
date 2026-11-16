@@ -7,3 +7,4 @@ export * from './connection';
 export * from './poll';
 export * from './kinds';
 export * from './fleet';
+export * from './capabilities';

@@ -5,6 +5,12 @@ import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 import { Fleet } from './Fleet';
 
+// jsdom drives requestAnimationFrame from its own timer, which a test's fake timers replace and do not give
+// back: later tests' banners (filled on the next frame) would never fill. Frames on setTimeout follow the
+// timers in use, fake or real.
+globalThis.requestAnimationFrame = (cb) => setTimeout(() => cb(performance.now()), 0) as unknown as number;
+globalThis.cancelAnimationFrame = (id) => clearTimeout(id);
+
 const conn = (name: string, env: Connection['env'] = 'prod'): Connection => ({
   id: `c-${name}`,
   name,
@@ -349,5 +355,35 @@ describe('audit of 7a0933d', () => {
     } finally {
       hidden.mockRestore();
     }
+  });
+});
+
+describe('CONN-07 what works on this cluster (board C05)', () => {
+  const at =
+    (version: string): FlinkHttp =>
+    async (req) =>
+      req.path === '/config' ? ok({ 'flink-version': version }) : healthy(1)(req);
+  it('a 1.18 cluster: CONN-VERSION-OLD first, its column marked "This cluster", each cell in words', async () => {
+    show([conn('flink-legacy')], () => at('1.18.1'));
+    const c = card('flink-legacy');
+    await userEvent.click(await within(c).findByRole('button', { name: 'What works' }));
+    const dialog = screen.getByRole('dialog', { name: 'flink-legacy · Flink 1.18.1' });
+    // The banner fills its live region a moment after the dialog opens (so it is announced).
+    expect(
+      await within(dialog).findByText(/Flink 1\.18\.1 is older than 1\.20/, {}, { timeout: 3000 }),
+    ).toBeTruthy();
+    const head = within(dialog).getByRole('columnheader', { name: /Older than 1\.20/ });
+    expect(head.textContent).toContain('This cluster');
+    const profiler = within(dialog).getByRole('row', { name: /Profiler/ });
+    expect(profiler.textContent).toBe('ProfilerNoYesYesYes');
+  });
+  it('a 2.3 cluster: no warning, the 2.3+ column is this cluster', async () => {
+    show([conn('payments-prod')], () => at('2.3.0'));
+    await userEvent.click(await within(card('payments-prod')).findByRole('button', { name: 'What works' }));
+    const dialog = screen.getByRole('dialog', { name: 'payments-prod · Flink 2.3.0' });
+    expect(within(dialog).queryByText(/is older than 1\.20/)).toBeNull();
+    expect(within(dialog).getByRole('columnheader', { name: /2\.3\+/ }).textContent).toContain(
+      'This cluster',
+    );
   });
 });

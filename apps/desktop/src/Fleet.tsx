@@ -8,11 +8,12 @@ import {
   type FlinkHttp,
   type FleetStatus,
 } from '@sl/flink';
-import { Button, Skeleton, StatusBadge, useToast, type BadgeTone } from '@sl/ui';
+import { Button, Dialog, Skeleton, StatusBadge, useToast, type BadgeTone } from '@sl/ui';
 import { List, Plus, RotateCw } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { DOT, ENV, shortAddress } from './Connections';
 import { useScreenHeading } from './focus';
+import { VersionCapabilities } from './VersionCapabilities';
 
 type Up = Extract<FleetStatus, { state: 'up' }>;
 /** What a card knows: its last good answer (kept through failures) and the failures in a row since. */
@@ -79,6 +80,7 @@ function FleetCard({
   const cur = useRef(s);
   const [round, setRound] = useState(0);
   const [retrying, setRetrying] = useState(false);
+  const [caps, setCaps] = useState(false);
   const heading = useRef<HTMLHeadingElement>(null);
   /** Retry was pressed and focus was on it: once the card answers, focus goes to its heading. */
   const retryFocused = useRef(false);
@@ -225,14 +227,30 @@ function FleetCard({
         <p className="m-0 text-[13px] text-muted">Not answering. Showing data from {ago(now - s.at)}.</p>
       )}
       <div className="flex items-center justify-between gap-3 border-t border-line pt-3 text-[13px] text-muted">
-        <span>
+        <span className="flex items-center gap-2">
           {ENV[c.env]}
           {s.last ? ` · Flink ${s.last.version}` : ''}
+          {s.last && (
+            <Button size="sm" variant="ghost" onClick={() => setCaps(true)}>
+              What works
+            </Button>
+          )}
         </span>
         <Button size="sm" disabledReason="Cluster pages come with the next milestone (M7).">
           Open
         </Button>
       </div>
+      {s.last && (
+        <Dialog
+          open={caps}
+          onOpenChange={setCaps}
+          title={`${c.name} · Flink ${s.last.version}`}
+          width={760}
+          footer={<Button onClick={() => setCaps(false)}>Close</Button>}
+        >
+          <VersionCapabilities version={s.last.version} />
+        </Dialog>
+      )}
     </li>
   );
 }

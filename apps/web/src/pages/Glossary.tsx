@@ -1,8 +1,8 @@
-import { CHAPTERS, searchTerms, termById, TERMS, type Term } from '@sl/course';
+import { CHAPTERS, CONCEPT_LINK, searchTerms, termById, TERMS, type Term } from '@sl/course';
 import { Drawer, EmptyState, Field, Input } from '@sl/ui';
-import { Link } from '@tanstack/react-router';
+import { Link, useRouterState } from '@tanstack/react-router';
 import { ExternalLink, Search } from 'lucide-react';
-import { Fragment, useState, type ReactNode } from 'react';
+import { Fragment, useEffect, useState, type ReactNode } from 'react';
 import { create } from 'zustand';
 import { SiteShell } from './SiteShell';
 
@@ -25,14 +25,17 @@ export function ConceptLink({ id, children }: { id: string; children: ReactNode 
 
 /** Text with `[[term-id|words]]` concept links (outlines.ts). */
 export function WithConcepts({ text }: { text: string }) {
-  const parts = text.split(/\[\[([a-z-]+)\|([^\]]+)\]\]/);
+  const parts = text.split(CONCEPT_LINK);
   return (
     <>
       {parts.map((p, i) =>
-        i % 3 === 1 ? (
+        // An id that is not a term stays plain words (glossary.test checks every link resolves).
+        i % 3 === 1 && termById(p) ? (
           <ConceptLink key={i} id={p}>
             {parts[i + 1]}
           </ConceptLink>
+        ) : i % 3 === 1 ? (
+          <Fragment key={i}>{parts[i + 1]}</Fragment>
         ) : i % 3 === 2 ? null : (
           <Fragment key={i}>{p}</Fragment>
         ),
@@ -44,6 +47,9 @@ export function WithConcepts({ text }: { text: string }) {
 /** W06d: the concept drawer, over whatever page opened it. */
 export function ConceptDrawer() {
   const id = useConcept((s) => s.id);
+  // A concept belongs to the page that opened it: Back, Forward or a link elsewhere closes it.
+  const path = useRouterState({ select: (r) => r.location.pathname });
+  useEffect(() => useConcept.setState({ id: null }), [path]);
   const t = id ? termById(id) : undefined;
   const chapter = t?.chapter ? CHAPTERS.find((c) => c.id === t.chapter) : undefined;
   return (
@@ -126,26 +132,28 @@ export function Glossary() {
           />
         </Field>
       </div>
-      {searching ? (
-        <p role="status" className="m-0 text-[14px] text-muted">
-          {found.length} {found.length === 1 ? 'result' : 'results'}
-        </p>
-      ) : (
+      {/* Always there (empty when not searching), so the first count is announced too. */}
+      <p role="status" className={searching ? 'm-0 text-[14px] text-muted' : 'sr-only'}>
+        {searching ? `${found.length} ${found.length === 1 ? 'result' : 'results'}` : ''}
+      </p>
+      {!searching && (
         <nav aria-label="Letters" className="flex flex-wrap gap-x-4 font-mono text-[13px]">
           {[...'ABCDEFGHIJKLMNOPQRSTUVWXYZ'].map((l) =>
             letters.has(l) ? (
-              <a
+              // A button: under hash routing an href="#letter-S" would be the route /letter-S.
+              <button
                 key={l}
-                href={`#letter-${l}`}
-                onClick={(e) => {
-                  e.preventDefault(); // hash routing: scroll, do not navigate
-                  document.getElementById(`letter-${l}`)?.scrollIntoView();
-                  document.getElementById(`letter-${l}`)?.focus();
+                type="button"
+                aria-label={`Terms starting with ${l}`}
+                onClick={() => {
+                  const el = document.getElementById(`letter-${l}`);
+                  el?.scrollIntoView();
+                  el?.focus();
                 }}
-                className="sl-focus rounded-sm text-ink no-underline hover:text-rose-700"
+                className="sl-focus rounded-sm text-ink hover:text-rose-700"
               >
                 {l}
-              </a>
+              </button>
             ) : (
               <span key={l} aria-hidden="true" className="text-muted">
                 {l}
@@ -189,7 +197,7 @@ function Card({ t, first }: { t: Term; first: boolean }) {
     <li
       id={first ? `letter-${letter}` : undefined}
       tabIndex={first ? -1 : undefined}
-      className="outline-none"
+      className="rounded-xl outline-none focus-visible:ring-2 focus-visible:ring-rose-600"
     >
       <button
         type="button"

@@ -43,3 +43,13 @@ for (const [ua, name, others] of [
     });
   });
 }
+
+test('LAND-03 audit 2: picking another platform by keyboard moves focus to its heading', async ({ page }) => {
+  await page.goto('/#/download');
+  const first = page.getByRole('region', { name: 'Other platforms' }).getByRole('button').first();
+  const name = (await first.locator('span').first().innerText()).trim();
+  await first.focus();
+  await page.keyboard.press('Enter');
+  await expect(page.getByRole('heading', { level: 1 })).toHaveText(`Stream Lab for ${name}`);
+  await expect(page.getByRole('heading', { level: 1 })).toBeFocused();
+});

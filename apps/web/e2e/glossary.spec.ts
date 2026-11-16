@@ -14,7 +14,7 @@ test('LEARN-04 the glossary: every term A–Z, letters that have terms; search b
   await page.goto('/#/glossary');
   await expect(page.getByRole('heading', { level: 1, name: 'Flink concepts, in plain words' })).toBeVisible();
   await expect(cards(page).first()).toContainText('Allowed lateness');
-  await expect(page.getByRole('navigation', { name: 'Letters' }).getByRole('link')).toHaveText([
+  await expect(page.getByRole('navigation', { name: 'Letters' }).getByRole('button')).toHaveText([
     'A',
     'B',
     'C',
@@ -63,4 +63,23 @@ test('LEARN-04 a concept opens in a drawer over the chapter, without leaving it;
   await expect(d).toHaveCount(0);
   await expect(link).toBeFocused();
   expect(page.url()).toBe(url);
+});
+
+// ---- Audit of 6a688ce / ae5e9d4 ----
+test('LEARN-04 audit 1+3+8: Back closes the concept; the count region is there before typing; letters jump without a route', async ({
+  page,
+}) => {
+  await page.goto('/#/learn');
+  await page.goto('/#/learn/watermarks');
+  await page.getByRole('button', { name: 'watermark', exact: true }).click();
+  await expect(page.getByRole('dialog', { name: 'Concept' })).toBeVisible();
+  await page.goBack();
+  await expect(page.getByRole('heading', { level: 1, name: 'Apache Flink®, hands on' })).toBeVisible();
+  await expect(page.getByRole('dialog', { name: 'Concept' })).toHaveCount(0);
+  await page.goto('/#/glossary');
+  await expect(page.getByRole('status')).toHaveCount(1); // empty, waiting for the first count
+  const url = page.url();
+  await page.getByRole('button', { name: 'Terms starting with S' }).click();
+  expect(page.url()).toBe(url);
+  await expect(page.locator('#letter-S')).toBeFocused();
 });

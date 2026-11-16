@@ -33,6 +33,11 @@ describe('LEARN-04 concept links in the chapters', () => {
       ),
     );
     expect(links.length).toBeGreaterThan(0);
+    // Every "[[" is a link the parser reads (a malformed one would show as raw brackets).
+    const opened = Object.values(CONTENT).flatMap((c) =>
+      c.sections.flatMap((s) => s.points.flatMap((p) => p.split('[[').length - 1)),
+    );
+    expect(opened.reduce((a, b) => a + b, 0)).toBe(links.length);
     for (const id of links) expect(termById(id), id).toBeDefined();
   });
 });

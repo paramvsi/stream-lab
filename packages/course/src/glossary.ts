@@ -25,7 +25,7 @@ export const TERMS: Term[] = [
     name: 'Allowed lateness',
     aliases: ['lateness', 'late data'],
     short: 'How long a window waits for late events after it fires.',
-    body: 'After a window fires, events for it can still arrive. Allowed lateness keeps the window around for that long: a late event updates the result instead of being dropped. Later still, it is dropped (or sent to a side output).',
+    body: 'In the DataStream API, a window can wait after it fires: a late event within the allowed lateness updates the result instead of being dropped. Flink SQL window functions have no allowed lateness: rows behind the watermark are dropped.',
     related: ['watermark', 'event-time'],
     chapter: 'watermarks',
     docs: `${DOCS}/dev/datastream/operators/windows/#allowed-lateness`,
@@ -44,7 +44,7 @@ export const TERMS: Term[] = [
     name: 'Checkpoint',
     aliases: ['snapshot', 'exactly-once'],
     short: 'A consistent snapshot of all state, taken automatically.',
-    body: 'Flink regularly takes a consistent snapshot of every operator’s state and the sources’ positions. After a failure, the job restarts from the last one, so each event affects the state exactly once.',
+    body: 'When checkpointing is enabled, Flink regularly takes a consistent snapshot of every operator’s state and the sources’ positions. After a failure the job restarts from the last one; in exactly-once mode each event affects Flink’s state once. End to end it also needs a replayable source and a transactional or idempotent sink.',
     related: ['savepoint', 'backpressure'],
     docs: `${DOCS}/concepts/stateful-stream-processing/#checkpointing`,
   },
@@ -53,7 +53,7 @@ export const TERMS: Term[] = [
     name: 'Event time',
     aliases: ['rowtime', 'time attribute'],
     short: 'The time an event happened, carried in the event.',
-    body: 'Event time is the timestamp in the event itself: when the payment was made, not when the pipeline read it. Results computed on event time are the same on every replay.',
+    body: 'Event time is the timestamp in the event itself: when the payment was made, not when the pipeline read it. Results depend on the data, not on when the job ran (which events count as late can still depend on how parallel inputs interleave).',
     sql: "WATERMARK FOR ts AS ts - INTERVAL '5' SECOND",
     related: ['watermark', 'processing-time'],
     chapter: 'event-time',
@@ -103,8 +103,8 @@ export const TERMS: Term[] = [
     name: 'Session window',
     aliases: ['session', 'gap'],
     short: 'A window that closes after a gap of inactivity.',
-    body: 'A session window groups a key’s events until no event arrives for the gap. Its length depends on the data: a busy card has long sessions, a quiet one short ones.',
-    sql: "SESSION(TABLE payments PARTITION BY card_id, DESCRIPTOR(ts), INTERVAL '10' MINUTES)",
+    body: 'A session window groups a key’s events until no event arrives for the gap. Its length depends on the data: a busy card has long sessions, a quiet one short ones. The SESSION table function needs Flink 1.19 or later.',
+    sql: "SELECT card_id, window_start, window_end, COUNT(*) FROM TABLE(SESSION(TABLE payments PARTITION BY card_id, DESCRIPTOR(ts), INTERVAL '10' MINUTES)) GROUP BY card_id, window_start, window_end",
     related: ['watermark'],
     chapter: 'windows',
     docs: `${DOCS}/dev/table/sql/queries/window-tvf/#session`,
@@ -141,6 +141,9 @@ export const TERMS: Term[] = [
 ];
 
 export const termById = (id: string) => TERMS.find((t) => t.id === id);
+
+/** A concept link in chapter text: `[[term-id|words]]` (ids are lower-case words joined by hyphens). */
+export const CONCEPT_LINK = /\[\[([a-z-]+)\|([^\]]+)\]\]/;
 
 /** W06b: terms whose name or an alias contains the query (case and accents ignored), names first. */
 export function searchTerms(q: string): Term[] {

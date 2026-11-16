@@ -1,6 +1,6 @@
 import { Banner, Button } from '@sl/ui';
 import { Download as DownloadIcon } from 'lucide-react';
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { detectOs, PLATFORMS, RELEASE, type Os } from './platforms';
 import { REPO, SiteShell } from './SiteShell';
 
@@ -13,13 +13,23 @@ const nav = navigator as Navigator & { userAgentData?: { platform?: string } };
  */
 export function DownloadPage() {
   const [os, setOs] = useState<Os>(() => detectOs(nav.userAgentData?.platform, navigator.userAgent));
+  // Picking another platform removes its button from the list: focus moves to the new heading, which says it.
+  const h1 = useRef<HTMLHeadingElement>(null);
+  const picked = useRef(false);
+  useEffect(() => {
+    if (picked.current) h1.current?.focus();
+  }, [os]);
   const p = PLATFORMS[os];
   const file = RELEASE?.files[os];
   return (
     <SiteShell grid docTitle="Desktop app">
       <div className="flex flex-col items-center gap-4 pt-6 text-center">
         <p className="m-0 text-[12px] font-medium tracking-[0.04em] text-muted uppercase">Desktop app</p>
-        <h1 className="m-0 text-[44px] leading-[1.1] font-bold tracking-[-0.03em]">
+        <h1
+          ref={h1}
+          tabIndex={-1}
+          className="m-0 text-[44px] outline-none leading-[1.1] font-bold tracking-[-0.03em]"
+        >
           Stream Lab for {p.name}
         </h1>
         <p className="m-0 text-[17px] text-muted">
@@ -90,7 +100,10 @@ export function DownloadPage() {
               <li key={o}>
                 <button
                   type="button"
-                  onClick={() => setOs(o)}
+                  onClick={() => {
+                    picked.current = true;
+                    setOs(o);
+                  }}
                   className="sl-focus flex w-full flex-col gap-1 rounded-xl border border-line bg-surface px-4 py-3 text-left hover:bg-subtle"
                 >
                   <span className="text-[16px] font-semibold text-ink">{PLATFORMS[o].name}</span>

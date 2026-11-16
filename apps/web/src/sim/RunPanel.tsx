@@ -198,13 +198,15 @@ function Output({ stats }: { stats: RunStats | null }) {
           </select>
         </label>
       )}
-      {current.type === 'Sink' && (
+      {current.id !== RUN_DEAD && (current.type === 'Sink' || current.type === 'Dead-letter') && (
         <p className="m-0 text-[13px] text-muted">Pick a row to trace how it got here.</p>
       )}
       <Events
         key={current.id}
         arrive
-        {...(current.type === 'Sink' ? { onSelect: (i: number) => void startTrace(current.id, i) } : {})}
+        {...(current.id !== RUN_DEAD && (current.type === 'Sink' || current.type === 'Dead-letter')
+          ? { onSelect: (i: number) => void startTrace(current.id, i) }
+          : {})}
         rows={rows}
         label={`Output of ${labelOf(current)}`}
         empty="Nothing reached this sink."

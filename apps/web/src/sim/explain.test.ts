@@ -98,3 +98,77 @@ describe('EXPL-02 explain: the path of one output row, told with its values', ()
     expect(explainPath(g, t, 'out', 99)).toEqual([]);
   });
 });
+
+describe('EXPL-02 audit: narration says what really happened', () => {
+  const src = node(
+    's',
+    'Source',
+    { name: 'payments', schema: PAYMENTS, eventTime: 'event_time', outOfOrdernessMs: 5000, idleTimeoutMs: 0 },
+    'payments',
+  );
+  const run = (
+    g: { nodes: PipelineNode[]; edges: ReturnType<typeof edge>[] },
+    rows: ReturnType<typeof pay>[],
+  ) => {
+    const r = createRun(g, { sourceData: { s: rows }, trace: true, refTables: {} });
+    r.advance(Infinity);
+    return r.trace()!;
+  };
+  it('a filtered-out event, set aside, is not said to pass', () => {
+    const g = {
+      nodes: [
+        src,
+        node('f', 'Filter', { expr: 'amount > 10.0' }, 'Big'),
+        node('d', 'Dead-letter', { reasonField: 'reason', retentionMs: 0 }, 'Aside'),
+      ],
+      edges: [edge('s', 'f'), edge('f', 'd', 'rejected')],
+    };
+    const steps = explainPath(g, run(g, [pay(1, 'c_1', 5)]), 'd', 0);
+    expect(steps[1]!.title).toBe('It is filtered out');
+  });
+  it('a failed rule is named, not "all passed"', () => {
+    const g = {
+      nodes: [
+        src,
+        node(
+          'v',
+          'Validate',
+          { rules: [{ name: 'positive', expr: 'amount > 0.0', severity: 'error' }] },
+          'Rules',
+        ),
+        node('d', 'Dead-letter', { reasonField: 'reason', retentionMs: 0 }, 'Aside'),
+      ],
+      edges: [edge('s', 'v'), edge('v', 'd', 'rejected')],
+    };
+    const steps = explainPath(g, run(g, [pay(1, 'c_1', -3)]), 'd', 0);
+    expect(steps[1]!.text).toBe('Rule positive fails, so it is set aside.');
+  });
+  it('a lookup miss that passes on is not "joined"', () => {
+    const g = {
+      nodes: [
+        src,
+        node(
+          'l',
+          'Lookup',
+          { table: 'merchants', key: 'merchant_id', tableKey: 'merchant_id', asOf: false, onMiss: 'pass' },
+          'Merchant',
+        ),
+        node('out', 'Sink', { name: 'o', format: 'json', key: '' }, 'Out'),
+      ],
+      edges: [edge('s', 'l'), edge('l', 'out')],
+    };
+    const rows = [{ ...pay(1, 'c_1', 5), merchant_id: 'm_zzz_unknown' }];
+    expect(explainPath(g, run(g, rows), 'out', 0)[1]!.title).toBe('No match');
+  });
+  it('a disabled node is said to be disabled', () => {
+    const g = {
+      nodes: [
+        src,
+        { ...node('f', 'Filter', { expr: 'amount > 1000.0' }, 'Big'), disabled: true },
+        node('out', 'Sink', { name: 'o', format: 'json', key: '' }, 'Out'),
+      ],
+      edges: [edge('s', 'f'), edge('f', 'out')],
+    };
+    expect(explainPath(g, run(g, [pay(1, 'c_1', 5)]), 'out', 0)[1]!.title).toBe('Big is disabled');
+  });
+});

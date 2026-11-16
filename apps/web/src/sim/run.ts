@@ -1,4 +1,4 @@
-import type { ChaosReport, DriverMessage, Event, RunState, RunStats } from '@sl/engine';
+import type { ChaosReport, DriverMessage, Event, RunOptions, RunState, RunStats } from '@sl/engine';
 import RunWorker from '@sl/engine/worker?worker';
 import { create } from 'zustand';
 import {
@@ -7,6 +7,7 @@ import {
   labelOf,
   runBlocker,
   validate,
+  type Graph,
   type PipelineNode,
   type Schema,
 } from '@sl/graph';
@@ -174,23 +175,42 @@ export async function uploadedRows(
   return { sourceData, unused };
 }
 
+/** What the live run was loaded with (EXPL-02/03 replay it exactly), and whether Chaos changed it since. */
+let loadedRun: { graph: Graph; opts: RunOptions } | null = null;
+let chaosUsed = false;
+
+/** Explain / Trace may replay only the run that is shown; otherwise the reason (EXPLAIN-UNAVAILABLE). */
+export const EXPLAIN_MAX_EVENTS = 200_000;
+export function replaySource(): { graph: Graph; opts: RunOptions } | { reason: string } {
+  const r = useRun.getState();
+  if (!loadedRun || r.state === 'ready' || !r.stats) return { reason: 'run the pipeline first' };
+  if (r.stale) return { reason: 'the pipeline changed since this run; run it again' };
+  if (chaosUsed)
+    return { reason: "this run has Chaos events, which a replay can't repeat; run it again without Chaos" };
+  if (r.stats.total > EXPLAIN_MAX_EVENTS)
+    return {
+      reason: `this run has ${r.stats.total.toLocaleString('en-US')} events; explain works up to ${EXPLAIN_MAX_EVENTS.toLocaleString('en-US')}`,
+    };
+  return loadedRun;
+}
+
 async function load() {
   const { nodes, edges, seed, data, pipelineId } = useGraph.getState();
   const sig = signature();
   const refTables = useRefTables.getState().user; // read with the signature, not after the await
   const { sourceData, unused } = await uploadedRows(pipelineId, nodes, data);
   useRun.setState({ unused });
-  connect().postMessage({
-    type: 'load',
-    graph: { nodes, edges },
-    // The same settings the Data drawer shows (invalid stored values fall back field by field).
-    opts: {
-      seed,
-      sourceData,
-      generator: effectiveGenerator(data.generator, seed),
-      refTables, // DATA-03 imported tables
-    },
-  });
+  const graph = { nodes, edges };
+  // The same settings the Data drawer shows (invalid stored values fall back field by field).
+  const opts: RunOptions = {
+    seed,
+    sourceData,
+    generator: effectiveGenerator(data.generator, seed),
+    refTables,
+  };
+  loadedRun = { graph, opts };
+  chaosUsed = false;
+  connect().postMessage({ type: 'load', graph, opts });
   connect().postMessage({ type: 'speed', speed: useRun.getState().speed });
   loaded = true;
   loadedSig = sig;
@@ -223,7 +243,10 @@ export const runner = {
     return true;
   },
   pause: () => worker?.postMessage({ type: 'pause' }),
-  chaos: () => worker?.postMessage({ type: 'chaos' }),
+  chaos: () => {
+    chaosUsed = true;
+    worker?.postMessage({ type: 'chaos' });
+  },
   async step() {
     if (blocked()) return;
     if (!loaded || useRun.getState().stale) await load();
@@ -233,6 +256,7 @@ export const runner = {
   /** EXPL-05 time scrubber: the run as it was at clock `at` (replayed to there, then paused). */
   seek(at: number) {
     if (!loaded || useRun.getState().stale) return;
+    chaosUsed = false; // the replay drops what Chaos injected
     worker?.postMessage({ type: 'seek', at });
   },
   reset() {

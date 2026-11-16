@@ -84,3 +84,81 @@ test('EXPL-03 trace: picking an output row lists every node behind it (E06) and 
   await panel.getByRole('button', { name: 'Clear trace' }).click();
   expect(await page.locator('.react-flow__node > div[style*="opacity: 0.35"]').count()).toBe(0);
 });
+
+// ---- Explain audit (c1dd2f6) ----
+test('EXPL-02 audit: only the run shown is explained — not after an edit, not before a run (EXPLAIN-UNAVAILABLE)', async ({
+  page,
+}) => {
+  await page.goto('/#/new');
+  await page.getByRole('button', { name: /^Use this scenario.*Card fraud bursts/ }).click();
+  await page.getByRole('button', { name: 'Explain run', exact: true }).click();
+  await expect(page.getByText('Explain is not available: run the pipeline first.').first()).toBeVisible();
+  await page.getByText('10×', { exact: true }).click();
+  await page.locator('.react-flow__panel.top').getByRole('button', { name: 'Run', exact: true }).click();
+  await expect(page.locator('.react-flow__panel.top [data-run-label]')).toHaveText(/^Finished/, {
+    timeout: 20000,
+  });
+  await page.evaluate(async () =>
+    (await import('/src/sim/store.ts')).useGraph.getState().updateConfig('flt', { expr: 'payments > 1' }),
+  );
+  await page.getByRole('button', { name: 'Explain run', exact: true }).click();
+  await expect(
+    page.getByText(/Explain is not available: the pipeline changed since this run/).first(),
+  ).toBeVisible();
+  await expect(card(page)).toHaveCount(0);
+});
+
+test('EXPL-02 audit: board marks (current step only, lit edge), focus back, card ends with the pipeline, one Escape per layer', async ({
+  page,
+}) => {
+  await finished(page, 'Card fraud bursts');
+  await page.getByRole('button', { name: 'Explain run', exact: true }).click();
+  await expect(card(page)).toContainText('· 1 OF');
+  await card(page).getByRole('button', { name: 'Next' }).click();
+  // Step 2: only its node has a badge; the edge into it from step 1 is lit.
+  await expect(page.locator('.react-flow__node').filter({ hasText: /Explain step \d/ })).toHaveCount(1);
+  await expect(page.locator('.react-flow__node').filter({ hasText: 'Explain step 2' })).toHaveCount(1);
+  expect(
+    await page
+      .locator('.react-flow__edge path.react-flow__edge-path')
+      .evaluateAll((ps) => ps.filter((p) => (p as SVGElement).style.stroke.includes('rose-600')).length),
+  ).toBe(1);
+  // A canvas menu open: Escape closes the menu only.
+  await page.locator('.react-flow__pane').click({ button: 'right', position: { x: 300, y: 300 } });
+  await expect(page.getByRole('menu')).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(page.getByRole('menu')).toHaveCount(0);
+  await expect(card(page)).toHaveCount(1);
+  // Done returns focus to Explain run.
+  const total = Number((await card(page).innerText()).match(/OF (\d+)/)![1]);
+  for (let i = 2; i < total; i++) await card(page).getByRole('button', { name: 'Next' }).click();
+  await card(page).getByRole('button', { name: 'Done' }).click();
+  await expect(page.getByRole('button', { name: 'Explain run', exact: true })).toBeFocused();
+  // Explaining, then going to another pipeline: the card does not follow.
+  await page.getByRole('button', { name: 'Explain run', exact: true }).click();
+  await expect(card(page)).toHaveCount(1);
+  await page.goto('/#/new');
+  await page.getByRole('button', { name: /^Use this scenario.*Merchant top-N/ }).click();
+  await expect(page.locator('.react-flow__node').first()).toBeVisible();
+  await expect(card(page)).toHaveCount(0);
+});
+
+test('EXPL-02 audit: a dead-letter row (late, board E04) can be explained', async ({ page }) => {
+  await finished(page, 'Late payments');
+  const panel = page.getByRole('region', { name: 'Run panel' });
+  await panel.getByRole('tab', { name: 'Output' }).click();
+  const sink = panel.getByLabel('Sink');
+  await sink.selectOption(
+    (await sink.locator('option', { hasText: /^Late payments/ }).getAttribute('value'))!,
+  );
+  await panel
+    .getByRole('table', { name: /^Output of / })
+    .locator('tbody tr')
+    .first()
+    .click();
+  await panel.getByRole('button', { name: 'Explain step by step' }).click();
+  await expect(card(page)).toContainText('· 1 OF');
+  await card(page).getByRole('button', { name: 'Next' }).click(); // from the source to the window's late output
+  await expect(card(page)).toContainText('A late event is set aside');
+  await expect(panel.getByRole('list')).toContainText('Set aside as late');
+});

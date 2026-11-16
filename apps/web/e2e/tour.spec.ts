@@ -129,3 +129,23 @@ test('EXPL-01 audit 2: Escape on a menu closes only the menu; Escape on the tour
   await page.keyboard.press('Escape');
   await expect(card(page)).toHaveCount(0);
 });
+
+test('EXPL-01 audit 3: a drawer opened before the tour, one Escape closes the drawer only', async ({
+  page,
+}) => {
+  await page.goto('/#/new');
+  await page.getByRole('button', { name: /^Use this scenario.*Card fraud bursts/ }).click();
+  // Skip the auto tour once it is there (an Escape before it opens would let it take focus later).
+  await expect(card(page)).toContainText('STEP 1 OF 5');
+  await page.keyboard.press('Escape');
+  await expect(card(page)).toHaveCount(0);
+  await page.locator('.react-flow__node').filter({ hasText: 'Rules' }).focus();
+  await page.keyboard.press('Enter');
+  await expect(page.getByRole('dialog', { name: /settings$/ })).toBeVisible();
+  await page.getByRole('button', { name: 'Tour', exact: true }).click();
+  await expect(card(page)).toContainText('STEP 1 OF 5');
+  await page.locator('.react-flow__node').filter({ hasText: 'Rules' }).focus();
+  await page.keyboard.press('Escape');
+  await expect(page.getByRole('dialog', { name: /settings$/ })).toHaveCount(0);
+  await expect(card(page)).toContainText('STEP 1 OF 5');
+});

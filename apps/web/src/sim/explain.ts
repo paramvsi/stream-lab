@@ -45,10 +45,19 @@ export function explainPath(g: Graph, t: Trace, sink: string, row: number): Expl
   for (let h = t.hops.get(id); h; h = h.parents.length ? t.hops.get(h.parents[0]!) : undefined)
     chain.unshift(h);
   const byId = new Map(g.nodes.map((n) => [n.id, n]));
-  const steps: ExplainStep[] = chain.map((h) => {
+  const steps: ExplainStep[] = chain.map((h, idx) => {
     const n = byId.get(h.node);
     const label = n ? labelOf(n) : h.node;
     const c = (n ? configOf(n) : {}) as Record<string, unknown>;
+    const prev = chain[idx - 1];
+    // A disabled node passes events on unchanged (the simulator's rule); it decided nothing.
+    if (n?.disabled)
+      return {
+        node: h.node,
+        hop: h,
+        title: `${label} is disabled`,
+        text: `${label} is disabled, so it passes the event on.`,
+      };
     if (h.port === 'late')
       return {
         node: h.node,
@@ -71,6 +80,15 @@ export function explainPath(g: Graph, t: Trace, sink: string, row: number): Expl
         };
       case 'Validate': {
         const rules = (c['rules'] ?? []) as { name: string }[];
+        if (h.port === 'rejected')
+          return {
+            node: h.node,
+            hop: h,
+            title: 'It fails a rule',
+            text: `Rule ${h.reason ?? '?'} fails, so it is set aside.`,
+          };
+        if (!rules.length)
+          return { node: h.node, hop: h, title: 'No rules to check', text: `${label} has no rules.` };
         return {
           node: h.node,
           hop: h,
@@ -79,12 +97,19 @@ export function explainPath(g: Graph, t: Trace, sink: string, row: number): Expl
         };
       }
       case 'Filter':
-        return {
-          node: h.node,
-          hop: h,
-          title: 'It passes the filter',
-          text: `${String(c['expr'])} is true for it.`,
-        };
+        return h.port === 'rejected'
+          ? {
+              node: h.node,
+              hop: h,
+              title: 'It is filtered out',
+              text: `${String(c['expr'])} is not true for it, so it is set aside.`,
+            }
+          : {
+              node: h.node,
+              hop: h,
+              title: 'It passes the filter',
+              text: `${String(c['expr'])} is true for it.`,
+            };
       case 'Window': {
         const keys = (c['keyBy'] ?? []) as string[];
         // Sums and averages read as amounts (board E03 "total 1,940.00"); counts as whole numbers.
@@ -112,26 +137,55 @@ export function explainPath(g: Graph, t: Trace, sink: string, row: number): Expl
           text: `${label} sends it to ${name ?? h.port}.`,
         };
       }
-      case 'Lookup':
+      case 'Lookup': {
+        const key = `${String(c['key'])} = ${String(h.data[String(c['key'])])}`;
+        // A miss that passes on adds no fields: nothing was joined.
+        const added = prev ? Object.keys(h.data).filter((k) => !(k in prev.data)).length : 1;
+        if (h.port === 'rejected')
+          return {
+            node: h.node,
+            hop: h,
+            title: 'No match',
+            text: `${String(c['table'])} has no row for ${key}, so it is set aside.`,
+          };
+        if (!added)
+          return {
+            node: h.node,
+            hop: h,
+            title: 'No match',
+            text: `${String(c['table'])} has no row for ${key}; it goes on without its fields.`,
+          };
         return {
           node: h.node,
           hop: h,
           title: 'It is enriched',
-          text: `Joined with ${String(c['table'])} on ${String(c['key'])} = ${String(h.data[String(c['key'])])}.`,
+          text: `Joined with ${String(c['table'])} on ${key}.`,
         };
+      }
       case 'Join':
-        return {
-          node: h.node,
-          hop: h,
-          title: 'It meets its match',
-          text: `${label} joins it with an event from the other side.`,
-        };
+        // Two parents: a match; one: a left-join row padded with NULLs (no match in time).
+        return h.parents.length > 1
+          ? {
+              node: h.node,
+              hop: h,
+              title: 'It meets its match',
+              text: `${label} joins it with an event from the other side.`,
+            }
+          : {
+              node: h.node,
+              hop: h,
+              title: 'No match',
+              text: `${label} found no match in time; it goes on with the other side's fields empty.`,
+            };
       case 'Deduplicate':
         return {
           node: h.node,
           hop: h,
-          title: 'It is not a duplicate',
-          text: `It is the ${String(c['keep'])} event for its key.`,
+          title: c['keep'] === 'last' ? 'The latest for its key' : 'It is not a duplicate',
+          text:
+            c['keep'] === 'last'
+              ? 'It is the latest event for its key so far (each new one replaces it).'
+              : 'It is the first event for its key; later copies are dropped.',
         };
       case 'Top-N':
         return {

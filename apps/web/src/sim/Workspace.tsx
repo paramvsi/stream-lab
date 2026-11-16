@@ -75,6 +75,7 @@ import { ExportButton } from './ExportDialog';
 import { ShareButton } from './ShareDialog';
 import { Tour, TourButton } from './Tour';
 import { ExplainButton, ExplainCard } from './ExplainCard';
+import { useTrace } from './TracePanel';
 import { RefTablesButton } from './RefTablesPanel';
 import { RunPanel, useBottomDrawer } from './RunPanel';
 import { RunPill } from './RunPill';
@@ -750,6 +751,8 @@ function HistoryPopover() {
 
 /** W09 workspace: header, palette, canvas, run pill, problems. */
 export function Workspace({ banners }: { banners?: ReactNode }) {
+  // Leaving a pipeline ends its trace (EXPL-03): another pipeline must not inherit its marks.
+  useEffect(() => () => useTrace.setState(null, true), []);
   const small = useSyncExternalStore(
     (cb) => {
       const m = window.matchMedia(SMALL_SCREEN);

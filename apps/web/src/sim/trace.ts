@@ -13,7 +13,7 @@ export interface TraceStep {
   count: number;
 }
 
-const hms = (ms: number) => new Date(ms).toISOString().slice(11, 19);
+const hms = (ms: number) => (Number.isFinite(ms) ? new Date(ms).toISOString().slice(11, 19) : '—');
 
 export function traceRow(g: Graph, t: Trace, sink: string, row: number): TraceStep[] {
   const id = t.outputs[sink]?.[row];
@@ -52,9 +52,14 @@ export function traceRow(g: Graph, t: Trace, sink: string, row: number): TraceSt
           text = `All ${k} passed`;
           break;
         }
-        case 'Window':
-          text = `Fired at watermark ${hms(Date.parse(String(hops[0]!.data['window_end'])))}`;
+        case 'Window': {
+          // A late event leaves on the late port (no window_end): it was set aside, not part of a firing.
+          const fired = hops.find((h) => h.port === 'main');
+          text = fired
+            ? `Fired at watermark ${hms(Date.parse(String(fired.data['window_end'])))}`
+            : 'Set aside as late (its window had fired)';
           break;
+        }
         case 'Route': {
           const routes = (c['routes'] ?? []) as { id: string; name: string }[];
           const port = hops[0]!.port;

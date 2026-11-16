@@ -154,18 +154,27 @@ export function Tour() {
   useEffect(() => {
     if (step === null || step >= STEPS.length) return;
     next.current?.focus();
+    // Which layers are open is read before any of them handles the key (capture): a drawer that closes on this
+    // Escape must still count as open, so one Escape never closes the drawer and the tour.
+    let others = false;
+    const before = () => {
+      others = !!document.querySelector(
+        '[role="dialog"]:not([data-tour-card]):not([data-explain-card]), [role="menu"], [role="listbox"]',
+      );
+    };
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== 'Escape') return;
       // Pressed on the tour card: it is the tour's, whatever else is open (a node drawer, say).
       if ((e.target as Element | null)?.closest?.('[data-tour-card]')) return close();
-      // Otherwise it belongs to what is open: a menu or dialog handles it first (bubble phase: Radix marks it
-      // handled), and while one is open the tour stays.
-      if (e.defaultPrevented) return;
-      if (document.querySelector('[role="dialog"]:not([data-tour-card]), [role="menu"]')) return;
+      if (e.defaultPrevented || others) return;
       close();
     };
+    window.addEventListener('keydown', before, true);
     window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
+    return () => {
+      window.removeEventListener('keydown', before, true);
+      window.removeEventListener('keydown', onKey);
+    };
   }, [step]);
 
   if (step === null) return null;

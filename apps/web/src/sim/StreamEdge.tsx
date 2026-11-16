@@ -1,3 +1,4 @@
+import { useExplainEdge } from './ExplainCard';
 import { AppError, present } from '@sl/errors';
 import { connectionIssue, type Schema } from '@sl/graph';
 import {
@@ -33,6 +34,7 @@ export const StreamEdge = memo(function StreamEdge(p: EdgeProps<SlEdge>) {
   const hovered = useHover((h) => h.id === p.id);
   const count = useEdgeCount(p.id);
   const running = useRun((s) => s.state === 'running');
+  const lit = useExplainEdge(p.source, p.target);
   const speed = useRun((s) => s.speed);
   // WM06: only edges carrying events flow, at a pace that scales with the sim speed (0.8 s at 1×).
   // ponytail: "carrying" = has carried any event this run; per-tick deltas if idle edges should stop mid-run.
@@ -50,7 +52,8 @@ export const StreamEdge = memo(function StreamEdge(p: EdgeProps<SlEdge>) {
         id={p.id}
         path={path}
         style={{
-          stroke: p.selected ? 'var(--sl-color-rose-600)' : 'var(--sl-color-line-strong)',
+          // EXPL-02: the edge into the step being explained is lit (boards E01–E05).
+          stroke: p.selected || lit ? 'var(--sl-color-rose-600)' : 'var(--sl-color-line-strong)',
           strokeWidth: 1.5,
           ...(flowing ? { animationDuration: `${0.8 / speed}s` } : {}),
         }}

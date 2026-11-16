@@ -1,7 +1,8 @@
 import { Button, EmptyState } from '@sl/ui';
 import { Lightbulb, Route as RouteIcon } from 'lucide-react';
 import { create } from 'zustand';
-import { startExplain, tracedRun } from './ExplainCard';
+import { AppError } from '@sl/errors';
+import { startExplain, tracedRun, useExplainError } from './ExplainCard';
 import { useGraph } from './store';
 import { traceRow, type TraceStep } from './trace';
 
@@ -20,7 +21,14 @@ export const useTraceStep = (id: string) =>
   });
 
 export async function startTrace(sink: string, row: number) {
-  const steps = traceRow(useGraph.getState(), await tracedRun(), sink, row);
+  let trace;
+  try {
+    trace = await tracedRun();
+  } catch (e) {
+    if (!(e instanceof AppError)) throw e;
+    return void useExplainError.setState({ error: e }); // EXPLAIN-UNAVAILABLE, said by the card
+  }
+  const steps = traceRow(useGraph.getState(), trace, sink, row);
   useTrace.setState(steps.length ? { sink, row, steps } : null, true);
 }
 

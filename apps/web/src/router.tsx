@@ -10,6 +10,7 @@ import {
 } from '@tanstack/react-router';
 import { ChapterPage } from './pages/Chapter';
 import { Course } from './pages/Course';
+import { DownloadPage } from './pages/Download';
 import { ConceptDrawer, Glossary } from './pages/Glossary';
 import { Gallery } from './pages/Gallery';
 import { MyPipelines } from './pages/MyPipelines';
@@ -36,6 +37,7 @@ const index = createRoute({
   },
 });
 const gallery = createRoute({ getParentRoute: () => root, path: '/new', component: Gallery });
+const download = createRoute({ getParentRoute: () => root, path: '/download', component: DownloadPage });
 const glossary = createRoute({ getParentRoute: () => root, path: '/glossary', component: Glossary });
 const learn = createRoute({ getParentRoute: () => root, path: '/learn', component: Course });
 const chapter = createRoute({
@@ -69,7 +71,7 @@ const shared = createRoute({
 
 /** Hash history: the site is static files with no server rewrites (ARCHITECTURE.md). */
 export const router = createRouter({
-  routeTree: root.addChildren([index, gallery, pipelines, sim, shared, learn, chapter, glossary]),
+  routeTree: root.addChildren([index, gallery, pipelines, sim, shared, learn, chapter, glossary, download]),
   history: createHashHistory(),
 });
 

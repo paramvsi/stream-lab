@@ -15,9 +15,9 @@ const navLink =
   'sl-focus rounded-sm text-muted no-underline hover:text-ink [&.active]:text-ink [&.active]:font-semibold';
 
 /**
- * The site's header and footer (every web board: W01–W08). The header: Learn, Simulator, Star on GitHub.
- * ponytail: links only to pages that exist — Desktop app (W02), Docs, Changelog, Glossary, Privacy and Why
- * Stream Lab are added as their pages land.
+ * The site's header and footer (every web board: W01–W08). The header: Learn, Simulator, Desktop app, Star on
+ * GitHub. ponytail: links only to pages that exist — Docs, Changelog, Privacy and Why Stream Lab are added as
+ * their pages land.
  * `grid`: the background grid with rose nodes, top left (boards W01, W03, W04).
  */
 export function SiteShell({
@@ -92,6 +92,9 @@ export function SiteShell({
             <Link to="/new" className="sl-focus rounded-sm text-muted no-underline hover:text-ink">
               Simulator
             </Link>
+            <Link to="/download" className="sl-focus rounded-sm text-muted no-underline hover:text-ink">
+              Desktop app
+            </Link>
           </div>
           <div className="flex flex-col gap-2">
             <p className="m-0 mb-1 text-[14px] font-semibold text-ink">Resources</p>
@@ -139,6 +142,9 @@ export function SiteHeader() {
           aria-current={onSim ? 'page' : undefined}
         >
           Simulator
+        </Link>
+        <Link to="/download" className={navLink}>
+          Desktop app
         </Link>
       </nav>
       <a

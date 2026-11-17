@@ -158,4 +158,11 @@ describe('JOB-02 · graph layers (columns, left to right)', () => {
     );
     expect(layers.flat().sort()).toEqual(['a', 'b']);
   });
+
+  it('sources: only vertices the plan lists with no inputs (none from a missing, partial or odd plan)', () => {
+    expect(jobGraph(detail(undefined)).sources).toEqual([]);
+    expect(jobGraph(detail({ nodes: [] })).sources).toEqual([]);
+    const g = jobGraph(detail({ nodes: [{ id: 's' }, { id: 'w', inputs: [{ id: 'gone', num: 0 }] }] }));
+    expect(g.sources).toEqual(['s']); // w has an input (even one not among the vertices): not a source
+  });
 });

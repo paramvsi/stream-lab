@@ -488,7 +488,7 @@ export function JobOverview({
                         heading={h1}
                         pageBanner={!!banner}
                         now={j.now}
-                        source={!!opGraph!.planned && !opGraph!.edges.some((e) => e.to === op.id)}
+                        source={!!opGraph!.sources?.includes(op.id)}
                         feeds={opGraph!.edges.some((e) => e.from === op.id)}
                         idleCanHold={fedPointwiseFromSource(opGraph!, op.id)}
                       />

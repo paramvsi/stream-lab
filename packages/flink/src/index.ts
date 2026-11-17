@@ -11,3 +11,4 @@ export * from './capabilities';
 export * from './endpoints/jobs';
 export * from './jobs';
 export * from './taskmanagers';
+export * from './job';

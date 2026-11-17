@@ -15,10 +15,11 @@ import {
   type FlinkHttp,
   type FlinkVertex,
 } from '@sl/flink';
-import { Button, Loading, Skeleton, StatusBadge, Table, type Column } from '@sl/ui';
+import { Button, Loading, Skeleton, StatusBadge, Table, Tabs, type Column } from '@sl/ui';
 import { ListChecks, SearchX } from 'lucide-react';
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useScreenHeading } from './focus';
+import { ExceptionGroups } from './ExceptionGroups';
 import { Kpi } from './Kpi';
 import { TONE, uptime, word } from './Jobs';
 import { usePolled } from './usePolled';
@@ -213,15 +214,19 @@ export function JobOverview({
   const cp = ck.value;
   // JOB-05: exceptions only while the job is in trouble (no extra call for a healthy job), on their own quiet poll.
   const troubled = !!j && TROUBLED.has(j.state);
+  const [tab, setTab] = useState('overview');
+  // Exceptions are read while the job is in trouble (JOB-05) or the Exceptions tab is open (JOB-08): never for a
+  // healthy job nobody is looking at.
+  const wantExceptions = troubled || tab === 'exceptions';
   const ex = usePolled(
     c,
     transport,
     (http, conn, t): Promise<FlinkExceptions | null> =>
-      troubled ? getExceptions(http, conn, jid, t) : Promise.resolve(null),
+      wantExceptions ? getExceptions(http, conn, jid, t) : Promise.resolve(null),
     h1,
     POLL.checkpoints.everyMs,
     // The state, not just in/out of trouble: RESTARTING → FAILED reads again at once, naming the final failure.
-    { quiet: true, restartOn: troubled ? j.state : '' },
+    { quiet: true, restartOn: wantExceptions ? `${j?.state}|${tab}` : '' },
   );
   const status = j && troubled ? statusError(j, ex.value) : null;
   // §4: a single 404 over a job on screen is a blip (HA failover); the page goes only once the banner would.
@@ -319,45 +324,81 @@ export function JobOverview({
           </Loading>
         )
       ) : (
-        <>
-          <div className="grid grid-cols-[repeat(auto-fill,minmax(220px,1fr))] gap-4">
-            {!cp && ck.error ? (
-              <Kpi label="Last checkpoint" value="—" note={present(ck.error).message} />
-            ) : cp?.off ? (
-              <Kpi
-                label="Last checkpoint"
-                value="Off"
-                note={present(new AppError('JOB-CKPT-NONE')).message}
-              />
-            ) : ck.stale ? (
-              // Stale keeps the last thing known: a failure stays "Failed" (red), never a healthy-looking number.
-              <Kpi
-                label="Last checkpoint"
-                value={
-                  cp?.failed.n
-                    ? 'Failed'
-                    : cp?.last
-                      ? `${duration(cp.last.end_to_end_duration)} · ${size(cp.last.checkpointed_size)}`
-                      : '—'
-                }
-                note={`Not answering. Showing data from ${ck.since}.`}
-                {...(cp?.failed.n ? { tone: 'error' as const } : {})}
-              />
-            ) : cp?.failed.n ? (
-              <Kpi label="Last checkpoint" value="Failed" note={failedNote(cp.failed)} tone="error" />
-            ) : cp?.last ? (
-              <Kpi
-                label="Last checkpoint"
-                value={`${duration(cp.last.end_to_end_duration)} · ${size(cp.last.checkpointed_size)}`}
-                note={shortAgo(j.now - cp.last.latest_ack_timestamp)}
-                tone="success"
-              />
-            ) : (
-              <Kpi label="Last checkpoint" value="None yet" />
-            )}
-          </div>
-          <Table label="Operators" columns={columns} rows={j.vertices} rowKey={(v) => v.id} />
-        </>
+        <Tabs
+          label="Job sections"
+          value={tab}
+          onValueChange={setTab}
+          items={[
+            {
+              value: 'overview',
+              label: 'Overview',
+              content: (
+                <div className="flex flex-col gap-5 pt-5">
+                  <div className="grid grid-cols-[repeat(auto-fill,minmax(220px,1fr))] gap-4">
+                    {!cp && ck.error ? (
+                      <Kpi label="Last checkpoint" value="—" note={present(ck.error).message} />
+                    ) : cp?.off ? (
+                      <Kpi
+                        label="Last checkpoint"
+                        value="Off"
+                        note={present(new AppError('JOB-CKPT-NONE')).message}
+                      />
+                    ) : ck.stale ? (
+                      // Stale keeps the last thing known: a failure stays "Failed" (red), never a healthy-looking number.
+                      <Kpi
+                        label="Last checkpoint"
+                        value={
+                          cp?.failed.n
+                            ? 'Failed'
+                            : cp?.last
+                              ? `${duration(cp.last.end_to_end_duration)} · ${size(cp.last.checkpointed_size)}`
+                              : '—'
+                        }
+                        note={`Not answering. Showing data from ${ck.since}.`}
+                        {...(cp?.failed.n ? { tone: 'error' as const } : {})}
+                      />
+                    ) : cp?.failed.n ? (
+                      <Kpi label="Last checkpoint" value="Failed" note={failedNote(cp.failed)} tone="error" />
+                    ) : cp?.last ? (
+                      <Kpi
+                        label="Last checkpoint"
+                        value={`${duration(cp.last.end_to_end_duration)} · ${size(cp.last.checkpointed_size)}`}
+                        note={shortAgo(j.now - cp.last.latest_ack_timestamp)}
+                        tone="success"
+                      />
+                    ) : (
+                      <Kpi label="Last checkpoint" value="None yet" />
+                    )}
+                  </div>
+                  <Table label="Operators" columns={columns} rows={j.vertices} rowKey={(v) => v.id} />
+                </div>
+              ),
+            },
+            {
+              value: 'exceptions',
+              label: 'Exceptions',
+              ...(ex.value ? { count: ex.value.entries.length } : {}),
+              content: (
+                <div className="pt-5">
+                  {ex.value ? (
+                    <ExceptionGroups entries={ex.value.entries} />
+                  ) : exErr && !failedRead ? (
+                    // The page banner says it when the job is in trouble; here it is the tab's own answer.
+                    <ErrorBanner
+                      error={exErr}
+                      handles={new Set(['Retry', 'Retry now'])}
+                      onAction={ex.retry}
+                    />
+                  ) : (
+                    <Loading label="Loading exceptions">
+                      <Skeleton height={46} />
+                    </Loading>
+                  )}
+                </div>
+              ),
+            },
+          ]}
+        />
       )}
     </main>
   );

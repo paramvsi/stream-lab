@@ -648,6 +648,28 @@ describe('JOB-02 · Job overview (board D08)', () => {
     expect(screen.queryByText(/restarted|failed:/)).toBeNull();
   });
 
+  it('JOB-08: the Exceptions tab shows the grouped failures; a healthy job reads them only once it is opened', async () => {
+    const paths: string[] = [];
+    show(async (req) => (paths.push(req.path), answer(200, detail)(req)));
+    await screen.findByRole('table', { name: 'Operators' });
+    expect(paths.some((p) => p.endsWith('/exceptions'))).toBe(false);
+    await userEvent.click(screen.getByRole('tab', { name: /Exceptions/ }));
+    expect(await screen.findByText('1 group, 4 occurrences')).toBeInTheDocument();
+    expect(paths.some((p) => p.endsWith('/exceptions'))).toBe(true);
+    expect(screen.getByRole('table', { name: 'Exceptions' })).toBeInTheDocument();
+  });
+
+  it('JOB-08: the Exceptions tab says when they can not be read, not "Loading" forever', async () => {
+    show(async (req) =>
+      req.path.endsWith('/exceptions')
+        ? { status: 500, headers: {}, url: '', body: '' }
+        : answer(200, detail)(req),
+    );
+    await screen.findByRole('table', { name: 'Operators' });
+    await userEvent.click(screen.getByRole('tab', { name: /Exceptions/ }));
+    expect(await screen.findByText(/internal error while reading the exceptions/)).toBeInTheDocument();
+  });
+
   it('lists the operators with parallelism and status', async () => {
     show(answer(200, detail));
     const table = await screen.findByRole('table', { name: 'Operators' });

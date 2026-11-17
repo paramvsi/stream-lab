@@ -18,3 +18,4 @@ export * from './graph';
 export * from './backpressure';
 export * from './subtasks';
 export * from './watermarks';
+export * from './actions';

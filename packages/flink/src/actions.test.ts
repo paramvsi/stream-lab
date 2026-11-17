@@ -197,5 +197,18 @@ describe('ACT-01 / ACT-02 · job actions (FLINK_API "Savepoint", "Stop", "Cancel
       await getSavepointDir(cfg([{ key: 'execution.checkpointing.savepoint-dir', value: ' ' }]), 'prod'),
     ).toBeNull();
     expect(await getSavepointDir(cfg([]), 'prod')).toBeNull();
+    // audit: Flink's second deprecated key, and its order: the first key present wins (even blank).
+    expect(
+      await getSavepointDir(cfg([{ key: 'savepoints.state.backend.fs.dir', value: 's3://oldest' }]), 'prod'),
+    ).toBe('s3://oldest');
+    expect(
+      await getSavepointDir(
+        cfg([
+          { key: 'execution.checkpointing.savepoint-dir', value: '' },
+          { key: 'state.savepoints.dir', value: 'hdfs:///old' },
+        ]),
+        'prod',
+      ),
+    ).toBeNull();
   });
 });

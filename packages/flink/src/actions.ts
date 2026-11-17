@@ -176,10 +176,17 @@ export async function cancelJob(http: FlinkHttp, conn: string, jid: string, job:
 
 /**
  * The cluster's default savepoint folder (the D15 dialog's prefill; none: the dialog requires one,
- * SP-DIR-MISSING). The key is execution.checkpointing.savepoint-dir from 1.20, state.savepoints.dir before (still
- * read by 1.20+ as a deprecated key); the new one wins. A blank value is none.
+ * SP-DIR-MISSING). The key is execution.checkpointing.savepoint-dir from 1.20, state.savepoints.dir before; both
+ * and savepoints.state.backend.fs.dir are still read (deprecated keys). /jobmanager/config echoes keys as set.
  * FLINK: https://github.com/apache/flink/blob/release-1.20/flink-core/src/main/java/org/apache/flink/configuration/CheckpointingOptions.java
  */
+/** CheckpointingOptions.SAVEPOINT_DIRECTORY and its deprecated keys, in Flink's fallback order (1.20 / 2.0). */
+const SAVEPOINT_DIR_KEYS = [
+  'execution.checkpointing.savepoint-dir',
+  'state.savepoints.dir',
+  'savepoints.state.backend.fs.dir',
+];
+
 export async function getSavepointDir(
   http: FlinkHttp,
   conn: string,
@@ -192,6 +199,10 @@ export async function getSavepointDir(
     JobManagerConfigSchema,
     'reading its configuration',
   );
-  const get = (k: string) => rows.find((r) => r.key === k)?.value.trim() || null;
-  return get('execution.checkpointing.savepoint-dir') ?? get('state.savepoints.dir');
+  // Flink's order: the key, then its deprecated keys; the first one present wins (blank: none).
+  for (const k of SAVEPOINT_DIR_KEYS) {
+    const row = rows.find((r) => r.key === k);
+    if (row) return row.value.trim() || null;
+  }
+  return null;
 }

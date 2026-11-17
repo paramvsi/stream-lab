@@ -69,11 +69,11 @@ const answer =
           ? { status: 404, headers: {}, url: '', body: JSON.stringify({ errors: [cp.message] }) }
           : { status: 200, headers: {}, url: '', body: JSON.stringify(cp) }
         : { status, headers: {}, url: '', body: JSON.stringify(body) };
-const show = (http: FlinkHttp, more: { onJobs?: () => void } = {}) =>
+const show = (http: FlinkHttp, more: { onJobs?: () => void } = {}, c: Connection = conn) =>
   render(
     <TooltipProvider>
       <ToastProvider>
-        <JobOverview c={conn} jid={detail.jid} transport={() => http} {...more} />
+        <JobOverview c={c} jid={detail.jid} transport={() => http} {...more} />
       </ToastProvider>
     </TooltipProvider>,
   );
@@ -313,6 +313,16 @@ describe('JOB-02 · Job overview (board D08)', () => {
     );
     const k = await screen.findByRole('group', { name: 'Last checkpoint' });
     await waitFor(() => expect(k).toHaveTextContent('Off'));
+  });
+
+  it('JOB-05 / D08e: a read-only connection says so (JOB-READONLY, info); a normal one does not', async () => {
+    const { unmount } = show(answer(200, detail), {}, { ...conn, readOnly: true });
+    await screen.findByRole('table', { name: 'Operators' });
+    expect(await screen.findByText('This connection is read-only. Actions are hidden.')).toBeInTheDocument();
+    unmount();
+    show(answer(200, detail));
+    await screen.findByRole('table', { name: 'Operators' });
+    expect(screen.queryByText(/This connection is read-only/)).toBeNull();
   });
 
   it('lists the operators with parallelism and status', async () => {

@@ -1,4 +1,4 @@
-import { type Connection, type FlinkHttp } from '@sl/flink';
+import { TransportError, type Connection, type FlinkHttp } from '@sl/flink';
 import { ToastProvider, TooltipProvider } from '@sl/ui';
 import { act, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
@@ -94,6 +94,7 @@ describe('JOB-02 · Job overview (board D08)', () => {
     const k = await screen.findByRole('group', { name: 'Last checkpoint' });
     await waitFor(() => expect(k).toHaveTextContent('3.4 s · 220 MB'));
     expect(k).toHaveTextContent('2 min ago'); // the board's short form
+    expect(within(k).getByText('2 min ago').className).toMatch(/text-success-600/); // healthy: green (D08)
   });
 
   it('none completed yet (checkpointing on): says so', async () => {
@@ -135,6 +136,65 @@ describe('JOB-02 · Job overview (board D08)', () => {
       const n = (end: string) => calls.filter((p) => p.endsWith(end)).length;
       expect(n(detail.jid)).toBeGreaterThanOrEqual(4); // ~5 in 10 s
       expect(n('/checkpoints')).toBeLessThanOrEqual(2); // ~2 in 10 s, not ~5
+      expect(n('/checkpoints')).toBeGreaterThanOrEqual(1); // and still polled
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('audit 2 #2: failures since the last completed one are "Failed · N failures in a row", red (D08c)', async () => {
+    const f = (id: number) => ({ ...ckpt.latest.completed, id, status: 'FAILED' });
+    show(
+      answer(200, detail, {
+        ...ckpt,
+        counts: { ...ckpt.counts, failed: 3 },
+        latest: { completed: ckpt.latest.completed, failed: { id: 12, failure_message: 'timeout' } },
+        history: [f(12), f(11), f(10), ckpt.latest.completed],
+      }),
+    );
+    const k = await screen.findByRole('group', { name: 'Last checkpoint' });
+    await waitFor(() => expect(k).toHaveTextContent('Failed'));
+    expect(within(k).getByText('3 failures in a row').className).toMatch(/text-danger-600/);
+  });
+
+  it('audit 2 #1: one outage, one "Back in contact" (the checkpoint poll stays quiet)', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      let down = false;
+      show(async (req) => {
+        if (down)
+          throw new TransportError({ kind: 'refused', host: 'payments-prod.example.com', port: 8081 });
+        return answer(200, detail)(req);
+      });
+      await screen.findByRole('table', { name: 'Operators' });
+      down = true;
+      await act(async () => vi.advanceTimersByTimeAsync(60_000));
+      down = false;
+      await act(async () => vi.advanceTimersByTimeAsync(31_000));
+      await waitFor(() =>
+        expect(screen.getAllByText(/Back in contact with payments-prod/).length).toBeGreaterThan(0),
+      );
+      expect(screen.getAllByText(/Back in contact with payments-prod/)).toHaveLength(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('audit 2 #3: checkpoints failing after a good read mark the KPI stale, not still green', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      let bad = false;
+      show(async (req) =>
+        bad && req.path.endsWith('/checkpoints')
+          ? { status: 500, headers: {}, url: '', body: '' }
+          : answer(200, detail)(req),
+      );
+      const k = await screen.findByRole('group', { name: 'Last checkpoint' });
+      await waitFor(() => expect(k).toHaveTextContent('3.4 s'));
+      bad = true;
+      await act(async () => vi.advanceTimersByTimeAsync(20_000));
+      await waitFor(() => expect(k).toHaveTextContent(/Not answering/));
+      expect(within(k).queryByText('2 min ago')).toBeNull();
     } finally {
       vi.useRealTimers();
     }

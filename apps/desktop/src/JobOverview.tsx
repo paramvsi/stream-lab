@@ -58,7 +58,17 @@ const shortAgo = (ms: number) =>
       ? `${Math.floor(ms / 3_600_000)} h ago`
       : `${Math.floor(ms / 86_400_000)} d ago`;
 
-type Ckpt = { off: true } | { off: false; last: FlinkCheckpoint | null };
+type Ckpt = { off: true } | { off: false; last: FlinkCheckpoint | null; failedInRow: number };
+/** Board D08c "3 failures in a row": FAILED checkpoints since the last completed one (newest first; one in progress is skipped). */
+const failedInRow = (h: readonly FlinkCheckpoint[]) => {
+  let n = 0;
+  for (const c of [...h].sort((a, b) => b.id - a.id)) {
+    if (c.status === 'IN_PROGRESS') continue;
+    if (c.status !== 'FAILED') break;
+    n++;
+  }
+  return n;
+};
 /**
  * Checkpoints for the D08 KPI. Off is either Flink's 404 (no settings: JOB-CKPT-NONE) or zero counts with the
  * disabled interval (checkpointingOff reads the config only then, so a running job pays one call, not two).
@@ -67,7 +77,7 @@ async function readCkpt(http: FlinkHttp, conn: string, jid: string, t: number): 
   try {
     const s = await getCheckpoints(http, conn, jid, t);
     if (s.counts.total === 0 && (await checkpointingOff(http, conn, jid, t))) return { off: true };
-    return { off: false, last: lastCompleted(s) };
+    return { off: false, last: lastCompleted(s), failedInRow: failedInRow(s.history) };
   } catch (e) {
     if (e instanceof AppError && e.code === 'JOB-CKPT-NONE') return { off: true };
     throw e;
@@ -118,6 +128,7 @@ export function JobOverview({
     (http, conn, t) => readCkpt(http, conn, jid, t),
     h1,
     POLL.checkpoints.everyMs,
+    { quiet: true },
   );
   const cp = ck.value;
   // §4: a single 404 over a job on screen is a blip (HA failover); the page goes only once the banner would.
@@ -178,6 +189,23 @@ export function JobOverview({
                 label="Last checkpoint"
                 value="Off"
                 note={present(new AppError('JOB-CKPT-NONE')).message}
+              />
+            ) : ck.stale ? (
+              <Kpi
+                label="Last checkpoint"
+                value={
+                  cp?.last
+                    ? `${duration(cp.last.end_to_end_duration)} · ${size(cp.last.checkpointed_size)}`
+                    : '—'
+                }
+                note={`Not answering. Showing data from ${ck.since}.`}
+              />
+            ) : cp?.failedInRow ? (
+              <Kpi
+                label="Last checkpoint"
+                value="Failed"
+                note={`${cp.failedInRow} failure${cp.failedInRow === 1 ? '' : 's'} in a row`}
+                tone="error"
               />
             ) : cp?.last ? (
               <Kpi

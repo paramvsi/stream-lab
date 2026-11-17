@@ -17,6 +17,8 @@ export function usePolled<T>(
   read: (http: FlinkHttp, conn: string, timeoutMs: number) => Promise<T>,
   heading: RefObject<HTMLHeadingElement | null>,
   everyMs: number = POLL.jobs.everyMs,
+  /** A second poll on one screen (its banner not shown): no "Back in contact" of its own, so the screen says it once. */
+  opts: { quiet?: boolean } = {},
 ): { value: T | null; error: AppError | null; stale: boolean; since: string; banner: ReactNode } {
   const toast = useToast();
   const [value, setValue] = useState<T | null>(null);
@@ -54,7 +56,8 @@ export function usePolled<T>(
       onResult: (r) => {
         if (r.ok) {
           // ERRORS_AND_ALERTS §4: recovering from the lost-contact banner says so once.
-          if (lost.current) toast({ severity: 'success', message: `Back in contact with ${c.name}.` });
+          if (lost.current && !opts.quiet)
+            toast({ severity: 'success', message: `Back in contact with ${c.name}.` });
           lost.current = false;
           hasValue.current = true;
           fails.current = 0;
@@ -77,7 +80,7 @@ export function usePolled<T>(
       },
     });
     return () => p.stop();
-  }, [http, round, c.name, c.timeoutMs, c.url, toast, everyMs]);
+  }, [http, round, c.name, c.timeoutMs, c.url, toast, everyMs, opts.quiet]);
 
   const retry = () => setRound((n) => n + 1);
   const s = Math.round(nextDelay(everyMs, pollFails) / 1000);

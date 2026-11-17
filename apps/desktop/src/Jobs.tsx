@@ -90,22 +90,11 @@ export function Jobs({
   const search = useRef<HTMLInputElement>(null);
   /**
    * Focus is on the banner or its Retry. When they go (however the cluster came back), focus would fall to
-   * <body>: it goes to the heading instead. Removal fires no blur with a target, so leaving to elsewhere clears it.
+   * <body>: it goes to the heading instead. Leaving is told from removal on blur, once it has settled: the banner
+   * still there and focus not in it = the user left (any pointer, keyboard or tap); the banner gone = removal.
    */
   const focusInBanner = useRef(false);
   const bannerBox = useRef<HTMLDivElement>(null);
-  // A press that takes focus out of the banner leaves it, even onto text that takes no focus (blur then has no
-  // relatedTarget, the same as the banner's removal).
-  useEffect(() => {
-    // After the press has done its default (moved focus, or not: a scrollbar), look where focus is.
-    const down = () =>
-      setTimeout(() => {
-        if (bannerBox.current && !bannerBox.current.contains(document.activeElement))
-          focusInBanner.current = false;
-      }, 0);
-    document.addEventListener('pointerdown', down, true);
-    return () => document.removeEventListener('pointerdown', down, true);
-  }, []);
   /** When the last good answer came, and when the last answer of any kind came (for "data from N min ago"). */
   const [at, setAt] = useState(0);
   const [now, setNow] = useState(0);
@@ -219,10 +208,12 @@ export function Jobs({
           ref={bannerBox}
           className="flex flex-col gap-3"
           onFocus={() => (focusInBanner.current = true)}
-          onBlur={(e) => {
-            if (e.relatedTarget && !e.currentTarget.contains(e.relatedTarget as Node))
-              focusInBanner.current = false;
-          }}
+          onBlur={() =>
+            setTimeout(() => {
+              if (bannerBox.current && !bannerBox.current.contains(document.activeElement))
+                focusInBanner.current = false;
+            }, 0)
+          }
         >
           <ErrorBanner
             error={banner}

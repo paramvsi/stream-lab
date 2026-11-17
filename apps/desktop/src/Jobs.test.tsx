@@ -406,3 +406,27 @@ describe('audit 6 of c92c91e', () => {
     }
   });
 });
+
+describe('audit 7 of 0e34d0a', () => {
+  it('focus leaves the banner for <body> with no press (a touch tap moves focus after pointerup): not moved on recovery', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      const f = flaky();
+      show(f.http);
+      await screen.findByRole('table', { name: 'Jobs' });
+      f.st.down = true;
+      for (const ms of [5_000, 10_000, 20_000]) await tick(ms);
+      await screen.findByText(/Lost contact with payments-prod/);
+      const retry = screen.getByRole('button', { name: 'Retry now' });
+      retry.focus();
+      act(() => retry.blur()); // focus to <body>, no pointerdown, no relatedTarget; the banner stays
+      await tick(10);
+      f.st.down = false;
+      await tick(30_000);
+      await waitFor(() => expect(screen.queryByText(/Lost contact/)).toBeNull());
+      expect(document.activeElement).toBe(document.body);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});

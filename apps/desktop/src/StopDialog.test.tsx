@@ -280,7 +280,7 @@ describe('ACT-01 · stop with savepoint (D15, D15b, D15c, D15d)', () => {
       ).toBeInTheDocument();
     }));
 
-  it('audit cancel3: a new stop that is refused keeps the "may still be running" warning (only an accepted one clears it)', () =>
+  it('audit cancel3: a new stop that is refused keeps the "may still be running" warning (only a completed stop clears it)', () =>
     run(async () => {
       let posts = 0;
       const http: FlinkHttp = async (r) => {

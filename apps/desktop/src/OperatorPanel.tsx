@@ -47,8 +47,10 @@ type Props = {
   pageBanner: boolean;
   /** The JobManager's clock (the job read's `now`): watermark lag is measured against it. */
   now: number;
-  /** A source: Flink keeps no input watermark for it (SourceOperatorStreamTask registers no gauge). */
+  /** A source (by Flink's plan): Flink keeps no input watermark for it (SourceOperatorStreamTask registers none). */
   source: boolean;
+  /** It feeds other operators (where its watermarks show). */
+  feeds: boolean;
   /** Fed from a source point-to-point only: one lagging subtask may be an idle source partition (see JobOverview). */
   idleCanHold: boolean;
 };
@@ -178,7 +180,8 @@ function Watermarks(p: Props) {
   if (p.source)
     return (
       <p className="m-0 text-[14px] text-muted">
-        A source has no input watermark. Its watermarks show on the operators it feeds.
+        A source has no input watermark.
+        {p.feeds ? ' Its watermarks show on the operators it feeds.' : ''}
       </p>
     );
   return <WatermarkTable {...p} />;

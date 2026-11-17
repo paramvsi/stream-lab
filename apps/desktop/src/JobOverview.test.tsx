@@ -1,6 +1,6 @@
 import { TransportError, type Connection, type FlinkHttp } from '@sl/flink';
 import { ToastProvider, TooltipProvider } from '@sl/ui';
-import { act, render, screen, waitFor, within } from '@testing-library/react';
+import { act, cleanup, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 import { causeText, duration, JobOverview, size } from './JobOverview';
@@ -1595,6 +1595,36 @@ describe('JOB-02 · Job overview (board D08)', () => {
       }
     },
   );
+
+  it('audit wm3: no plan is no proof of a source (the table shows); a source feeding nothing is not sent elsewhere', async () => {
+    let plan: unknown = undefined;
+    show(async (req) => {
+      if (/\/vertices\/v\d\/watermarks$/.test(req.path))
+        return {
+          status: 200,
+          headers: {},
+          url: '',
+          body: JSON.stringify([{ id: '0.currentInputWatermark', value: String(detail.now - 1_000) }]),
+        };
+      if (req.path.includes('/subtasks/')) return { status: 200, headers: {}, url: '', body: '[]' };
+      return answer(200, plan === undefined ? detail : { ...detail, plan })(req);
+    });
+    const ops = await screen.findByRole('table', { name: 'Operators' });
+    await userEvent.click(within(ops).getAllByRole('row')[2]!);
+    let p = await screen.findByRole('region', { name: 'Window aggregate' });
+    await userEvent.click(within(p).getByRole('tab', { name: 'Watermarks' }));
+    expect(await within(p).findByRole('table', { name: 'Watermarks' })).toBeInTheDocument();
+    expect(within(p).queryByText(/A source has no input watermark/)).toBeNull();
+    cleanup();
+    plan = { nodes: [{ id: 'v1' }, { id: 'v2' }, { id: 'v3' }] }; // parsed: three unconnected vertices
+    show(async (req) => answer(200, { ...detail, plan })(req));
+    const ops2 = await screen.findByRole('table', { name: 'Operators' });
+    await userEvent.click(within(ops2).getAllByRole('row')[1]!);
+    p = await screen.findByRole('region', { name: 'Source: payments' });
+    await userEvent.click(within(p).getByRole('tab', { name: 'Watermarks' }));
+    const said = await within(p).findByText(/A source has no input watermark/);
+    expect(said).not.toHaveTextContent(/operators it feeds/);
+  });
 
   it('lists the operators with parallelism and status', async () => {
     show(answer(200, detail));

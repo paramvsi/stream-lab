@@ -27,6 +27,8 @@ export interface JobGraph {
   nodes: { id: string; name: string; parallelism: number; status: string }[];
   /** `num`: the input's index on its target, so two inputs from the same upstream (a self-join) stay apart. */
   edges: { from: string; to: string; ship: string | null; num: number }[];
+  /** Flink's plan was there and read: only then does a vertex with no inputs prove a source. */
+  planned?: boolean;
 }
 
 /**
@@ -49,7 +51,7 @@ export function jobGraph(j: FlinkJobDetail): JobGraph {
           .map((i, k) => ({ from: i.id, to: n.id, ship: i.ship_strategy ?? null, num: i.num ?? k })),
       )
     : [];
-  return { nodes, edges };
+  return { nodes, edges, planned: plan.success };
 }
 
 /**

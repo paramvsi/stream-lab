@@ -68,6 +68,21 @@ const shortAgo = (ms: number) =>
  * FLINK: https://github.com/apache/flink/blob/release-1.20/flink-runtime/src/main/java/org/apache/flink/runtime/executiongraph/DefaultExecutionGraph.java
  * FLINK: https://github.com/apache/flink/blob/release-1.20/flink-runtime/src/main/java/org/apache/flink/runtime/scheduler/adaptive/Failing.java
  */
+/**
+ * Codes that mean the host can not be reached at all: the job poll's banner says those. A timeout or a reset
+ * (CONN-IO) can hit one large response while small ones succeed, so on the exceptions read they are its own.
+ */
+const HOST_DOWN = new Set([
+  'CONN-DNS',
+  'CONN-REFUSED',
+  'CONN-TLS-UNTRUSTED',
+  'CONN-CERT-CHANGED',
+  'CONN-PROXY',
+  'CONN-SSH-AUTH',
+  'CONN-SSH-HOSTKEY',
+  'CONN-K8S-CONTEXT',
+  'CONN-OFFLINE',
+]);
 const TROUBLED = new Set(['RESTARTING', 'FAILING', 'FAILED']);
 /**
  * Flink keeps web.exception-history-size failures per job, 16 by default.
@@ -234,13 +249,16 @@ export function JobOverview({
     !banner &&
     !ex.value &&
     !!exErr &&
-    (!exErr.code.startsWith('CONN-') || exErr.code === 'CONN-TIMEOUT') &&
+    !HOST_DOWN.has(exErr.code) &&
     ex.failures >= POLL.jobs.bannerAfter;
-  // When it goes while holding focus (the code changed, or the job recovered), focus goes to the heading.
+  // When it goes, or only its code changes (its buttons differ: Retry or not), the focused button may go with it:
+  // focus goes to the heading. One frame later: the Banner fills its actions on the next frame.
   useEffect(() => {
-    if (!failedRead && (document.activeElement === document.body || !document.activeElement))
-      h1.current?.focus();
-  }, [failedRead, h1]);
+    const f = requestAnimationFrame(() => {
+      if (document.activeElement === document.body || !document.activeElement) h1.current?.focus();
+    });
+    return () => cancelAnimationFrame(f);
+  }, [failedRead, exErr?.code, h1]);
   return (
     <main className="flex min-h-screen flex-col gap-5 bg-surface px-8 py-7">
       {!gone && banner}

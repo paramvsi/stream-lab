@@ -366,16 +366,20 @@ describe('JOB-02 · Job overview (board D08)', () => {
   it('audit #2: a failed job whose exceptions can not be read says that (after 3 in a row, §4), not nothing', async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     try {
+      let asked = 0;
       show(async (req) =>
         req.path.endsWith('/exceptions')
-          ? { status: 500, headers: {}, url: '', body: '' }
+          ? (asked++, { status: 500, headers: {}, url: '', body: '' })
           : answer(200, { ...detail, state: 'FAILED' })(req),
       );
       await screen.findByRole('table', { name: 'Operators' });
       await act(async () => vi.advanceTimersByTimeAsync(40_000));
       expect(await screen.findByText(/internal error while reading the exceptions/)).toBeInTheDocument();
-      // audit 5 #2: and the user can ask again (Retry), not only wait out the back-off.
-      expect(screen.getByRole('button', { name: 'Retry' })).toBeInTheDocument();
+      // audit 5 #2: and the user can ask again (Retry), not only wait out the back-off: a request goes out now.
+      const before = asked;
+      await userEvent.click(screen.getByRole('button', { name: 'Retry' }));
+      await act(async () => vi.advanceTimersByTimeAsync(50));
+      expect(asked).toBe(before + 1);
     } finally {
       vi.useRealTimers();
     }
@@ -431,6 +435,61 @@ describe('JOB-02 · Job overview (board D08)', () => {
         : answer(200, { ...detail, state: 'RESTARTING' })(req),
     );
     expect(await screen.findByText(/restarted 16\+ times in/)).toBeInTheDocument();
+  });
+
+  it.each([
+    ['io', /payments-prod\.example\.com/, true],
+    ['refused', /Nothing is listening/, false],
+  ] as const)(
+    'audit 6 #2: a %s error on the exceptions read alone (the job reads fine) is said: %s → %s',
+    async (kind, text, said) => {
+      vi.useFakeTimers({ shouldAdvanceTime: true });
+      try {
+        let asked = 0;
+        show(async (req) => {
+          if (req.path.endsWith('/exceptions')) {
+            asked++;
+            throw new TransportError({
+              kind,
+              host: 'payments-prod.example.com',
+              port: 8081,
+              reason: 'connection reset',
+            });
+          }
+          return answer(200, { ...detail, state: 'FAILED' })(req);
+        });
+        await screen.findByRole('table', { name: 'Operators' });
+        for (let t = 0; t < 40; t++) await act(async () => vi.advanceTimersByTimeAsync(1_000)); // renders between
+        expect(asked).toBeGreaterThanOrEqual(3); // past the 3-in-a-row tolerance
+        // A reset on one big response is this read's own problem; "nothing is listening" is the host's, so the
+        // job poll's to say.
+        if (said) expect(await screen.findByText(text)).toBeInTheDocument();
+        else expect(screen.queryByText(text)).toBeNull();
+      } finally {
+        vi.useRealTimers();
+      }
+    },
+  );
+
+  it('audit 6 #1: when the error changes under focus (its Retry goes), focus goes to the heading', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      let status = 500;
+      show(async (req) =>
+        req.path.endsWith('/exceptions')
+          ? { status, headers: {}, url: '', body: JSON.stringify({ errors: ['x'] }) }
+          : answer(200, { ...detail, state: 'FAILED' })(req),
+      );
+      await screen.findByRole('table', { name: 'Operators' });
+      await act(async () => vi.advanceTimersByTimeAsync(40_000));
+      status = 404; // API-4XX: Copy details only, no Retry
+      await userEvent.click(await screen.findByRole('button', { name: 'Retry' }));
+      await act(async () => vi.advanceTimersByTimeAsync(100));
+      await screen.findByText(/refused this request \(HTTP 404\)/);
+      expect(screen.getByRole('heading', { level: 1 })).toHaveFocus();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('audit 2 #4: a 404 on the exceptions read is not a "no longer exists" banner over a job on screen', async () => {

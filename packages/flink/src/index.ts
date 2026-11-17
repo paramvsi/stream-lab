@@ -16,3 +16,4 @@ export * from './checkpoints';
 export * from './exceptions';
 export * from './graph';
 export * from './backpressure';
+export * from './subtasks';

@@ -1,4 +1,4 @@
-import { AppError, ErrorBanner, ErrorPage, present } from '@sl/errors';
+import { AppError, cleanCause, ErrorBanner, ErrorPage, present } from '@sl/errors';
 import {
   checkpointingOff,
   getCheckpoints,
@@ -62,7 +62,13 @@ const shortAgo = (ms: number) =>
       ? `${Math.floor(ms / 3_600_000)} h ago`
       : `${Math.floor(ms / 86_400_000)} d ago`;
 
-const TROUBLED = new Set(['RESTARTING', 'FAILING', 'FAILED']);
+/**
+ * The states with a JOB-05 banner. FAILING is not one: it is the short step before FAILED or RESTARTING, and
+ * calling it "restarted" would be a guess.
+ */
+const TROUBLED = new Set(['RESTARTING', 'FAILED']);
+/** getExceptions asks for at most this many (maxExceptions). */
+const KEPT = 20;
 const DAY = 86_400_000;
 /**
  * JOB-05: the job's state as its catalog code (D08c, D11): FAILED is JOB-FAILED with the root cause; RESTARTING /
@@ -72,15 +78,18 @@ const DAY = 86_400_000;
 function statusError(j: { name: string; state: string; now: number }, ex: FlinkExceptions | null) {
   const newest = ex?.entries[0];
   if (!newest) return null;
-  const cause = rootCauseLine(newest);
+  // The root cause without its Java class wrapper (never raw exception text as the message; Copy details has it).
+  const cause = cleanCause(rootCauseLine(newest));
   if (j.state === 'FAILED')
     return new AppError('JOB-FAILED', { job: j.name, 'root cause first line': cause });
   const recent = recentFailures(ex.entries, j.now, DAY);
   if (!recent.length) return null;
   const oldest = recent[recent.length - 1]!.timestamp;
+  // All kept entries are recent and Flink may have more: the count is a lower bound ("20+").
+  const capped = recent.length === ex.entries.length && (ex.truncated || ex.entries.length >= KEPT);
   return new AppError('JOB-RESTARTING', {
     job: j.name,
-    n: recent.length,
+    n: capped ? `${recent.length}+` : recent.length,
     period: uptime(j.now - oldest),
     cause,
   });
@@ -180,7 +189,8 @@ export function JobOverview({
       troubled ? getExceptions(http, conn, jid, t) : Promise.resolve(null),
     h1,
     POLL.checkpoints.everyMs,
-    { quiet: true, restartOn: troubled },
+    // The state, not just in/out of trouble: RESTARTING → FAILED reads again at once, naming the final failure.
+    { quiet: true, restartOn: troubled ? j.state : '' },
   );
   const status = j && troubled ? statusError(j, ex.value) : null;
   // §4: a single 404 over a job on screen is a blip (HA failover); the page goes only once the banner would.
@@ -197,7 +207,6 @@ export function JobOverview({
   return (
     <main className="flex min-h-screen flex-col gap-5 bg-surface px-8 py-7">
       {!gone && banner}
-      {status && !gone && <ErrorBanner error={status} handles={new Set()} />}
       {/* JOB-02 / D08e: a read-only connection hides actions, and says so. */}
       {c.readOnly && !gone && <ErrorBanner error={new AppError('JOB-READONLY')} />}
       <div className="flex flex-wrap items-start justify-between gap-4">
@@ -225,6 +234,10 @@ export function JobOverview({
           </Button>
         )}
       </div>
+      {/* JOB-05: below the job header (D08c). A failed exceptions read says so rather than nothing; losing the
+          cluster is the job poll's banner, not a second one. */}
+      {!gone && status && <ErrorBanner error={status} handles={new Set()} />}
+      {!gone && troubled && !ex.value && ex.error && !ex.error.code.startsWith('CONN-') && ex.banner}
       {gone ? (
         <ErrorPage error={gone} icon={SearchX} {...(onJobs ? { onAction: () => onJobs() } : {})} />
       ) : !j ? (

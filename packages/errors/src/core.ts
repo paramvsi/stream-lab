@@ -209,7 +209,7 @@ export function fromTauriHttp(err: unknown, ctx: RequestCtx): AppError {
 const JAVA_CLASS = /^(?:[A-Za-z_$][\w$]*\.)*([A-Z][\w$]*(?:Exception|Error|Throwable))/;
 
 /** Drop every leading `pkg.ClassName: ` wrapper; a bare exception keeps its simple class name. */
-function cleanCause(raw: string): string {
+export function cleanCause(raw: string): string {
   let s = raw.trim();
   for (let m = JAVA_CLASS.exec(s); m; m = JAVA_CLASS.exec(s)) {
     const rest = s.slice(m[0].length);

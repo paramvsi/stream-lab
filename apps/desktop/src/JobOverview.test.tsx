@@ -348,17 +348,67 @@ describe('JOB-02 · Job overview (board D08)', () => {
     show(answer(200, { ...detail, state: 'RESTARTING' }));
     expect(
       await screen.findByText(
-        'refund-matcher restarted 4 times in 12 min. Last cause: java.lang.NullPointerException: merchant_id is null.',
+        // audit #1: the cause without the Java class wrapper (CLAUDE.md: never raw exception text as the message).
+        'refund-matcher restarted 4 times in 12 min. Last cause: merchant_id is null.',
       ),
     ).toBeInTheDocument();
   });
 
   it('JOB-05 / D11: a failed job says so with its root cause (JOB-FAILED, error)', async () => {
     show(answer(200, { ...detail, state: 'FAILED' }));
-    const t = await screen.findByText(
-      'refund-matcher failed: java.lang.NullPointerException: merchant_id is null.',
-    );
+    const t = await screen.findByText('refund-matcher failed: merchant_id is null.');
     expect(t.closest('[role="alert"]')).not.toBeNull();
+    // audit #5: below the job header (D08c), not above the title.
+    const h = screen.getByRole('heading', { level: 1 });
+    expect(h.compareDocumentPosition(t) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it('audit #2: a failed job whose exceptions can not be read says that, not nothing', async () => {
+    show(async (req) =>
+      req.path.endsWith('/exceptions')
+        ? { status: 500, headers: {}, url: '', body: '' }
+        : answer(200, { ...detail, state: 'FAILED' })(req),
+    );
+    expect(await screen.findByText(/internal error while reading the exceptions/)).toBeInTheDocument();
+  });
+
+  it('audit #3: 20 kept failures, all recent (Flink keeps at most 20 here): "20+ times"', async () => {
+    const many = {
+      exceptionHistory: {
+        entries: Array.from({ length: 20 }, (_, i) => npe(detail.now - i * 30_000)),
+        truncated: false,
+      },
+    };
+    show(async (req) =>
+      req.path.endsWith('/exceptions')
+        ? { status: 200, headers: {}, url: '', body: JSON.stringify(many) }
+        : answer(200, { ...detail, state: 'RESTARTING' })(req),
+    );
+    expect(await screen.findByText(/restarted 20\+ times in/)).toBeInTheDocument();
+  });
+
+  it('audit #4: RESTARTING → FAILED reads the exceptions again at once, naming the final failure', async () => {
+    let state = 'RESTARTING';
+    let excBody: unknown = excs;
+    show(async (req) =>
+      req.path.endsWith('/exceptions')
+        ? { status: 200, headers: {}, url: '', body: JSON.stringify(excBody) }
+        : answer(200, { ...detail, state })(req),
+    );
+    await screen.findByText(/restarted 4 times/);
+    const final = { ...npe(detail.now), stacktrace: 'java.lang.IllegalStateException: no more restarts' };
+    excBody = { exceptionHistory: { entries: [final], truncated: false } };
+    state = 'FAILED';
+    expect(
+      await screen.findByText('refund-matcher failed: no more restarts.', {}, { timeout: 4000 }),
+    ).toBeInTheDocument();
+  });
+
+  it('FAILING is not called "restarted": no banner until Flink says RESTARTING or FAILED', async () => {
+    show(answer(200, { ...detail, state: 'FAILING' }));
+    await screen.findByRole('table', { name: 'Operators' });
+    await new Promise((r) => setTimeout(r, 100));
+    expect(screen.queryByText(/restarted/)).toBeNull();
   });
 
   it('JOB-05: a running job neither asks for exceptions nor shows a status banner', async () => {

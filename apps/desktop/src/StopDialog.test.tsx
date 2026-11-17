@@ -530,4 +530,41 @@ describe('the app keeps a sent stop (resume, onSent)', () => {
         within(d).getByText('A stop sent earlier may still be running on the cluster.'),
       ).toBeInTheDocument();
     }));
+
+  it('audit of bc26026 M2: Try again after a resumed stop failed reads the folder (the question is usable)', () =>
+    run(async () => {
+      const http: FlinkHttp = async (r) =>
+        r.path === '/jobmanager/config'
+          ? cfg('s3://sp')
+          : ok(200, {
+              status: { id: 'COMPLETED' },
+              operation: {
+                'failure-cause': {
+                  class: 'x.E',
+                  'stack-trace': 'x.E: Checkpoint expired before completing.',
+                },
+              },
+            });
+      render(
+        <TooltipProvider>
+          <ToastProvider>
+            <StopDialog
+              open
+              onOpenChange={() => {}}
+              http={http}
+              conn="prod"
+              jid="j1"
+              job="refund-matcher"
+              resume={{ rid: 'r1', at: Date.now() }}
+            />
+          </ToastProvider>
+        </TooltipProvider>,
+      );
+      await vi.advanceTimersByTimeAsync(1_100); // the resumed stop's first status read: failed
+      await screen.findByRole('dialog', { name: 'Savepoint failed' });
+      await userEvent.click(screen.getByRole('button', { name: 'Try again' }), {
+        advanceTimers: vi.advanceTimersByTime,
+      });
+      expect(await screen.findByDisplayValue('s3://sp')).toBeInTheDocument();
+    }));
 });

@@ -42,12 +42,6 @@ import { TONE, uptime, word } from './Jobs';
 import { HOST_DOWN, usePolled } from './usePolled';
 
 /**
- * The states with a JOB-05 banner. FAILING is a job that has failed for good and is still cancelling its tasks:
- * Flink takes it only to FAILED (or CANCELLING), never back to RESTARTING, so it is JOB-FAILED too.
- * FLINK: https://github.com/apache/flink/blob/release-1.20/flink-runtime/src/main/java/org/apache/flink/runtime/executiongraph/DefaultExecutionGraph.java
- * FLINK: https://github.com/apache/flink/blob/release-1.20/flink-runtime/src/main/java/org/apache/flink/runtime/scheduler/adaptive/Failing.java
- */
-/**
  * D09b's idleness hint: fed from a source through point-to-point edges only (FORWARD, RESCALE: POINTWISE in
  * Flink), so one source subtask's idle partition holds back only the subtasks it feeds. Behind HASH / REBALANCE
  * (ALL_TO_ALL) every subtask takes the minimum over all inputs, so one lagging subtask is itself slow. A source has
@@ -67,6 +61,12 @@ function fedPointwiseFromSource(g: JobGraph, id: string, depth = 0): boolean {
     (e) => e.ship !== null && POINTWISE.has(e.ship) && fedPointwiseFromSource(g, e.from, depth + 1),
   );
 }
+/**
+ * The states with a JOB-05 banner. FAILING is a job that has failed for good and is still cancelling its tasks:
+ * Flink takes it only to FAILED (or CANCELLING), never back to RESTARTING, so it is JOB-FAILED too.
+ * FLINK: https://github.com/apache/flink/blob/release-1.20/flink-runtime/src/main/java/org/apache/flink/runtime/executiongraph/DefaultExecutionGraph.java
+ * FLINK: https://github.com/apache/flink/blob/release-1.20/flink-runtime/src/main/java/org/apache/flink/runtime/scheduler/adaptive/Failing.java
+ */
 const TROUBLED = new Set(['RESTARTING', 'FAILING', 'FAILED']);
 /**
  * Flink keeps web.exception-history-size failures per job, 16 by default.
@@ -208,9 +208,8 @@ const columns: Column<FlinkVertex>[] = [
 /**
  * JOB-02 / board D08: one job from /jobs/:jid, polled every 2 s while visible (FLINK_API "Open job overview"),
  * with usePolled's §4 errors. A job the cluster no longer has is API-404-JOB's full-page state (Back to list).
- * ponytail: the graph's metric colouring (JOB-03), the KPIs records in, watermark lag and restarts (metrics, history), the
- * History / Exceptions / Checkpoints / Configuration / Savepoints tabs and the savepoint / stop actions (M8) are
- * next slices; operators are a table until the graph lands. A 404 keeps polling (it may be a short gap in HA).
+ * ponytail: the graph's metric colouring (JOB-03), the KPIs records in, watermark lag and restarts (metrics, history),
+ * and the Configuration / Savepoints tabs are next slices. A 404 keeps polling (it may be a short gap in HA).
  * The app shell's breadcrumb (D08 "payments-prod / Jobs / name") waits for the shell; the subtitle names the
  * connection meanwhile.
  */
@@ -449,7 +448,8 @@ export function JobOverview({
   // pick is not kept for then).
   if (act && (j || error)) {
     setAct(undefined);
-    if (canStop && !sp.busy && !stopping && !stopRunning) {
+    // `stop`: a stop the app still follows (its dialog may not have said so yet on this first decision).
+    if (canStop && !sp.busy && !stopping && !stopRunning && !stop) {
       if (act === 'stop') setStopping(true);
       else setFire((f) => f + 1);
     }

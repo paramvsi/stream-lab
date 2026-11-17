@@ -17,14 +17,6 @@ import { usePolled } from './usePolled';
 
 type Row = FlinkJobRow & { conn: Connection };
 
-/**
- * JOB-11 / board X18: the jobs of every connection in one list (Job · Connection · Status). Each connection is a
- * Feed: usePolled (POLL.jobs, through its shared limiter, with ERRORS_AND_ALERTS §4 exactly as on its own
- * screens: stale after 2, CONN-LOST / API-TIMEOUT / the API's own error after 3, over the kept rows, "Back in
- * contact" once, Retry now, focus). Before any data, a failure is FLEET-PARTIAL (X18) with Retry. Until every
- * connection has answered, the screen says how many it is still reading.
- * ponytail: saved views (X18's chips, Save view) need a board (MORNING); Restarts (1 h) needs per-job reads.
- */
 type FeedState = { rows: FlinkJobRow[] | null; error: AppError | null; stale: boolean };
 
 /** One connection's poll. It shows usePolled's banner (or the stale note) only once it has data. */
@@ -61,6 +53,14 @@ function Feed({
   );
 }
 
+/**
+ * JOB-11 / board X18: the jobs of every connection in one list (Job · Connection · Status). Each connection is a
+ * Feed: usePolled (POLL.jobs, through its shared limiter, with ERRORS_AND_ALERTS §4 exactly as on its own
+ * screens: stale after 2, CONN-LOST / API-TIMEOUT / the API's own error after 3, over the kept rows, "Back in
+ * contact" once, Retry now, focus). Before any data, a failure is FLEET-PARTIAL (X18) with Retry. Until every
+ * connection has answered, the screen says how many it is still reading.
+ * ponytail: saved views (X18's chips, Save view) need a board (MORNING); Restarts (1 h) needs per-job reads.
+ */
 export function AllJobs({
   connections,
   transport,

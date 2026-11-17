@@ -85,6 +85,11 @@ export function App({
       }),
     [],
   );
+  const forgetStops = (connId: string) => {
+    const gone = (k: string) => k.startsWith(`${connId}/`);
+    setStops((m) => new Map([...m].filter(([k]) => !gone(k))));
+    setLostStops((m) => new Set([...m].filter((k) => !gone(k))));
+  };
   // APP-04: what a new connection's refresh starts at (in memory until the Tauri store lands).
   const [defaultPollMs, setDefaultPollMs] = useState(5000);
   const add = () => setScreen({ name: 'kind', kind: null });
@@ -96,7 +101,8 @@ export function App({
     [],
   );
   // Settings remembers where it was opened from: Back returns there (from Settings itself, the same place). A job
-  // screen is remembered without its palette pick (start): a remount on Back would run it again (a second POST).
+  // screen is remembered without its palette pick (start): a second guard, as dropStart has usually removed it
+  // already; a remount on Back must never run it again (a second POST).
   const openSettings = () =>
     setScreen((s) =>
       s.name === 'settings'
@@ -220,7 +226,6 @@ export function App({
     [...(paletteJobs[id]?.jobs ?? [])].sort(
       (a, b) => Number(jobBucket(a.state) === 'finished') - Number(jobBucket(b.state) === 'finished'),
     );
-  // ponytail: job actions (board G01 "Trigger savepoint: …") are the next slice.
   const commands: Command[] = [
     ...(transport && connections.length ? [{ id: 'fleet', label: 'Fleet', run: home }] : []),
     { id: 'list', label: 'Connections', run: () => setScreen({ name: 'list' }) },
@@ -368,7 +373,10 @@ export function App({
         onImport={({ add: added, replace }) => {
           setConnections((cs) => [...cs.map((c) => replace.find((r) => r.id === c.id) ?? c), ...added]);
           // A replaced connection keeps its id, not its cluster: the fleet forgets what the old one said.
-          for (const r of replace) fleetCache.delete(r.id);
+          for (const r of replace) {
+            fleetCache.delete(r.id);
+            forgetStops(r.id); // same id, another cluster: never resume the old one's stop
+          }
           const n = added.length + replace.length;
           toast({ severity: 'success', message: `Imported ${n} connection${n === 1 ? '' : 's'}.` });
         }}
@@ -405,6 +413,7 @@ export function App({
           onImport={() => setImporting(true)}
           onRemove={(id) => {
             fleetCache.delete(id);
+            forgetStops(id);
             setConnections((cs) => cs.filter((c) => c.id !== id));
           }}
         />

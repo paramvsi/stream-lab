@@ -31,9 +31,8 @@ const asAppError = (e: unknown, conn: string) =>
  * retried; while it is sent the dialog can not be closed; a refusal says why and stays on confirm. Closed while it
  * runs, the stop goes on and its result comes as a toast. Each opening starts at the question (a stop that is
  * still running shows its progress).
- * ponytail: D15b's bytes / % and per-operator progress (needs checkpoint stats), the "Cancel without a savepoint
- * instead" link (D15e) are next slices; after a timed-out POST the job's state should
- * be read before anything else is offered.
+ * ponytail: D15b's bytes / % and per-operator progress (a ruling on their meaning: MORNING); after a timed-out
+ * POST the job's state should be read before anything else is offered.
  */
 export function StopDialog({
   open,
@@ -208,8 +207,9 @@ export function StopDialog({
               message: `${job} stopped. Savepoint ${name} saved.`,
               action: { label: 'Copy path', onClick: () => copy(location) },
             });
-          } else if ((onSent?.(null), openRef.current)) setStep({ name: 'failed', error: s.error });
-          else {
+          } else {
+            onSent?.(null);
+            if (openRef.current) return setStep({ name: 'failed', error: s.error });
             setStep({ name: 'confirm' });
             const p = present(s.error);
             toast?.({ severity: p.severity, message: p.message });
@@ -320,7 +320,16 @@ export function StopDialog({
             <Button variant="secondary" onClick={close}>
               Close
             </Button>
-            <Button variant="primary" onClick={() => setStep({ name: 'confirm' })}>
+            <Button
+              variant="primary"
+              onClick={() => {
+                // As an opening: the question with its folder read (a resumed stop never read it).
+                setStep({ name: 'confirm' });
+                setDir(null);
+                setDirError(null);
+                setOpening((n) => n + 1);
+              }}
+            >
               Try again
             </Button>
           </>

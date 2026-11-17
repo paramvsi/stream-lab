@@ -16,6 +16,7 @@ import {
   type ConnectionField,
 } from '@sl/flink';
 import { Button, Field, FieldMessage, Input, Select } from '@sl/ui';
+import { POLL_CHOICES } from './Settings';
 import { Activity } from 'lucide-react';
 import { useEffect, useId, useRef, useState } from 'react';
 import { TestSteps } from './TestSteps';
@@ -510,7 +511,7 @@ export function ConnectionForm({
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <Field label="Refresh every">
             <Select value={d.pollMs} onChange={(e) => set('pollMs', Number(e.target.value))}>
-              {[2000, 5000, 15000, 30000].map((ms) => (
+              {POLL_CHOICES.map((ms) => (
                 <option key={ms} value={ms}>
                   {ms / 1000} seconds
                 </option>

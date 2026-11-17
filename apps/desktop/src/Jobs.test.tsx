@@ -126,8 +126,9 @@ describe('JOB-01 · Jobs list (boards D07, D07b, D07c, D07d)', () => {
 
 /** A cluster that answers, then stops answering (refused) while `down` is true. */
 function flaky() {
-  const st = { down: false };
+  const st = { down: false, calls: 0 };
   const http: FlinkHttp = async () => {
+    st.calls++;
     if (st.down) throw new TransportError({ kind: 'refused', host: 'payments-prod.example.com', port: 8081 });
     return { status: 200, headers: {}, body: JSON.stringify({ jobs: list }), url: '' };
   };
@@ -169,9 +170,13 @@ describe('audit of b5b249a: polling errors (ERRORS_AND_ALERTS §4)', () => {
       f.st.down = true;
       for (const ms of [5_000, 10_000, 20_000]) await tick(ms);
       await screen.findByText(/Lost contact with payments-prod/);
+      const before = f.st.calls;
       await userEvent.click(screen.getByRole('button', { name: 'Retry now' }));
       await tick(100);
+      expect(f.st.calls).toBe(before + 1); // Retry asked again (audit 2 #6)
       expect(screen.getByText(/Lost contact with payments-prod/)).toBeTruthy();
+      // audit 2 #3: the banner names the poller's real wait (a Retry restarts its back-off at 10 s).
+      expect(screen.getByText(/Retrying every 10 s/)).toBeTruthy();
     } finally {
       vi.useRealTimers();
     }
@@ -208,6 +213,18 @@ describe('audit of b5b249a: board and copy', () => {
     expect(await screen.findByText('No jobs match this search or filter.')).toBeTruthy();
     await userEvent.click(screen.getByRole('button', { name: 'Clear search and filter' }));
     expect(names()).toHaveLength(3);
+    // audit 2 #5: focus goes back to the search field, not <body>.
+    expect(screen.getByRole('searchbox', { name: 'Search jobs' })).toHaveFocus();
+  });
+
+  it('audit 2 #5: the no-match live region is there, empty, before it says anything', async () => {
+    show(answer(list));
+    await screen.findByRole('table', { name: 'Jobs' });
+    const region = screen.getByTestId('jobs-match');
+    expect(region).toHaveAttribute('role', 'status');
+    expect(region).toHaveTextContent('');
+    await userEvent.type(screen.getByRole('searchbox', { name: 'Search jobs' }), 'zzz');
+    expect(region).toHaveTextContent('No jobs match this search or filter.');
   });
 
   it('#8 uptime never reads "60 min"; sorting by uptime puts finished jobs ("—") at one end', async () => {
@@ -217,5 +234,42 @@ describe('audit of b5b249a: board and copy', () => {
     await screen.findByRole('table', { name: 'Jobs' });
     await userEvent.click(screen.getByRole('button', { name: /^Uptime/ }));
     expect(names()).toEqual(['daily-totals', 'old', 'fraud-scoring', 'refund-matcher']);
+  });
+});
+
+describe('audit 2 of e31e81c', () => {
+  it('#4 no "Back in contact" toast when contact was never lost (first load failed, then answered)', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      const f = flaky();
+      f.st.down = true;
+      show(f.http);
+      for (const ms of [0, 10_000, 20_000]) await tick(ms);
+      await waitFor(() => expect(f.st.calls).toBe(3));
+      f.st.down = false;
+      await tick(30_000);
+      await screen.findByRole('table', { name: 'Jobs' });
+      expect(screen.queryByText(/Back in contact/)).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('#5 a Retry now that works leaves focus on the heading, not <body>', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      const f = flaky();
+      show(f.http);
+      await screen.findByRole('table', { name: 'Jobs' });
+      f.st.down = true;
+      for (const ms of [5_000, 10_000, 20_000]) await tick(ms);
+      await screen.findByText(/Lost contact with payments-prod/);
+      f.st.down = false;
+      await userEvent.click(screen.getByRole('button', { name: 'Retry now' }));
+      await waitFor(() => expect(screen.queryByText(/Lost contact/)).toBeNull());
+      expect(screen.getByRole('heading', { level: 1, name: 'Jobs' })).toHaveFocus();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

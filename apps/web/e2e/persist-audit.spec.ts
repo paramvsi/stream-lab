@@ -436,6 +436,28 @@ test('R4d audit of cb7a205 #1: "Load newer version" shows exactly what is stored
   await expect(page.getByRole('status').filter({ hasText: /^Saved$/ })).toBeVisible();
 });
 
+test('R4e audit 2 of cb7a205 #1: "Keep editing here" in a plain conflict writes this tab\'s version', async ({
+  page,
+  context,
+}) => {
+  await openBlank(page);
+  await addNode(page, 'Source');
+  await saved(page);
+  const other = await context.newPage();
+  await other.goto(page.url());
+  await expect(nodes(other)).toHaveCount(1);
+  await addNode(other, 'Filter');
+  await addNode(other, 'Sink'); // the other tab's newer version: 3 nodes
+  await expect(page.getByText('This pipeline is open in another tab')).toBeVisible();
+  await page.getByRole('button', { name: 'Keep editing here' }).click();
+  await saved(page);
+  await other.close();
+  const url = page.url();
+  await page.goto('/#/pipelines');
+  await page.goto(url);
+  await expect(nodes(page)).toHaveCount(1); // this tab's version won
+});
+
 test('R5 a saved pipeline\'s failed edit survives "Manage storage" and Back (still "Not saved")', async ({
   page,
 }) => {

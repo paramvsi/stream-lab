@@ -347,10 +347,20 @@ export function WorkspaceRoute({ id }: { id: string }) {
               onAction={(label) => {
                 setConflict(false);
                 // Loading must not autosave (that would bounce the banner to the other tab): showLoaded guards it.
-                if (label === 'Load newer version') void getPipeline(id).then((p) => p && showLoaded(p));
-                // Keep editing here: this tab's version wins. Edits stored nowhere are written now, not on the
-                // next edit (leaving first would lose them).
-                else if (content(useGraph.getState()) !== written.current) saveNow.current?.();
+                if (label === 'Load newer version')
+                  void getPipeline(id).then(
+                    (p) => p && showLoaded(p),
+                    (e: unknown) => {
+                      if (!(e instanceof AppError)) throw e;
+                      setStoreError(e);
+                    },
+                  );
+                // Keep editing here: this tab's version wins, so it is written now. What is stored is the other
+                // tab's newer version, so "Saved" before this write would be untrue, and leaving would lose ours.
+                else {
+                  cancelPending(); // one write, and no armed timer left unaccounted for
+                  saveNow.current?.();
+                }
               }}
             />
           )}

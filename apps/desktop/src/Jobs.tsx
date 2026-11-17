@@ -82,6 +82,12 @@ export function Jobs({
   /** Failures in a row, across Retries (a Retry starts a new poller, but the cluster may still be down). */
   const [failures, setFailures] = useState(0);
   const fails = useRef(0);
+  /** The poller's own count (a Retry restarts it, and with it the back-off): the wait the banner names. */
+  const [pollFails, setPollFails] = useState(0);
+  /** Rows were on screen when the 3rd failure came: CONN-LOST / API-TIMEOUT was shown (its recovery toasts). */
+  const lost = useRef(false);
+  const hasRows = useRef(false);
+  const search = useRef<HTMLInputElement>(null);
   /** When the last good answer came, and when the last answer of any kind came (for "data from N min ago"). */
   const [at, setAt] = useState(0);
   const [now, setNow] = useState(0);
@@ -100,23 +106,27 @@ export function Jobs({
       visible: () => !document.hidden,
       onResult: (r) => {
         if (r.ok) {
-          // ERRORS_AND_ALERTS §4: recovering from the banner says so once.
-          if (fails.current >= POLL.jobs.bannerAfter)
-            toast({ severity: 'success', message: `Back in contact with ${c.name}.` });
+          // ERRORS_AND_ALERTS §4: recovering from the lost-contact banner says so once.
+          if (lost.current) toast({ severity: 'success', message: `Back in contact with ${c.name}.` });
+          lost.current = false;
+          hasRows.current = true;
           fails.current = 0;
           setRows(r.value);
           setAt(Date.now());
           setError(null);
         } else {
           fails.current++;
-          setError(
+          const e =
             r.error instanceof AppError
               ? r.error
-              : new AppError('CONN-IO', { host: shortAddress(c.url), reason: 'the request failed' }, r.error),
-          );
+              : new AppError('CONN-IO', { host: shortAddress(c.url), reason: 'the request failed' }, r.error);
+          if (hasRows.current && fails.current >= POLL.jobs.bannerAfter && e.code.startsWith('CONN-'))
+            lost.current = true;
+          setError(e);
         }
         setNow(Date.now());
         setFailures(fails.current);
+        setPollFails(r.ok ? 0 : r.failures);
       },
     });
     return () => p.stop();
@@ -161,8 +171,9 @@ export function Jobs({
   const retry = () => setRound((n) => n + 1);
   // With rows on screen, a lost cluster is CONN-LOST (or API-TIMEOUT) over the kept rows (§4); an API answer
   // (401, 404, shape…) keeps its own code. Before any rows, the error itself, with a Retry of our own.
-  const s = Math.round(nextDelay(POLL.jobs.everyMs, failures) / 1000);
-  const since = `${Math.max(0, Math.floor((now - at) / 60_000))} min ago`;
+  const s = Math.round(nextDelay(POLL.jobs.everyMs, pollFails) / 1000);
+  const mins = Math.floor((now - at) / 60_000);
+  const since = mins < 1 ? 'less than a minute ago' : `${mins} min ago`;
   const banner = !error
     ? null
     : !rows
@@ -170,12 +181,17 @@ export function Jobs({
       : failures < POLL.jobs.bannerAfter
         ? null
         : error.code === 'CONN-TIMEOUT'
-          ? new AppError('API-TIMEOUT', { conn: c.name, s, n: Math.min(failures, 5) }, error)
+          ? new AppError('API-TIMEOUT', { conn: c.name, s, n: Math.min(pollFails, 5) }, error)
           : error.code.startsWith('CONN-')
             ? new AppError('CONN-LOST', { conn: c.name, s, ago: since }, error)
             : error;
   const stale = !!rows && !!error && failures >= POLL.jobs.staleAfter;
   const filtered = !!(bucket || q.trim());
+  // A banner whose button had focus went away (Retry now worked): focus goes to the heading, not <body>.
+  const bannerUp = !!banner;
+  useEffect(() => {
+    if (!bannerUp && document.activeElement === document.body) h1.current?.focus();
+  }, [bannerUp, h1]);
   return (
     <main className="flex min-h-screen flex-col gap-5 bg-surface px-8 py-7">
       {banner && (
@@ -205,7 +221,13 @@ export function Jobs({
       </div>
       <div className="flex flex-wrap items-end gap-3">
         <Field label="Search jobs" className="w-[280px]">
-          <Input type="search" placeholder="Name or ID" value={q} onChange={(e) => setQ(e.target.value)} />
+          <Input
+            ref={search}
+            type="search"
+            placeholder="Name or ID"
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
+          />
         </Field>
         <div className="inline-flex gap-0.5 rounded-[9px] border border-line bg-subtle p-0.5">
           {CHIPS.map((ch) => (
@@ -237,20 +259,28 @@ export function Jobs({
         <>
           {stale && <p className="m-0 text-[13px] text-muted">Not answering. Showing data from {since}.</p>}
           <Table label="Jobs" columns={columns} rows={shown} rowKey={(r) => r.jid} />
-          {shown.length === 0 && filtered && (
-            <div role="status" className="flex items-center gap-3 text-[14px] text-muted">
-              No jobs match this search or filter.
-              <Button
-                size="sm"
-                onClick={() => {
-                  setQ('');
-                  setBucket(undefined);
-                }}
-              >
-                Clear search and filter
-              </Button>
-            </div>
-          )}
+          {/* Mounted empty, so the words are announced when they come (a region born full often is not). */}
+          <div
+            data-testid="jobs-match"
+            role="status"
+            className="flex items-center gap-3 text-[14px] text-muted"
+          >
+            {shown.length === 0 && filtered && (
+              <>
+                No jobs match this search or filter.
+                <Button
+                  size="sm"
+                  onClick={() => {
+                    setQ('');
+                    setBucket(undefined);
+                    search.current?.focus();
+                  }}
+                >
+                  Clear search and filter
+                </Button>
+              </>
+            )}
+          </div>
         </>
       )}
     </main>

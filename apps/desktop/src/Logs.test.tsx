@@ -281,7 +281,9 @@ describe('OPS-01 · Logs (D18, D18b)', () => {
     await screen.findByRole('table', { name: 'Log lines' });
     await userEvent.click(screen.getByRole('checkbox', { name: 'Regex' }));
     await userEvent.type(screen.getByRole('searchbox', { name: 'Search logs' }), 'Exception');
-    expect(await screen.findByText('Exception one', {}, { timeout: 3_000 })).toBeInTheDocument();
+    // Let v1's own answer land (it filters out the INFO row "fine"): an answer that can go stale.
+    await vi.waitFor(() => expect(screen.queryByText('fine')).toBeNull(), { timeout: 3_000 });
+    expect(screen.getByText('Exception one')).toBeInTheDocument();
     await userEvent.click(screen.getByRole('button', { name: 'Reload' }));
     // New content, same name, same count. Before its own answer lands (300 ms), the old answer must not filter it:
     // that would hide "Exception two" and show an empty table as if nothing matched.

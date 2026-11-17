@@ -229,6 +229,7 @@ export function JobOverview({
   const h1 = useScreenHeading();
   // ACT-01: the stop dialog, and the transport its one POST goes through (not the polls' shared limiter queue).
   const [stopping, setStopping] = useState(false);
+  const [stopRunning, setStopRunning] = useState(false);
   const actionHttp = useMemo(() => transport(c), [transport, c]);
   const {
     value: j,
@@ -472,24 +473,33 @@ export function JobOverview({
           {/* ACT-01: stop with savepoint, the default stop, for a running job on a writable connection. A
               read-only connection hides it (JOB-READONLY above; hidden vs disabled is a pending ruling). */}
           {canStop && (
-            <Button icon={<Download size={16} aria-hidden="true" />} loading={sp.busy} onClick={sp.trigger}>
-              Trigger savepoint
-            </Button>
-          )}
-          {canStop && (
-            <Button
-              variant="primary"
-              icon={<Square size={16} aria-hidden="true" />}
-              onClick={() => setStopping(true)}
+            // ACT-01 / ACT-02: one action at a time (a stop and a savepoint never overlap on the job). Focus on
+            // either is tracked here (React focus events bubble): when they go, it goes to the heading. As the
+            // banner's: a blur that leaves focus inside is the window losing focus (it comes back), not leaving.
+            <div
+              className="contents"
               onFocus={() => (stopFocused.current = true)}
-              // As the banner's: a blur that leaves focus on the button is the window losing focus (it comes
-              // back there), not the user leaving it.
               onBlur={(e) => {
-                if (document.activeElement !== e.currentTarget) stopFocused.current = false;
+                if (!e.currentTarget.contains(document.activeElement)) stopFocused.current = false;
               }}
             >
-              Stop with savepoint
-            </Button>
+              <Button
+                icon={<Download size={16} aria-hidden="true" />}
+                loading={sp.busy}
+                {...(stopRunning ? { disabledReason: 'The job is being stopped.' } : {})}
+                onClick={sp.trigger}
+              >
+                Trigger savepoint
+              </Button>
+              <Button
+                variant="primary"
+                icon={<Square size={16} aria-hidden="true" />}
+                {...(sp.busy ? { disabledReason: 'A savepoint is in progress.' } : {})}
+                onClick={() => setStopping(true)}
+              >
+                Stop with savepoint
+              </Button>
+            </div>
           )}
           {onJobs && (
             <Button icon={<ListChecks size={16} aria-hidden="true" />} onClick={onJobs}>
@@ -507,6 +517,7 @@ export function JobOverview({
           jid={jid}
           job={j.name}
           fallbackFocus={h1}
+          onRunningChange={setStopRunning}
         />
       )}
       {/* JOB-05: below the job header (D08c). A failed exceptions read says so rather than nothing; losing the

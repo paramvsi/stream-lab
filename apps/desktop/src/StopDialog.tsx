@@ -41,6 +41,7 @@ export function StopDialog({
   jid,
   job,
   fallbackFocus,
+  onRunningChange,
 }: {
   open: boolean;
   onOpenChange: (o: boolean) => void;
@@ -50,6 +51,8 @@ export function StopDialog({
   job: string;
   /** Where focus goes on close when the trigger is gone (the job left RUNNING): the page heading. */
   fallbackFocus?: RefObject<HTMLElement | null>;
+  /** A stop was sent and is still running (the page keeps other actions off meanwhile). */
+  onRunningChange?: (running: boolean) => void;
 }) {
   const [step, setStep] = useState<Step>({ name: 'confirm' });
   const [dir, setDir] = useState<string | null>(null);
@@ -63,6 +66,10 @@ export function StopDialog({
   const drainId = useId();
   const toast = useToastOptional();
   const openRef = useRef(open);
+  const running = step.name === 'running';
+  useEffect(() => {
+    onRunningChange?.(running);
+  }, [running, onRunningChange]);
   // Closed by us (the stop ended): Radix gives no close-focus event then, and the trigger may be gone (the job
   // left RUNNING). After the close is committed, focus that fell to <body> goes to the page heading.
   const closedByUs = useRef(false);

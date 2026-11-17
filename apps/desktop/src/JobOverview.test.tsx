@@ -1995,6 +1995,79 @@ describe('JOB-02 · Job overview (board D08)', () => {
     },
   );
 
+  it(
+    'audit trig #1 #2: while a triggered savepoint runs Stop is off (with a reason); focus on Trigger goes to the heading when the job stops',
+    { timeout: 20_000 },
+    async () => {
+      vi.useFakeTimers({ shouldAdvanceTime: true });
+      try {
+        let state = 'RUNNING';
+        show(async (req) => {
+          if (req.path === '/jobmanager/config')
+            return {
+              status: 200,
+              headers: {},
+              url: '',
+              body: JSON.stringify([{ key: 'state.savepoints.dir', value: 's3://sp' }]),
+            };
+          if (req.method === 'POST')
+            return { status: 202, headers: {}, url: '', body: JSON.stringify({ 'request-id': 'r9' }) };
+          if (/\/savepoints\/r9$/.test(req.path))
+            return {
+              status: 200,
+              headers: {},
+              url: '',
+              body: JSON.stringify({ status: { id: 'IN_PROGRESS' } }),
+            };
+          return answer(200, { ...detail, state })(req);
+        });
+        const t = await screen.findByRole('button', { name: 'Trigger savepoint' });
+        t.focus();
+        await userEvent.keyboard('{Enter}');
+        await screen.findAllByText('Savepoint in progress for refund-matcher');
+        expect(screen.getByRole('button', { name: /Stop with savepoint/ })).toHaveAttribute(
+          'aria-disabled',
+          'true',
+        );
+        state = 'FINISHED';
+        for (let i = 0; i < 4; i++) await act(async () => vi.advanceTimersByTimeAsync(1_000));
+        expect(screen.queryByRole('button', { name: 'Trigger savepoint' })).toBeNull();
+        expect(screen.getByRole('heading', { level: 1 })).toHaveFocus();
+      } finally {
+        vi.useRealTimers();
+      }
+    },
+  );
+
+  it(
+    'audit trig #3: a triggered savepoint whose status cannot be read says it may still finish on the cluster',
+    { timeout: 30_000 },
+    async () => {
+      vi.useFakeTimers({ shouldAdvanceTime: true });
+      try {
+        show(async (req) => {
+          if (req.path === '/jobmanager/config')
+            return {
+              status: 200,
+              headers: {},
+              url: '',
+              body: JSON.stringify([{ key: 'state.savepoints.dir', value: 's3://sp' }]),
+            };
+          if (req.method === 'POST')
+            return { status: 202, headers: {}, url: '', body: JSON.stringify({ 'request-id': 'r9' }) };
+          if (/\/savepoints\/r9$/.test(req.path)) return { status: 404, headers: {}, url: '', body: '' };
+          return answer(200, detail)(req);
+        });
+        await userEvent.click(await screen.findByRole('button', { name: 'Trigger savepoint' }));
+        for (let i = 0; i < 14 && !screen.queryAllByText(/may still finish on the cluster/).length; i++)
+          await act(async () => vi.advanceTimersByTimeAsync(1_000));
+        expect(screen.queryAllByText(/may still finish on the cluster/)).not.toHaveLength(0);
+      } finally {
+        vi.useRealTimers();
+      }
+    },
+  );
+
   it('lists the operators with parallelism and status', async () => {
     show(answer(200, detail));
     const table = await screen.findByRole('table', { name: 'Operators' });

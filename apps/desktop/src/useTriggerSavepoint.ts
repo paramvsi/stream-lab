@@ -6,6 +6,8 @@ import { useEffect, useRef, useState } from 'react';
 const EVERY_MS = 1_000;
 const AFTER_FAIL_MS = 5_000;
 const MAX_READ_FAILS = 3;
+const LOST =
+  'Stream Lab stopped asking for its progress. The savepoint may still finish on the cluster: check the job.';
 
 const asAppError = (e: unknown, conn: string) =>
   e instanceof AppError ? e : new AppError('CONN-IO', { host: conn, reason: 'the request failed' }, e);
@@ -21,12 +23,17 @@ export function useTriggerSavepoint(http: FlinkHttp, conn: string, jid: string, 
   const toast = useToastOptional();
   const [busy, setBusy] = useState(false);
   const live = useRef(true);
+  const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   useEffect(() => {
     live.current = true;
     return () => {
       live.current = false;
+      clearTimeout(timer.current); // leaving the page sends nothing more
     };
   }, []);
+  const later = (f: () => void, ms: number) => {
+    timer.current = setTimeout(f, ms);
+  };
 
   const say = (e: unknown) => {
     const p = present(asAppError(e, conn));
@@ -40,7 +47,7 @@ export function useTriggerSavepoint(http: FlinkHttp, conn: string, jid: string, 
         (s) => {
           if (!live.current) return;
           fails = 0;
-          if (!s.done) return void setTimeout(ask, EVERY_MS);
+          if (!s.done) return later(ask, EVERY_MS);
           setBusy(false);
           if ('location' in s) {
             const name = s.location.split('/').filter(Boolean).at(-1) ?? s.location;
@@ -49,12 +56,13 @@ export function useTriggerSavepoint(http: FlinkHttp, conn: string, jid: string, 
         },
         (e: unknown) => {
           if (!live.current) return;
-          if (++fails < MAX_READ_FAILS) return void setTimeout(ask, AFTER_FAIL_MS);
+          if (++fails < MAX_READ_FAILS) return later(ask, AFTER_FAIL_MS);
           setBusy(false);
-          say(e);
+          const p = present(asAppError(e, conn));
+          toast?.({ severity: 'warning', message: `${p.message} ${LOST}` });
         },
       );
-    setTimeout(ask, EVERY_MS);
+    later(ask, EVERY_MS);
   };
 
   const trigger = () => {

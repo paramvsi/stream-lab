@@ -1,7 +1,7 @@
 import { TransportError, type Connection, type FlinkHttp } from '@sl/flink';
 import { memoryHistory, type HistoryStore } from './history';
 import { ToastProvider, TooltipProvider } from '@sl/ui';
-import { act, cleanup, render, screen, waitFor, within } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 import { causeText, duration, JobOverview, size } from './JobOverview';
@@ -1907,6 +1907,27 @@ describe('JOB-02 · Job overview (board D08)', () => {
         for (let t = 0; t < 4; t++) await act(async () => vi.advanceTimersByTimeAsync(1_000));
         expect(screen.queryByRole('button', { name: 'Stop with savepoint' })).toBeNull();
         expect(document.activeElement).toBe(document.body);
+      } finally {
+        vi.useRealTimers();
+      }
+    },
+  );
+
+  it(
+    'audit stop4: a window switch while on Stop (a blur that leaves focus there) still brings focus to the heading when Stop goes',
+    { timeout: 20_000 },
+    async () => {
+      vi.useFakeTimers({ shouldAdvanceTime: true });
+      try {
+        let state = 'RUNNING';
+        show(async (req) => answer(200, { ...detail, state })(req));
+        const b = await screen.findByRole('button', { name: 'Stop with savepoint' });
+        b.focus();
+        fireEvent.blur(b); // the window lost focus: activeElement stays on the button
+        expect(document.activeElement).toBe(b);
+        state = 'FINISHED';
+        for (let t = 0; t < 4; t++) await act(async () => vi.advanceTimersByTimeAsync(1_000));
+        expect(screen.getByRole('heading', { level: 1 })).toHaveFocus();
       } finally {
         vi.useRealTimers();
       }

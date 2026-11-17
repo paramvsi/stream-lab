@@ -473,7 +473,11 @@ export function JobOverview({
               icon={<Square size={16} aria-hidden="true" />}
               onClick={() => setStopping(true)}
               onFocus={() => (stopFocused.current = true)}
-              onBlur={() => (stopFocused.current = false)}
+              // As the banner's: a blur that leaves focus on the button is the window losing focus (it comes
+              // back there), not the user leaving it.
+              onBlur={(e) => {
+                if (document.activeElement !== e.currentTarget) stopFocused.current = false;
+              }}
             >
               Stop with savepoint
             </Button>

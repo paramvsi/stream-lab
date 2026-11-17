@@ -492,6 +492,51 @@ describe('JOB-02 · Job overview (board D08)', () => {
     }
   });
 
+  it('audit 7 #1: exceptions failing on and off (never 3 in a row, no banner) never pull focus to the heading', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      let n = 0;
+      let headingFocus = 0;
+      show(async (req) =>
+        req.path.endsWith('/exceptions')
+          ? n++ % 2
+            ? { status: 200, headers: {}, url: '', body: JSON.stringify(excs) }
+            : { status: 500, headers: {}, url: '', body: '' }
+          : answer(200, { ...detail, state: 'RESTARTING' })(req),
+      );
+      const h = await screen.findByRole('heading', { level: 1 });
+      h.addEventListener('focus', () => headingFocus++);
+      for (let t = 0; t < 30; t++) {
+        (document.activeElement as HTMLElement | null)?.blur(); // reading the table: focus on <body>
+        await act(async () => vi.advanceTimersByTimeAsync(1_000));
+      }
+      expect(n).toBeGreaterThanOrEqual(3);
+      expect(headingFocus).toBe(0);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('audit 7 #2: the failed-read banner coming never takes focus from a control the user is in', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      show(
+        async (req) =>
+          req.path.endsWith('/exceptions')
+            ? { status: 500, headers: {}, url: '', body: '' }
+            : answer(200, { ...detail, state: 'FAILED' })(req),
+        { onJobs: vi.fn() },
+      );
+      const jobs = await screen.findByRole('button', { name: 'Jobs' });
+      jobs.focus();
+      for (let t = 0; t < 40; t++) await act(async () => vi.advanceTimersByTimeAsync(1_000));
+      await screen.findByText(/internal error while reading the exceptions/);
+      expect(jobs).toHaveFocus();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('audit 2 #4: a 404 on the exceptions read is not a "no longer exists" banner over a job on screen', async () => {
     let asked = 0;
     show(async (req) =>

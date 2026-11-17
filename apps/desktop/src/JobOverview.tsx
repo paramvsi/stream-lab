@@ -251,14 +251,13 @@ export function JobOverview({
     !!exErr &&
     !HOST_DOWN.has(exErr.code) &&
     ex.failures >= POLL.jobs.bannerAfter;
-  // When it goes, or only its code changes (its buttons differ: Retry or not), the focused button may go with it:
-  // focus goes to the heading. One frame later: the Banner fills its actions on the next frame.
+  // When the failed-read banner goes, or the code it shows changes (its buttons differ: Retry or not), the
+  // focused button may go with it: focus goes to the heading. Keyed on what is shown, not on every read, and only
+  // from <body>: focus in any other control stays.
+  const shownCode = failedRead ? (exErr?.code ?? null) : null;
   useEffect(() => {
-    const f = requestAnimationFrame(() => {
-      if (document.activeElement === document.body || !document.activeElement) h1.current?.focus();
-    });
-    return () => cancelAnimationFrame(f);
-  }, [failedRead, exErr?.code, h1]);
+    if (document.activeElement === document.body || !document.activeElement) h1.current?.focus();
+  }, [shownCode, h1]);
   return (
     <main className="flex min-h-screen flex-col gap-5 bg-surface px-8 py-7">
       {!gone && banner}

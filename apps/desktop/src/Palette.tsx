@@ -134,6 +134,7 @@ export const SHORTCUTS: [string, string][] = [
   ['⌘1–9', 'Switch connection'],
   ['G J', 'Go to jobs'],
   ['G L', 'Go to logs'],
+  ['⌘,', 'Settings'],
   ['?', 'This list'],
 ];
 

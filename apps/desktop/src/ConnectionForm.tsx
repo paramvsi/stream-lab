@@ -154,8 +154,11 @@ export function ConnectionForm({
   onCancel,
   onSave,
   test,
+  pollMs = 5000,
 }: {
   kind: Connection['kind'];
+  /** APP-04: the default refresh interval from Settings. */
+  pollMs?: number;
   taken: string[];
   onCancel: () => void;
   onSave: (r: { connection: Connection; secrets: { key: string; value: string }[] }) => void;
@@ -181,7 +184,7 @@ export function ConnectionForm({
     command: '',
     cert: '',
     key: '',
-    pollMs: 5000,
+    pollMs,
     timeoutMs: 10000,
     readOnly: false,
     basePath: '',

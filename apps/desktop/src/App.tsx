@@ -21,6 +21,7 @@ import { Palette, ShortcutsSheet, type Command } from './Palette';
 import { Jobs } from './Jobs';
 import { KindPicker } from './KindPicker';
 import { gateFor } from './usePolled';
+import { Settings } from './Settings';
 import { Welcome } from './Welcome';
 
 /**
@@ -38,6 +39,7 @@ type Screen =
   | { name: 'job'; id: string; jid: string; start?: { act: 'stop' | 'savepoint'; n: number } }
   | { name: 'logs'; id: string }
   | { name: 'kind'; kind: KindChoice | null }
+  | { name: 'settings' }
   | { name: 'form'; kind: Connection['kind'] };
 
 export function App({
@@ -55,6 +57,8 @@ export function App({
   // JOB-06: one history store for the app's life (SQLite with the Rust side).
   const [history] = useState(memoryHistory);
   const toast = useToast();
+  // APP-04: what a new connection's refresh starts at (in memory until the Tauri store lands).
+  const [defaultPollMs, setDefaultPollMs] = useState(5000);
   const add = () => setScreen({ name: 'kind', kind: null });
   const home = () => setScreen({ name: 'home' });
 
@@ -88,7 +92,11 @@ export function App({
       const mod = (e.metaKey || e.ctrlKey) && !e.altKey && !e.shiftKey;
       const plain = !e.metaKey && !e.ctrlKey && !e.altKey;
       const n = digit(e);
-      if (mod && is(e, 'k')) {
+      if (mod && (e.key === ',' || e.code === 'Comma')) {
+        if (overDialog()) return;
+        e.preventDefault();
+        setScreen({ name: 'settings' });
+      } else if (mod && is(e, 'k')) {
         if (overDialog()) return;
         e.preventDefault();
         setPalette(true);
@@ -174,6 +182,7 @@ export function App({
     { id: 'list', label: 'Connections', run: () => setScreen({ name: 'list' }) },
     { id: 'add', label: 'Add connection', run: add },
     { id: 'keys', label: 'Keyboard shortcuts', hint: '?', run: () => setSheet(true) },
+    { id: 'settings', label: 'Settings', hint: '⌘,', run: () => setScreen({ name: 'settings' }) },
     ...(transport
       ? connections.flatMap((c): Command[] => [
           {
@@ -216,6 +225,7 @@ export function App({
       return (
         <ConnectionForm
           kind={screen.kind}
+          pollMs={defaultPollMs}
           taken={connections.map((c) => c.name)}
           {...(test ? { test } : {})}
           onCancel={() => setScreen({ name: 'kind', kind: screen.kind })}
@@ -226,6 +236,8 @@ export function App({
           }}
         />
       );
+    if (screen.name === 'settings')
+      return <Settings pollMs={defaultPollMs} onPollMs={setDefaultPollMs} onBack={home} />;
     if (screen.name === 'kind')
       return (
         <KindPicker

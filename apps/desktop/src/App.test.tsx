@@ -334,7 +334,7 @@ describe('APP-01 · command palette (board G01)', () => {
       within(sheet)
         .getAllByRole('rowheader')
         .map((r) => r.textContent),
-    ).toEqual(['⌘K', '⌘1–9', 'G J', 'G L', '?']);
+    ).toEqual(['⌘K', '⌘1–9', 'G J', 'G L', '⌘,', '?']);
     await userEvent.keyboard('{Escape}');
     expect(screen.queryByRole('dialog', { name: 'Keyboard shortcuts' })).toBeNull();
     expect(manage).toHaveFocus();
@@ -401,7 +401,7 @@ describe('APP-01 · command palette (board G01)', () => {
       within(screen.getByRole('dialog', { name: 'Keyboard shortcuts' }))
         .getAllByRole('rowheader')
         .map((r) => r.textContent),
-    ).toEqual(['⌘K', '⌘1–9', 'G J', 'G L', '?']);
+    ).toEqual(['⌘K', '⌘1–9', 'G J', 'G L', '⌘,', '?']);
   });
 
   it('audit of 7cee880: the keys work by physical key too (AZERTY ⌘ + "1/&" gives "&"; G J on an Arabic layout)', async () => {
@@ -554,7 +554,7 @@ describe('APP-01 · command palette (board G01)', () => {
     await userEvent.keyboard('{Meta>}k{/Meta}');
     const dialog = screen.getByRole('dialog', { name: 'Commands' });
     const box = within(dialog).getByRole('combobox');
-    for (let i = 0; i < 7; i++) await userEvent.keyboard('{ArrowDown}');
+    for (let i = 0; i < 8; i++) await userEvent.keyboard('{ArrowDown}'); // to payments-staging
     const at = () => document.getElementById(box.getAttribute('aria-activedescendant') ?? '')?.textContent;
     expect(at()).toMatch(/^payments-staging/);
     release();
@@ -815,4 +815,34 @@ describe('APP-01 · command palette (board G01)', () => {
     await new Promise((r) => setTimeout(r, 300));
     expect(posts).toEqual([]);
   }, 15_000);
+});
+
+describe('APP-04 · Settings (boards D21)', () => {
+  it('⌘, opens Settings; the default refresh interval is what a new connection starts with; Light only; About', async () => {
+    render(
+      <TooltipProvider>
+        <ToastProvider>
+          <App transport={() => async () => ({ status: 503, headers: {}, body: '', url: '' })} />
+        </ToastProvider>
+      </TooltipProvider>,
+    );
+    await userEvent.keyboard('{Meta>},{/Meta}');
+    expect(await screen.findByRole('heading', { level: 1, name: 'Settings' })).toHaveFocus();
+    expect(screen.getByRole('radio', { name: 'Light' })).toBeChecked();
+    expect(screen.getByRole('radio', { name: 'Dark' })).toBeDisabled();
+    expect(screen.getByRole('radio', { name: 'Dark' })).toHaveAccessibleDescription(
+      'Dark theme coming in v1',
+    );
+    await userEvent.selectOptions(screen.getByLabelText('Default refresh interval'), '15000');
+    await userEvent.click(screen.getByRole('tab', { name: 'About' }));
+    expect(
+      screen.getByText(/Apache Flink and Flink are trademarks of the Apache Software Foundation/),
+    ).toBeInTheDocument();
+    await userEvent.keyboard('{Meta>}k{/Meta}');
+    await userEvent.type(screen.getByRole('combobox', { name: 'Search commands' }), 'add connection');
+    await userEvent.keyboard('{Enter}');
+    await userEvent.click(await screen.findByRole('radio', { name: /Self-managed/ }));
+    await userEvent.click(screen.getByRole('button', { name: 'Continue' }));
+    expect(screen.getByLabelText('Refresh every')).toHaveValue('15000');
+  });
 });

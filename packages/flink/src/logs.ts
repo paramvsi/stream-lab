@@ -126,3 +126,36 @@ export function filterLines(lines: readonly string[], pattern: string, regex: bo
   }
   return lines.filter((l) => re.test(l));
 }
+
+/** One log entry (D18 row): an entry line, and the lines under it that are not entries (a stack trace). */
+export interface LogEntry {
+  /** HH:MM:SS.mmm, as D18 shows it; '' when the line has no time. */
+  time: string;
+  level: string;
+  logger: string;
+  message: string;
+  more: string[];
+}
+
+/**
+ * Flink's default layout, `%d{yyyy-MM-dd HH:mm:ss,SSS} %-5p %-60c %x - %m%n` (conf/log4j.properties and
+ * log4j-console.properties, release-1.20): date, time, padded level, padded logger, the NDC (`[]`), " - ", message.
+ * A line that does not start that way belongs to the entry above it; with no entry above, it is its own (no level).
+ * FLINK: https://github.com/apache/flink/blob/release-1.20/flink-dist/src/main/flink-bin/conf/log4j.properties
+ */
+const ENTRY = /^\d{4}-\d{2}-\d{2} (\d{2}:\d{2}:\d{2}),(\d{3}) +([A-Z]+) +(\S+)\s.*? - (.*)$/;
+export function parseLog(lines: readonly string[]): LogEntry[] {
+  const out: LogEntry[] = [];
+  for (const l of lines) {
+    const m = ENTRY.exec(l);
+    if (m) out.push({ time: `${m[1]}.${m[2]}`, level: m[3]!, logger: m[4]!, message: m[5]!, more: [] });
+    else if (out.length) out.at(-1)!.more.push(l);
+    else out.push({ time: '', level: '', logger: '', message: l, more: [] });
+  }
+  return out;
+}
+
+const RANK: Record<string, number> = { TRACE: 0, DEBUG: 1, INFO: 2, WARN: 3, ERROR: 4, FATAL: 5 };
+/** D18's level filter: "All", "Warn" (WARN and above), "Error" (ERROR and above). */
+export const atLeast = (min: 'all' | 'warn' | 'error') => (e: LogEntry) =>
+  min === 'all' || (RANK[e.level] ?? -1) >= (min === 'warn' ? RANK.WARN! : RANK.ERROR!);

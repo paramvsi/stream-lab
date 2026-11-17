@@ -1,12 +1,14 @@
 import { describe, expect, it } from 'vitest';
 import type { FlinkRequest } from './http';
 import {
+  atLeast,
   filterLines,
   getJmLog,
   getTmLog,
-  LOG_TAIL_LINES,
   listJmLogs,
   listTmLogs,
+  LOG_TAIL_LINES,
+  parseLog,
   tail,
   tooLarge,
 } from './logs';
@@ -114,5 +116,40 @@ describe('OPS-01 · logs (D18)', () => {
     await expect(
       getTmLog(reply(500, '{"errors":["Internal server error."]}'), 'prod', 'tm1', 'x'),
     ).rejects.toMatchObject({ code: 'API-5XX' });
+  });
+
+  it("parseLog: Flink's default pattern (%d %-5p %-60c %x - %m) into time, level, logger, message; other lines join the entry above", () => {
+    const lines = [
+      '2026-11-17 12:04:01,210 INFO  org.apache.flink.runtime.checkpoint.CheckpointCoordinator     [] - Completed checkpoint 4812.',
+      '2026-11-17 12:04:07,250 ERROR org.apache.flink.runtime.taskmanager.Task                    [] - Lookup failed - merchant is null',
+      'java.lang.NullPointerException: merchant is null',
+      '\tat com.acme.fraud.MerchantLookup.join(MerchantLookup.java:88)',
+      'a line before any entry',
+    ];
+    const e = parseLog(lines);
+    expect(e[0]).toMatchObject({
+      time: '12:04:01.210',
+      level: 'INFO',
+      logger: 'org.apache.flink.runtime.checkpoint.CheckpointCoordinator',
+      message: 'Completed checkpoint 4812.',
+    });
+    expect(e[1]).toMatchObject({ level: 'ERROR', message: 'Lookup failed - merchant is null' });
+    expect(e[1]!.more).toEqual([
+      'java.lang.NullPointerException: merchant is null',
+      '\tat com.acme.fraud.MerchantLookup.join(MerchantLookup.java:88)',
+      'a line before any entry',
+    ]);
+    // a log that does not use the pattern: each line is an entry of its own, no level
+    expect(parseLog(['plain line'])).toEqual([
+      { time: '', level: '', logger: '', message: 'plain line', more: [] },
+    ]);
+  });
+
+  it('atLeast: D18 "Warn" is WARN and above, "Error" is ERROR and above; "All" is everything', () => {
+    const at = (level: string) => ({ time: '', level, logger: '', message: '', more: [] });
+    const all = ['DEBUG', 'INFO', 'WARN', 'ERROR', 'FATAL', ''].map(at);
+    expect(all.filter(atLeast('all')).length).toBe(6);
+    expect(all.filter(atLeast('warn')).map((e) => e.level)).toEqual(['WARN', 'ERROR', 'FATAL']);
+    expect(all.filter(atLeast('error')).map((e) => e.level)).toEqual(['ERROR', 'FATAL']);
   });
 });

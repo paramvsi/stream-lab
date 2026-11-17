@@ -250,3 +250,63 @@ describe('audit of 8671a2f', () => {
     expect(card().textContent).not.toContain('Running');
   });
 });
+
+describe('APP-01 · command palette (board G01)', () => {
+  const withOne = async () => {
+    const http: FlinkHttp = async () => ({ status: 503, headers: {}, body: '', url: '' });
+    render(
+      <TooltipProvider>
+        <ToastProvider>
+          <App transport={() => http} />
+        </ToastProvider>
+      </TooltipProvider>,
+    );
+    await userEvent.click(screen.getByRole('button', { name: 'Add a connection' }));
+    await userEvent.click(screen.getByRole('radio', { name: /Self-managed/ }));
+    await userEvent.click(screen.getByRole('button', { name: 'Continue' }));
+    await userEvent.type(screen.getByLabelText(/^Name/), 'local-docker');
+    await userEvent.selectOptions(screen.getByLabelText(/^Environment/), 'dev');
+    await userEvent.type(screen.getByLabelText(/JobManager REST URL/), 'http://localhost:8081');
+    // ⌘K does nothing on the form: a jump would drop what is typed. (Pressed off any field: jsdom would type the k.)
+    (document.activeElement as HTMLElement).blur();
+    await userEvent.keyboard('{Meta>}k{/Meta}');
+    expect(screen.queryByRole('dialog', { name: 'Commands' })).toBeNull();
+    await userEvent.click(screen.getByRole('button', { name: 'Save' }));
+    expect(screen.getByRole('heading', { level: 1, name: 'Fleet' })).toBeTruthy();
+  };
+
+  it('⌘K opens it on the search box; typing filters; Enter jumps (Logs of a cluster), and its heading has focus', async () => {
+    await withOne();
+    await userEvent.keyboard('{Meta>}k{/Meta}');
+    const dialog = screen.getByRole('dialog', { name: 'Commands' });
+    const box = within(dialog).getByRole('combobox', { name: 'Search commands' });
+    expect(box).toHaveFocus();
+    await userEvent.type(box, 'logs local');
+    expect(
+      within(dialog)
+        .getAllByRole('option')
+        .map((o) => o.textContent),
+    ).toEqual([expect.stringContaining('Logs · local-docker')]);
+    await userEvent.keyboard('{Enter}');
+    expect(await screen.findByRole('heading', { level: 1, name: 'Logs' })).toHaveFocus();
+    expect(screen.queryByRole('dialog', { name: 'Commands' })).toBeNull();
+  });
+
+  it('Ctrl+K too; ↓ and Enter; Escape closes and focus goes back where it was; no match says so', async () => {
+    await withOne();
+    const manage = screen.getByRole('button', { name: 'Connections' });
+    manage.focus();
+    await userEvent.keyboard('{Control>}k{/Control}');
+    const dialog = screen.getByRole('dialog', { name: 'Commands' });
+    await userEvent.type(within(dialog).getByRole('combobox'), 'zzz');
+    expect(within(dialog).getByText('No commands match.')).toBeInTheDocument();
+    await userEvent.keyboard('{Escape}');
+    expect(screen.queryByRole('dialog', { name: 'Commands' })).toBeNull();
+    expect(manage).toHaveFocus();
+    await userEvent.keyboard('{Control>}k{/Control}');
+    await userEvent.type(screen.getByRole('combobox', { name: 'Search commands' }), 'local-docker');
+    // local-docker (its cluster), Jobs · local-docker, Logs · local-docker: ↓ once is Jobs
+    await userEvent.keyboard('{ArrowDown}{Enter}');
+    expect(await screen.findByRole('heading', { level: 1, name: 'Jobs' })).toBeTruthy();
+  });
+});

@@ -80,27 +80,42 @@ describe('JOB-08 · grouped exceptions (board X20)', () => {
   it('D11b: an open group shows its newest full stack trace, line by line, with Copy (says copied, or COPY-FAILED)', async () => {
     const writeText = vi.fn().mockResolvedValueOnce(undefined).mockRejectedValueOnce(new Error('denied'));
     Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
+    // The newest occurrence's trace differs (a frame of its own), with Java's trailing line end and a Suppressed
+    // block, written with Windows line ends: so "newest", the line split and the nesting are all checked.
+    const newest = {
+      ...entries[0]!,
+      stacktrace:
+        'java.lang.RuntimeException: wrapped\r\n\tat newest\r\n\tSuppressed: java.io.IOException: close\r\n\t\tat c\r\n\tCaused by: java.net.SocketException: reset\r\nCaused by: java.util.concurrent.TimeoutException: Kafka describeTopics\r\n\t... 14 more\r\n',
+    };
     render(
       <ToastProvider>
-        <ExceptionGroups entries={entries} />
+        <ExceptionGroups entries={[newest, ...entries.slice(1)]} />
       </ToastProvider>,
     );
     await userEvent.click(screen.getByRole('button', { name: 'Show 3' }));
-    const trace = screen.getByRole('list', { name: 'Stack trace (newest)' });
+    await userEvent.click(screen.getByRole('button', { name: 'Show 1' }));
+    // Two groups open: each trace, list and Copy is named for its group.
+    const trace = screen.getByRole('list', { name: 'TimeoutException stack trace (newest)' });
     expect(
-      within(trace)
-        .getAllByRole('listitem')
-        .map((l) => l.textContent),
-    ).toEqual([
+      screen.getByRole('list', { name: 'NullPointerException stack trace (newest)' }),
+    ).toBeInTheDocument();
+    const items = within(trace).getAllByRole('listitem');
+    expect(items.map((l) => l.textContent)).toEqual([
       'java.lang.RuntimeException: wrapped',
-      'at a',
+      'at newest',
+      'Suppressed: java.io.IOException: close',
+      'at c',
+      'Caused by: java.net.SocketException: reset',
       'Caused by: java.util.concurrent.TimeoutException: Kafka describeTopics',
-      'at b',
+      '... 14 more',
     ]);
-    await userEvent.click(screen.getByRole('button', { name: 'Copy stack trace' }));
-    expect(writeText).toHaveBeenCalledWith(entries[0]!.stacktrace);
+    // Nesting kept: the Suppressed block's own cause sits deeper than the real one.
+    const depth = (li: HTMLElement) => Number(li.dataset.depth);
+    expect(depth(items[4]!)).toBeGreaterThan(depth(items[5]!));
+    await userEvent.click(screen.getByRole('button', { name: 'Copy TimeoutException stack trace' }));
+    expect(writeText).toHaveBeenCalledWith(newest.stacktrace);
     expect(await screen.findByText('Stack trace copied')).toBeInTheDocument();
-    await userEvent.click(screen.getByRole('button', { name: 'Copy stack trace' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Copy TimeoutException stack trace' }));
     expect(await screen.findByText(/Could not copy to the clipboard/)).toBeInTheDocument();
   });
 });

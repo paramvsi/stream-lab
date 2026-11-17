@@ -111,7 +111,7 @@ export function ExceptionGroups({
                             </li>
                           ))}
                         </ul>
-                        <Trace e={g.entries[0]!} />
+                        <Trace e={g.entries[0]!} label={label} />
                       </td>
                     </tr>
                   )}
@@ -126,7 +126,7 @@ export function ExceptionGroups({
 }
 
 /** D11b: Java's printStackTrace, one line per item (its "... N more" kept), and Copy for the whole of it. */
-function Trace({ e }: { e: FlinkException }) {
+function Trace({ e, label }: { e: FlinkException; label: string }) {
   const toast = useToastOptional();
   const copy = () => {
     const failed = () => {
@@ -143,23 +143,30 @@ function Trace({ e }: { e: FlinkException }) {
     <div className="mt-3 flex flex-col gap-2">
       <div>
         <Button size="sm" variant="secondary" icon={<Copy size={14} aria-hidden="true" />} onClick={copy}>
-          Copy stack trace
+          <span aria-hidden="true">Copy stack trace</span>
+          <span className="sr-only">Copy {label} stack trace</span>
         </Button>
       </div>
       {/* A scroller the keyboard can reach (as Table does). */}
       <div
         role="region"
-        aria-label="Stack trace"
+        aria-label={`${label} stack trace`}
         tabIndex={0}
         className="sl-focus max-h-64 overflow-auto rounded-md border border-line bg-surface p-3"
       >
         <ol
-          aria-label="Stack trace (newest)"
+          aria-label={`${label} stack trace (newest)`}
           className="m-0 list-decimal pl-8 font-mono text-[12px] text-ink"
         >
-          {e.stacktrace.split('\n').map((l, i) => (
-            <li key={i} className="whitespace-pre-wrap break-all">
-              {l.replace(/^\t+/, '')}
+          {lines(e.stacktrace).map(({ text, depth }, i) => (
+            // Java's nesting (Suppressed blocks and their causes) kept as depth.
+            <li
+              key={i}
+              data-depth={depth}
+              style={{ paddingLeft: `${depth * 2}ch` }}
+              className="whitespace-pre-wrap break-all"
+            >
+              {text}
             </li>
           ))}
         </ol>
@@ -167,3 +174,16 @@ function Trace({ e }: { e: FlinkException }) {
     </div>
   );
 }
+
+/** Java's printStackTrace lines (CRLF or LF, its final line end dropped), each with its nesting depth. */
+const lines = (trace: string) => {
+  const ls = trace.split(/\r?\n/);
+  if (ls.at(-1) === '') ls.pop();
+  return ls.map((l) => {
+    const tabs = /^\t*/.exec(l)![0].length;
+    const text = l.slice(tabs);
+    // Frames ("at …", "... N more") carry one tab of their own; "Caused by:" / "Suppressed:" lines do not.
+    const frame = /^(at |\.\.\. \d+ more)/.test(text);
+    return { text, depth: Math.max(0, frame ? tabs - 1 : tabs) };
+  });
+};

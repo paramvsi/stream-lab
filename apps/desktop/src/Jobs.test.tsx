@@ -98,6 +98,15 @@ describe('JOB-01 · Jobs list (boards D07, D07b, D07c, D07d)', () => {
     expect(screen.getByRole('columnheader', { name: /^Job/ })).toHaveAttribute('aria-sort', 'descending');
   });
 
+  it('M7 performance: a 100-job list renders in under 1 s', async () => {
+    const many = Array.from({ length: 100 }, (_, i) => job(`j${i}`, `job-${i}`, 'RUNNING', 60_000));
+    const t0 = performance.now();
+    show(answer(many));
+    await screen.findByRole('row', { name: /job-99/ });
+    expect(performance.now() - t0).toBeLessThan(1000);
+    expect(names()).toHaveLength(100);
+  });
+
   it('empty cluster (D07c)', async () => {
     show(answer([]));
     expect(await screen.findByRole('heading', { name: 'No jobs on this cluster yet' })).toBeInTheDocument();

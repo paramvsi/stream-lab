@@ -21,6 +21,7 @@ import { Palette, ShortcutsSheet, type Command } from './Palette';
 import { Jobs } from './Jobs';
 import { KindPicker } from './KindPicker';
 import { gateFor } from './usePolled';
+import { AllJobs } from './AllJobs';
 import { Settings } from './Settings';
 import { Welcome } from './Welcome';
 
@@ -40,6 +41,7 @@ type Screen =
   | { name: 'logs'; id: string }
   | { name: 'kind'; kind: KindChoice | null }
   | { name: 'settings'; from: Screen }
+  | { name: 'alljobs' }
   | { name: 'form'; kind: Connection['kind'] };
 
 export function App({
@@ -195,6 +197,9 @@ export function App({
   const commands: Command[] = [
     ...(transport && connections.length ? [{ id: 'fleet', label: 'Fleet', run: home }] : []),
     { id: 'list', label: 'Connections', run: () => setScreen({ name: 'list' }) },
+    ...(transport && connections.length
+      ? [{ id: 'alljobs', label: 'Jobs · all connections', run: () => setScreen({ name: 'alljobs' }) }]
+      : []),
     { id: 'add', label: 'Add connection', run: add },
     { id: 'keys', label: 'Keyboard shortcuts', hint: '?', run: () => setSheet(true) },
     { id: 'settings', label: 'Settings', hint: '⌘,', run: () => openSettings() },
@@ -249,6 +254,14 @@ export function App({
             toast({ severity: 'success', message: `Saved ${connection.name}.` });
             setScreen({ name: 'home' });
           }}
+        />
+      );
+    if (transport && screen.name === 'alljobs')
+      return (
+        <AllJobs
+          connections={connections}
+          transport={transport}
+          onOpenJob={(id, jid) => setScreen({ name: 'job', id, jid })}
         />
       );
     if (screen.name === 'settings')

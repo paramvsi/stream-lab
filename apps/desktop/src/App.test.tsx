@@ -554,7 +554,7 @@ describe('APP-01 · command palette (board G01)', () => {
     await userEvent.keyboard('{Meta>}k{/Meta}');
     const dialog = screen.getByRole('dialog', { name: 'Commands' });
     const box = within(dialog).getByRole('combobox');
-    for (let i = 0; i < 8; i++) await userEvent.keyboard('{ArrowDown}'); // to payments-staging
+    for (let i = 0; i < 9; i++) await userEvent.keyboard('{ArrowDown}'); // to payments-staging
     const at = () => document.getElementById(box.getAttribute('aria-activedescendant') ?? '')?.textContent;
     expect(at()).toMatch(/^payments-staging/);
     release();
@@ -831,6 +831,18 @@ describe('APP-01 · command palette (board G01)', () => {
     await screen.findByRole('button', { name: /Trigger savepoint/ });
     await new Promise((r) => setTimeout(r, 300));
     expect(posts).toEqual(['/jobs/a1/savepoints']);
+  });
+
+  it('JOB-11: "Jobs · all connections" lists every connection\'s jobs; a job opens on its connection', async () => {
+    const posts: string[] = [];
+    await withOne(jobHttp(posts));
+    await userEvent.keyboard('{Meta>}k{/Meta}');
+    await userEvent.type(screen.getByRole('combobox', { name: 'Search commands' }), 'all connections');
+    await userEvent.keyboard('{Enter}');
+    expect(await screen.findByRole('heading', { level: 1, name: 'Jobs' })).toHaveFocus();
+    const t = await screen.findByRole('table', { name: 'Jobs on all connections' });
+    await userEvent.click(await within(t).findByRole('button', { name: 'refund-matcher' }));
+    expect(await screen.findByRole('heading', { level: 1, name: 'refund-matcher' })).toBeTruthy();
   });
 });
 

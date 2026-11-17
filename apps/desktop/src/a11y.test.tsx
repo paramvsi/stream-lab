@@ -163,6 +163,16 @@ describe('M11 · A11Y · desktop screens', () => {
     await gone(rm);
 
     await userEvent.click(screen.getByRole('button', { name: 'Fleet' }));
+    (document.activeElement as HTMLElement).blur();
+    await userEvent.keyboard('{Meta>}k{/Meta}');
+    await userEvent.type(screen.getByRole('combobox', { name: 'Search commands' }), 'all connections');
+    await userEvent.keyboard('{Enter}');
+    const all = await screen.findByRole('table', { name: 'Jobs on all connections' });
+    await within(all).findByRole('button', { name: 'refund-matcher' });
+    await check('Jobs · all connections (X18)');
+    await userEvent.keyboard('{Meta>}1{/Meta}');
+    await screen.findByRole('heading', { level: 1, name: 'payments-prod' });
+    await userEvent.click(screen.getByRole('button', { name: 'Fleet' }));
     await userEvent.click(await screen.findByRole('button', { name: 'Open payments-prod' }));
     const tms = await screen.findByRole('table', { name: 'TaskManagers' });
     await check('Cluster (D05)');

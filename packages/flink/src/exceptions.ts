@@ -94,13 +94,24 @@ export function splitCause(line: string): { type: string; name: string; message:
  * The grouping form of a message: ids that differ per occurrence become "#" (UUIDs, long hex, and the number
  * after an id word: "Checkpoint 41", "attempt #3", "subtask 2"). Other numbers stay: "status 401" and "status
  * 503" are different problems.
- * ponytail: a fixed list of id words; extend it when a real message splits a group.
+ * ponytail: fixed patterns for what Flink and Kafka put in messages; extend them when a real message splits a
+ * group. Partitions ("payments-3") and broker nodes ("node 2") stay apart on purpose: they can be the problem.
  */
 const sameProblem = (message: string) =>
   message
     .replace(/\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b/gi, '#')
-    .replace(/\b[0-9a-f]{16,}\b/gi, '#')
-    .replace(/\b(checkpoint|savepoint|attempt|subtask|task|partition|id|job)(\s*#?\s*)\d+/gi, '$1$2#');
+    // Long hex, also inside ids joined by "_" (an ExecutionAttemptID: <graph>_<vertex>_<subtask>_<attempt>).
+    .replace(/(?<![0-9a-z])[0-9a-f]{16,}(?:_[0-9a-f]+)*(?![0-9a-z])/gi, '#')
+    // A TaskManager or broker address with its resource suffix: 10.0.0.5:39231-a2b3c4.
+    .replace(/\b\d{1,3}(?:\.\d{1,3}){3}(?::\d+)?(?:-[0-9a-f]+)?\b/gi, '#')
+    // Flink's task-name suffix: (subtask/parallelism)#attempt.
+    .replace(/\(\d+\/\d+\)(?:#\d+)?/g, '(#)')
+    // Counts and durations that change per occurrence (Kafka: "Expiring 5 record(s) … 120001 ms").
+    .replace(/\b\d+(?=\s*(?:record\(s\)|records?|ms|s|seconds?|bytes?)\b)/gi, '#')
+    .replace(
+      /\b(checkpoint|snapshot|savepoint|attempt|subtask|task|partition|id|job)(\s*#?\s*)\d+/gi,
+      '$1$2#',
+    );
 
 export interface ExceptionGroup {
   name: string;

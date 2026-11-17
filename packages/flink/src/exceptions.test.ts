@@ -185,4 +185,34 @@ describe('JOB-08 · grouped exceptions (board X20)', () => {
     ]);
     expect(gs).toHaveLength(2);
   });
+
+  it.each([
+    [
+      'snapshot id',
+      'a.E: Could not complete snapshot 17 for operator Window (2/4)#0.',
+      'a.E: Could not complete snapshot 18 for operator Window (3/4)#1.',
+    ],
+    [
+      'task suffix',
+      "a.E: Task 'Source: payments (3/4)#2' failed",
+      "a.E: Task 'Source: payments (1/4)#3' failed",
+    ],
+    [
+      'Kafka expiry counts',
+      'o.a.k.TimeoutException: Expiring 5 record(s) for payments-3:120001 ms has passed since batch creation',
+      'o.a.k.TimeoutException: Expiring 7 record(s) for payments-3:120004 ms has passed since batch creation',
+    ],
+    [
+      'TaskManager id',
+      'a.JobMasterException: TaskManager with id 10.0.0.5:39231-a2b3c4 is no longer reachable.',
+      'a.JobMasterException: TaskManager with id 10.0.0.7:41877-9f8e7d is no longer reachable.',
+    ],
+    [
+      'execution attempt id',
+      'a.E: Attempt 0a44b2c3d4e5f6a7b8c9d0e1f2a36227_cbc357ccb763df2852fee8c4fc7d55f2_0_1 failed',
+      'a.E: Attempt 1b55c3d4e5f6a7b8c9d0e1f2a3b47338_cbc357ccb763df2852fee8c4fc7d55f2_2_0 failed',
+    ],
+  ])('audit 2: one problem with per-occurrence %s stays one group', (_, a, b) => {
+    expect(groupExceptions([ex(2, a), ex(1, b)])).toHaveLength(1);
+  });
 });

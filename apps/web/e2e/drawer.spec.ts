@@ -73,6 +73,26 @@ test('NODE-07 a typed edit is one undo step, recorded on blur; undo restores the
   await expect(expr).toHaveText('payments > 3');
 });
 
+test('NODE-07 typing right as the expression gets focus is still one undo step (CodeMirror reports focus 10 ms late)', async ({
+  page,
+}) => {
+  await scenario(page, 'Card fraud bursts');
+  const d = await open(page, 'More than 3');
+  const expr = d.getByLabel('Expression');
+  // Focus and type in the same task: the text lands before CodeMirror's delayed focus update.
+  await expr.evaluate((el) => {
+    (el as HTMLElement).focus();
+    document.execCommand('selectAll');
+    document.execCommand('insertText', false, 'payments > 5');
+  });
+  await expect(expr).toHaveText('payments > 5');
+  await expr.blur();
+  await page.getByRole('button', { name: 'History' }).click();
+  await expect(
+    page.getByRole('dialog', { name: 'Undo history' }).locator('[aria-current="step"]'),
+  ).toHaveText('Changed More than 3 settings');
+});
+
 test('NODE-07 the drawer resizes, collapses to a bar, and Esc returns focus to the node', async ({
   page,
 }) => {

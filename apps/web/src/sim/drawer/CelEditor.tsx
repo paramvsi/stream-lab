@@ -154,8 +154,13 @@ export function CelEditor({
           aria.of([]),
           EditorView.contentAttributes.of({ 'aria-label': label, id: contentId, 'aria-multiline': 'false' }),
           EditorView.updateListener.of((u) => {
-            if (u.docChanged && !u.transactions.some((tr) => tr.annotation(External)))
+            if (u.docChanged && !u.transactions.some((tr) => tr.annotation(External))) {
+              // CodeMirror reports focus 10 ms after the DOM event; text typed sooner must still open the edit
+              // session first, or its "before" is already the edited value and no undo step is kept (NODE-07).
+              // onFocus (beginEdit) ignores a session already open.
+              live.current.onFocus();
               live.current.onLive(u.state.doc.toString());
+            }
             if (u.focusChanged) (u.view.hasFocus ? live.current.onFocus : live.current.onBlur)();
           }),
           // Enter does not add a line (Tab still leaves the field). Only typing is blocked: an expression that

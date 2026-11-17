@@ -167,4 +167,19 @@ describe('JOB-08 · grouped exceptions (board X20)', () => {
     for (const el of [copy, region]) expect(el.getAttribute('aria-label')!.length).toBeLessThanOrEqual(110);
     expect(region.getAttribute('aria-label')).toMatch(/…$/);
   });
+
+  it('audit d11b #4: names cut alike stay distinct (row number), and the cut never splits a character', async () => {
+    const cast = (to: string) =>
+      `java.lang.ClassCastException: class com.acme.payments.CardAuthorization cannot be cast to class com.acme.payments.${to} (loader 'app')`;
+    const emoji = `java.lang.IllegalStateException: ${'x'.repeat(58 - 'IllegalStateException: '.length + 23)}🏦 merchant ${'y'.repeat(40)}`;
+    render(
+      <ExceptionGroups entries={[ex(T + 2, cast('Refund')), ex(T + 1, cast('Merchant')), ex(T, emoji)]} />,
+    );
+    for (const b of screen.getAllByRole('button', { name: 'Show 1' })) await userEvent.click(b);
+    const names = screen
+      .getAllByRole('region', { name: /^Stack trace: / })
+      .map((r) => r.getAttribute('aria-label')!);
+    expect(new Set(names).size).toBe(3);
+    for (const n of names) expect(n).not.toMatch(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])/); // no lone high surrogate
+  });
 });

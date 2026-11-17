@@ -41,6 +41,15 @@ export function ExceptionGroups({
       else n.add(i);
       return n;
     });
+  // Accessible names: type · message, the message cut at 60 characters (by code point: never half a character),
+  // since a long root-cause line would fill every name. Two groups cut alike get their row number.
+  const cut = groups.map((g) => {
+    const label = g.name || 'Exception';
+    const cps = [...g.message];
+    const msg = cps.length > 60 ? `${cps.slice(0, 59).join('')}…` : g.message;
+    return msg ? `${label} · ${msg}` : label;
+  });
+  const titles = cut.map((t, i) => (cut.indexOf(t) !== cut.lastIndexOf(t) ? `${t} · row ${i + 1}` : t));
   const th = 'border-b border-line bg-subtle px-3.5 py-2.5 text-left text-[12px] font-medium text-muted';
   const td = 'border-b border-line px-3.5 py-[13px] align-top text-[14px]';
   return (
@@ -74,10 +83,7 @@ export function ExceptionGroups({
             {groups.map((g, i) => {
               const id = `${base}-${i}`;
               const label = g.name || 'Exception';
-              // Names say the message too: two groups of one exception type stay apart (a11y names).
-              // Cut: a long root-cause line (a ClassCastException's loader text) would fill every name.
-              const msg = g.message.length > 60 ? `${g.message.slice(0, 59)}…` : g.message;
-              const title = msg ? `${label} · ${msg}` : label;
+              const title = titles[i]!;
               return (
                 <Fragment key={g.key}>
                   <tr>

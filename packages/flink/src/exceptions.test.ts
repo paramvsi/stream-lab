@@ -56,6 +56,20 @@ describe('JOB-04 · exceptions (GET /jobs/:jid/exceptions, exceptionHistory)', (
     expect(rootCauseLine({ exceptionName: 'x.Y', stacktrace: '' })).toBe('x.Y');
   });
 
+  it('a cause\'s own Suppressed block (indented "Caused by:", after it, as Java prints) is not the root', () => {
+    const stacktrace = [
+      'x.Wrap: outer',
+      '\tat a',
+      'Caused by: x.Root: disk full',
+      '\tat b',
+      '\tSuppressed: x.Close: close failed',
+      '\t\tat c',
+      '\t\tCaused by: x.Inner: not the root',
+      '\t\t\t... 2 more',
+    ].join('\n');
+    expect(rootCauseLine({ exceptionName: 'x.Wrap', stacktrace })).toBe('x.Root: disk full');
+  });
+
   it('audit #1: a wrapped failure gives the innermost "Caused by:", not the wrapper (Kafka fetcher example)', () => {
     const stacktrace = [
       'java.lang.RuntimeException: One or more fetchers have encountered exception',

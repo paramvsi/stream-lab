@@ -6,6 +6,7 @@ import { ConnectionForm } from './ConnectionForm';
 import { Connections } from './Connections';
 import { ImportDialog } from './ImportDialog';
 import { Cluster } from './Cluster';
+import { memoryHistory } from './history';
 import { JobOverview } from './JobOverview';
 import { Jobs } from './Jobs';
 import { KindPicker } from './KindPicker';
@@ -39,6 +40,8 @@ export function App({
   const [connections, setConnections] = useState<Connection[]>([]);
   const [importing, setImporting] = useState(false);
   const [fleetCache] = useState(() => new Map<string, CardState>());
+  // JOB-06: one history store for the app's life (SQLite with the Rust side).
+  const [history] = useState(memoryHistory);
   const toast = useToast();
   if (screen.name === 'form')
     return (
@@ -89,6 +92,7 @@ export function App({
         c={open}
         jid={screen.jid}
         transport={transport}
+        history={history}
         onJobs={() => setScreen({ name: 'jobs', id: open.id })}
       />
     );

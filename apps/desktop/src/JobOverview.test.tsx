@@ -1,4 +1,5 @@
 import { TransportError, type Connection, type FlinkHttp } from '@sl/flink';
+import { memoryHistory, type HistoryStore } from './history';
 import { ToastProvider, TooltipProvider } from '@sl/ui';
 import { act, cleanup, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
@@ -92,7 +93,11 @@ const answer =
             ? { status: 404, headers: {}, url: '', body: JSON.stringify({ errors: [cp.message] }) }
             : { status: 200, headers: {}, url: '', body: JSON.stringify(cp) }
           : { status, headers: {}, url: '', body: JSON.stringify(body) };
-const show = (http: FlinkHttp, more: { onJobs?: () => void } = {}, c: Connection = conn) =>
+const show = (
+  http: FlinkHttp,
+  more: { onJobs?: () => void; history?: HistoryStore } = {},
+  c: Connection = conn,
+) =>
   render(
     <TooltipProvider>
       <ToastProvider>
@@ -781,7 +786,7 @@ describe('JOB-02 · Job overview (board D08)', () => {
     show(answer(200, detail));
     await screen.findByRole('table', { name: 'Operators' });
     const tabs = screen.getAllByRole('tab').map((t) => t.textContent?.replace(/\d+\+?$/, '').trim());
-    expect(tabs).toEqual(['Overview', 'Exceptions', 'Checkpoints']);
+    expect(tabs).toEqual(['Overview', 'History', 'Exceptions', 'Checkpoints']); // D08's order
     await userEvent.click(screen.getByRole('tab', { name: 'Checkpoints' }));
     expect(await screen.findByRole('group', { name: 'Completed' })).toHaveTextContent(/^Completed9$/);
   });
@@ -1677,6 +1682,41 @@ describe('JOB-02 · Job overview (board D08)', () => {
     expect(screen.queryByRole('region', { name: 'Window aggregate' })).toBeNull();
     expect(card).toHaveAttribute('aria-pressed', 'false');
   });
+
+  it(
+    'JOB-06 / D10: the job page records what changes between reads, and the History tab lists it',
+    { timeout: 20_000 },
+    async () => {
+      vi.useFakeTimers({ shouldAdvanceTime: true });
+      try {
+        const history = memoryHistory();
+        let p2 = 4;
+        show(
+          async (req) =>
+            answer(200, {
+              ...detail,
+              vertices: detail.vertices.map((v) => (v.id === 'v2' ? { ...v, parallelism: p2 } : v)),
+            })(req),
+          { history },
+        );
+        await screen.findByRole('table', { name: 'Operators' });
+        p2 = 8;
+        for (let t = 0; t < 4; t++) await act(async () => vi.advanceTimersByTimeAsync(1_000));
+        await userEvent.click(screen.getByRole('tab', { name: 'History' }));
+        const t = await screen.findByRole('table', { name: 'Timeline' });
+        const rows = within(t)
+          .getAllByRole('row')
+          .slice(1)
+          .map((r) => r.textContent);
+        expect(rows).toHaveLength(1);
+        expect(rows[0]).toMatch(/Rescaled.*Window aggregate: parallelism 4 → 8/);
+        expect(screen.getByText(/Recorded on this computer while Stream Lab was open/)).toBeInTheDocument();
+        expect((await history.events(conn.id, detail.jid)).length).toBe(1);
+      } finally {
+        vi.useRealTimers();
+      }
+    },
+  );
 
   it('lists the operators with parallelism and status', async () => {
     show(answer(200, detail));

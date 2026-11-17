@@ -6,6 +6,7 @@ import {
   getExceptions,
   getJob,
   jobGraph,
+  type FlinkJobDetail,
   type JobGraph,
   lastCompleted,
   POLL,
@@ -28,7 +29,9 @@ import { Checkpoints } from './Checkpoints';
 import { ExceptionGroups } from './ExceptionGroups';
 import { ago, duration, shortAgo, size } from './format';
 export { duration, size } from './format';
+import { diffJob, memoryHistory, type HistoryStore } from './history';
 import { JobGraphView } from './JobGraphView';
+import { JobHistory } from './JobHistory';
 import { OperatorPanel } from './OperatorPanel';
 import { Kpi } from './Kpi';
 import { TONE, uptime, word } from './Jobs';
@@ -212,11 +215,14 @@ export function JobOverview({
   jid,
   transport,
   onJobs,
+  history,
 }: {
   c: Connection;
   jid: string;
   transport: (c: Connection) => FlinkHttp;
   onJobs?: () => void;
+  /** JOB-06: where this page records what changes (the app's store; one of its own when none is given). */
+  history?: HistoryStore;
 }) {
   const h1 = useScreenHeading();
   const {
@@ -224,6 +230,17 @@ export function JobOverview({
     error,
     banner,
   } = usePolled(c, transport, (http, conn, t) => getJob(http, conn, jid, t), h1, 2_000);
+  // JOB-06: each new job read against the one before; what changed is recorded (restarts, rescales).
+  const [own] = useState(memoryHistory);
+  const store = history ?? own;
+  const last = useRef<FlinkJobDetail | null>(null);
+  const [recorded, setRecorded] = useState(0);
+  useEffect(() => {
+    if (!j || j === last.current) return;
+    const events = diffJob(last.current, j, Date.now());
+    last.current = j;
+    if (events.length) void store.append(c.id, jid, events).then(() => setRecorded((n) => n + 1));
+  }, [j, store, c.id, jid]);
   // Checkpoints on their own poll (5 s, FLINK_API) and their own failures: one widget never blanks the page
   // (ERRORS_AND_ALERTS: "one broken widget does not blank the page"). Its banner is not shown; the KPI says it.
   const ck = usePolled(
@@ -499,6 +516,15 @@ export function JobOverview({
                       />
                     )}
                   </div>
+                </ErrorBoundary>
+              ),
+            },
+            {
+              value: 'history',
+              label: 'History',
+              content: (
+                <ErrorBoundary resetKey={jid}>
+                  <JobHistory history={store} conn={c.id} jid={jid} version={recorded} />
                 </ErrorBoundary>
               ),
             },

@@ -242,4 +242,56 @@ describe('OPS-01 · Logs (D18, D18b)', () => {
     await userEvent.type(screen.getByRole('searchbox', { name: 'Search logs' }), '(unclosed');
     expect(await screen.findByText(/That pattern is not valid/)).toBeInTheDocument();
   });
+
+  it('audit rx #1: after Reload brings new content, the old answer never filters it (same name, same count)', async () => {
+    const slow = (): FilterWorker => {
+      const w: FilterWorker = {
+        onmessage: null,
+        onerror: null,
+        onmessageerror: null,
+        postMessage: (d) =>
+          setTimeout(
+            () => w.onmessage?.({ data: answerFilter(d as { lines: string[]; pattern: string }) }),
+            300,
+          ),
+        terminate: () => {},
+      };
+      return w;
+    };
+    const v1 =
+      '2026-11-17 12:00:00,000 WARN  x [] - Exception one\n2026-11-17 12:00:01,000 INFO  x [] - fine';
+    const v2 =
+      '2026-11-17 12:00:02,000 WARN  x [] - Exception two\n2026-11-17 12:00:03,000 INFO  x [] - fine';
+    let reads = 0;
+    render(
+      <TooltipProvider>
+        <ToastProvider>
+          <Logs
+            c={conn}
+            transport={() => async (r) =>
+              r.path === '/jobmanager/logs'
+                ? list([{ name: 'jobmanager.log', size: 1, mtime: 1 }])
+                : ok(200, ++reads === 1 ? v1 : v2)
+            }
+            makeWorker={slow}
+          />
+        </ToastProvider>
+      </TooltipProvider>,
+    );
+    await screen.findByRole('table', { name: 'Log lines' });
+    await userEvent.click(screen.getByRole('checkbox', { name: 'Regex' }));
+    await userEvent.type(screen.getByRole('searchbox', { name: 'Search logs' }), 'Exception');
+    expect(await screen.findByText('Exception one', {}, { timeout: 3_000 })).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: 'Reload' }));
+    // New content, same name, same count. Before its own answer lands (300 ms), the old answer must not filter it:
+    // that would hide "Exception two" and show an empty table as if nothing matched.
+    let sawEmpty = false;
+    for (let i = 0; i < 20 && !screen.queryByText('Exception two'); i++) {
+      const tb = screen.queryByRole('table', { name: 'Log lines' });
+      if (tb && within(tb).getAllByRole('row').length === 1) sawEmpty = true;
+      await new Promise((r) => setTimeout(r, 25));
+    }
+    expect(sawEmpty).toBe(false);
+    expect(await screen.findByText('Exception two', {}, { timeout: 3_000 })).toBeInTheDocument();
+  });
 });

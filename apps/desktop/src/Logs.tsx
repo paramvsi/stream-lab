@@ -87,8 +87,11 @@ export function Logs({
   // D18b regex search: through the bounded worker (a catastrophic pattern can not block the UI). Its answer is
   // kept with the search it answers, and used only while that search and that file are still the ones shown.
   const [regex, setRegex] = useState(false);
+  // An answer belongs to the parsed content it was computed on (by identity: a Reload with the same name and
+  // count is new content) and to its pattern.
   const [found, setFound] = useState<{
-    key: string;
+    src: object;
+    q: string;
     hits: Set<string> | null;
     error: AppError | null;
   } | null>(null);
@@ -135,28 +138,28 @@ export function Logs({
     return { cut, entries: parseLog(lines).map((e, i): Row => ({ ...e, i })) };
   }, [text]);
   const joined = (e: LogEntry) => [e.message, ...e.more].join('\n');
-  const searchKey = `${name}|${q}|${parsed ? parsed.entries.length : -1}`;
   useEffect(() => {
     if (!regex || !q || !parsed) return;
     let live = true;
-    const key = searchKey;
+    const src = parsed;
     filterLinesBounded(parsed.entries.map(joined), q, true, makeWorker).then(
-      (lines) => live && setFound({ key, hits: new Set(lines), error: null }),
+      (lines) => live && setFound({ src, q, hits: new Set(lines), error: null }),
       (e: unknown) =>
-        live && setFound({ key, hits: null, error: e instanceof AppError ? e : asAppError(e, c.name) }),
+        live && setFound({ src, q, hits: null, error: e instanceof AppError ? e : asAppError(e, c.name) }),
     );
     return () => {
       live = false;
     };
-  }, [regex, q, parsed, searchKey, makeWorker, c.name]);
-  const answer = regex && q ? (found?.key === searchKey ? found : null) : null;
+  }, [regex, q, parsed, makeWorker, c.name]);
+  const answer = regex && q && found?.src === parsed && found.q === q ? found : null;
   const shown = useMemo(() => {
     if (!parsed) return null;
     const byLevel = parsed.entries.filter(atLeast(level));
     if (regex && q) {
-      // While this search runs, the last answer stays on screen (no flicker to a skeleton on each key).
-      const hits = answer ? answer.hits : (found?.hits ?? null);
-      if (answer && !answer.hits) return [];
+      if (answer) return answer.hits ? byLevel.filter((e) => answer.hits!.has(joined(e))) : [];
+      // While this pattern runs: this same content's last answer (an earlier pattern), else this content as it is,
+      // never another file's answer (and no flicker to a skeleton on each key).
+      const hits = found?.src === parsed ? found.hits : null;
       return hits ? byLevel.filter((e) => hits.has(joined(e))) : byLevel;
     }
     const lq = q.toLowerCase();

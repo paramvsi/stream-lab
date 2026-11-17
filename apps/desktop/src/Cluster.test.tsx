@@ -23,6 +23,7 @@ const conn: Connection = {
   pollMs: 5000,
 };
 const tm = (n: number, free: number, blocked = false) => ({
+  hardware: { cpuCores: 8, physicalMemory: 16 * 1024 ** 3, freeMemory: 0, managedMemory: 0 },
   id: `tm${n}-6d1f0c`,
   path: `pekko.tcp://flink@10.0.4.2${n}:6122/user/rpc/taskmanager_0`,
   dataPort: 41_000,
@@ -123,5 +124,21 @@ describe('FLEET-02 · Cluster overview and TaskManagers (boards D05, D05b)', () 
       expect(alert).toHaveTextContent(/Nothing is listening on payments-prod\.example\.com/),
     );
     expect(screen.getByRole('button', { name: 'Retry' })).toBeInTheDocument();
+  });
+
+  it('D05c: a TaskManager row opens its detail drawer (address · slots, CPU, memory); Escape closes, focus returns', async () => {
+    show(healthy);
+    const table = await screen.findByRole('table', { name: 'TaskManagers' });
+    const row = within(table).getAllByRole('row')[1]!;
+    row.focus();
+    await userEvent.keyboard('{Enter}');
+    const d = await screen.findByRole('dialog', { name: 'tm1-6d1f0c' });
+    expect(d).toHaveTextContent('10.0.4.21 · 4 slots');
+    expect(within(d).getByRole('group', { name: 'Slots' })).toHaveTextContent('4 / 4 used');
+    expect(within(d).getByRole('group', { name: 'CPU cores' })).toHaveTextContent('8');
+    expect(within(d).getByRole('group', { name: 'Physical memory' })).toHaveTextContent('16.0 GB');
+    await userEvent.keyboard('{Escape}');
+    expect(screen.queryByRole('dialog')).toBeNull();
+    expect(row).toHaveFocus();
   });
 });

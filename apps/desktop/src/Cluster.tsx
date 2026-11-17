@@ -7,11 +7,12 @@ import {
   type FlinkTaskManager,
   type FleetStatus,
 } from '@sl/flink';
-import { Button, EmptyState, Loading, Skeleton, StatusBadge, Table, type Column } from '@sl/ui';
+import { Button, Drawer, EmptyState, Loading, Skeleton, StatusBadge, Table, type Column } from '@sl/ui';
 import { LayoutGrid, ListChecks, Server } from 'lucide-react';
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { ENV } from './Connections';
 import { useScreenHeading } from './focus';
+import { size } from './format';
 import { Kpi } from './Kpi';
 import { usePolled } from './usePolled';
 
@@ -52,7 +53,9 @@ const columns: Column<FlinkTaskManager>[] = [
  * FLEET-02 / boards D05 (cluster overview KPIs) and D05b (TaskManagers): one connection, polled every 5 s with
  * the §4 error handling of usePolled. Opened from a fleet card; Jobs goes to the list (D07).
  * ponytail: JVM heap (JM), per-TaskManager Heap and Version, the slots chart, recent events, the JobManager and
- * Configuration tabs and the TaskManager detail (D05c) need metrics, history (JOB-06) and those calls: next slices.
+ * Configuration tabs need metrics, history (JOB-06) and those calls: next slices. The TaskManager drawer (D05c)
+ * shows what /taskmanagers gives; its CPU / Heap / Network buffers %, chart, insight, Thread dump and Logs need
+ * /taskmanagers/:id/metrics and the logs screens (M10).
  * Until the Overview tab has its chart, the page is one view (KPIs + TaskManagers), not D05's four tabs. The
  * subtitle's "session cluster · up 18 days" and the KPI note "all registered" wait for the JobManager calls.
  * D05b's "ok / busy" status needs heap metrics; until then the words are Flink's own blocklist flag (OK / Blocked).
@@ -73,6 +76,9 @@ export function Cluster({
     document.title = `${c.name} · Stream Lab`;
   }, [c.name]);
   const { value, stale, since, banner } = usePolled(c, transport, readCluster, h1);
+  // D05c: the TaskManager whose detail drawer is open (by id: the row data refreshes under it).
+  const [openTm, setOpenTm] = useState<string | null>(null);
+  const tm = openTm ? value?.tms.find((t) => t.id === openTm) : undefined;
   const s: Up | undefined = value?.s;
   const used = s ? s.slotsTotal - s.slotsFree : 0;
   return (
@@ -123,7 +129,14 @@ export function Cluster({
           </div>
           <h2 className="m-0 text-[18px] font-semibold">TaskManagers</h2>
           {value.tms.length ? (
-            <Table label="TaskManagers" columns={columns} rows={value.tms} rowKey={(t) => t.id} />
+            <Table
+              label="TaskManagers"
+              columns={columns}
+              rows={value.tms}
+              rowKey={(t) => t.id}
+              selectedKey={openTm}
+              onSelect={(t) => setOpenTm(t.id)}
+            />
           ) : (
             <EmptyState icon={Server} title="No TaskManagers registered" level={3}>
               Jobs can not run until a TaskManager joins. Check that the TaskManagers are up and can reach the
@@ -132,6 +145,21 @@ export function Cluster({
           )}
         </>
       )}
+      {/* D05c: TaskManager detail. Gone from the list (it left the cluster): the drawer closes. */}
+      <Drawer open={!!tm} onOpenChange={(o) => !o && setOpenTm(null)} title={tm?.id ?? ''}>
+        {tm && (
+          <div className="flex flex-col gap-4">
+            <p className="m-0 text-[14px] text-muted">
+              {tmAddress(tm)} · {tm.slotsNumber} slot{tm.slotsNumber === 1 ? '' : 's'}
+            </p>
+            <div className="grid grid-cols-2 gap-3">
+              <Kpi label="Slots" value={`${tm.slotsNumber - tm.freeSlots} / ${tm.slotsNumber} used`} />
+              {tm.hardware && <Kpi label="CPU cores" value={tm.hardware.cpuCores} />}
+              {tm.hardware && <Kpi label="Physical memory" value={size(tm.hardware.physicalMemory)} />}
+            </div>
+          </div>
+        )}
+      </Drawer>
     </main>
   );
 }

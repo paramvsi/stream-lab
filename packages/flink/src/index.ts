@@ -15,3 +15,4 @@ export * from './job';
 export * from './checkpoints';
 export * from './exceptions';
 export * from './graph';
+export * from './backpressure';

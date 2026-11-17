@@ -48,6 +48,9 @@ const columns: Column<Row>[] = [
   },
 ];
 
+/** D18 Follow: how often the shown file is read again. */
+export const FOLLOW_MS = 2_000;
+
 const asAppError = (e: unknown, conn: string) =>
   e instanceof AppError ? e : new AppError('CONN-IO', { host: conn, reason: 'the request failed' }, e);
 
@@ -57,7 +60,7 @@ const asAppError = (e: unknown, conn: string) =>
  * filter (All / Warn / Error) and a plain-text search. Over 50 MB: LOG-TOO-LARGE and the last 5,000 lines. A file
  * gone between list and read: LOG-GONE.
  * Regex search goes through logFilter's bounded worker (LOG-REGEX on the field; LOG-FILTER-FAILED if it breaks).
- * ponytail: Follow (re-read every 2 s: Flink has no partial read), TaskManager tabs and Download are next slices.
+ * Follow re-reads the shown file every 2 s. ponytail: TaskManager tabs and Download are next slices.
  */
 export function Logs({
   c,
@@ -131,6 +134,37 @@ export function Logs({
   };
 
   const file = files?.find((f) => f.name === name) ?? null;
+
+  // D18 Follow: the shown file read again every 2 s (Flink serves a log whole: no partial read). Only while a file
+  // is shown (never during a load: a load's list comes first), one read at a time, an answer dropped if a load
+  // started meanwhile (req). A failed read is said (catalog) and Follow turns off. Off over 50 MB.
+  // ponytail: no auto-scroll to the newest line yet; no §4 "1 failure silent" (it stops at once).
+  const [follow, setFollow] = useState(false);
+  const big = !!file && tooLarge(file.size);
+  const ready = text !== null;
+  useEffect(() => {
+    if (!follow || !name || big || !ready) return;
+    let busy = false;
+    const t = setInterval(() => {
+      if (busy) return;
+      busy = true;
+      const id = req.current;
+      getJmLog(http, c.name, name)
+        .then(
+          (s) => id === req.current && setText(s),
+          (e: unknown) => {
+            if (id !== req.current) return;
+            setError(asAppError(e, c.name));
+            setFollow(false);
+          },
+        )
+        .finally(() => {
+          busy = false;
+        });
+    }, FOLLOW_MS);
+    return () => clearInterval(t);
+  }, [follow, name, big, ready, http, c.name]);
+  const followWhy = useId();
   // Split and parsed once per file; filtered per level and search.
   const parsed = useMemo(() => {
     if (text === null) return null;
@@ -242,6 +276,23 @@ export function Logs({
               />
               Regex
             </label>
+            <label className="flex items-center gap-2 pb-2 text-[13px] font-medium">
+              <input
+                type="checkbox"
+                role="switch"
+                checked={follow && !big}
+                disabled={big}
+                onChange={(e) => setFollow(e.target.checked)}
+                {...(big ? { 'aria-describedby': followWhy } : {})}
+                className="sl-focus size-5 accent-rose-600"
+              />
+              Follow
+            </label>
+            {big && (
+              <span id={followWhy} className="font-normal text-muted">
+                Off over 50 MB: each read is the whole file
+              </span>
+            )}
             <fieldset className="m-0 flex gap-1 rounded-md border border-line p-0.5">
               <legend className="sr-only">Level</legend>
               {LEVELS.map((l) => (

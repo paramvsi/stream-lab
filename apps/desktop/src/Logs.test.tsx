@@ -296,4 +296,71 @@ describe('OPS-01 · Logs (D18, D18b)', () => {
     expect(sawEmpty).toBe(false);
     expect(await screen.findByText('Exception two', {}, { timeout: 3_000 })).toBeInTheDocument();
   });
+
+  it('D18 Follow: on, the file is read again every 2 s; off, it stops; a failed read is said and Follow turns off', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      const u = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+      let reads = 0;
+      show(async (r) => {
+        if (r.path === '/jobmanager/logs') return list([{ name: 'jobmanager.log', size: 1, mtime: 1 }]);
+        reads++;
+        if (reads === 4) return ok(404, '{"errors":["gone"]}');
+        return ok(
+          200,
+          `2026-11-17 12:00:00,000 INFO  x [] - line one${reads > 1 ? '\n2026-11-17 12:00:02,000 INFO  x [] - line two' : ''}`,
+        );
+      });
+      await screen.findByText('line one');
+      const sw = screen.getByRole('switch', { name: 'Follow' });
+      await u.click(sw);
+      await vi.advanceTimersByTimeAsync(2_000);
+      expect(await screen.findByText('line two')).toBeInTheDocument();
+      expect(reads).toBe(2);
+      await u.click(sw); // off
+      await vi.advanceTimersByTimeAsync(6_000);
+      expect(reads).toBe(2);
+      await u.click(sw); // on again: read 3 ok, read 4 gone
+      await vi.advanceTimersByTimeAsync(4_000);
+      expect(await screen.findByText(/jobmanager\.log is no longer there/)).toBeInTheDocument();
+      expect(sw).not.toBeChecked();
+      await vi.advanceTimersByTimeAsync(4_000);
+      expect(reads).toBe(4);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('D18 Follow: after Reload of the same file, Follow still reads', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      const u = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+      let reads = 0;
+      show(async (r) => {
+        if (r.path === '/jobmanager/logs') return list([{ name: 'jobmanager.log', size: 1, mtime: 1 }]);
+        reads++;
+        return ok(200, `2026-11-17 12:00:00,000 INFO  x [] - read ${reads}`);
+      });
+      await screen.findByText('read 1');
+      await u.click(screen.getByRole('switch', { name: 'Follow' }));
+      await u.click(screen.getByRole('button', { name: 'Reload' }));
+      await screen.findByText('read 2');
+      await vi.advanceTimersByTimeAsync(2_000);
+      expect(await screen.findByText('read 3')).toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('D18 Follow: off and disabled, with the reason, for a file over 50 MB (each read is the whole file)', async () => {
+    show(async (r) =>
+      r.path === '/jobmanager/logs'
+        ? list([{ name: 'jobmanager.log', size: 60_000_000, mtime: 1 }])
+        : ok(200, text),
+    );
+    await screen.findByRole('table', { name: 'Log lines' });
+    const sw = screen.getByRole('switch', { name: 'Follow' });
+    expect(sw).toBeDisabled();
+    expect(sw).toHaveAccessibleDescription(/over 50 MB/);
+  });
 });

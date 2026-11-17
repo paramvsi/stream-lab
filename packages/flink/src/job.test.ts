@@ -57,6 +57,13 @@ describe('JOB-02 · job detail (GET /jobs/:jid)', () => {
     expect(j.vertices[0]!.metrics?.['write-records']).toBe(1200);
   });
 
+  it('a metric Flink can not measure ("NaN": a legacy source, a task not started) is null, not a broken page', async () => {
+    const v = { ...vertex, metrics: { ...vertex.metrics, 'accumulated-busy-time': 'NaN' } };
+    const j = await getJob(answer(200, { ...detail, vertices: [v] }), 'prod', detail.jid);
+    expect(j.vertices[0]!.metrics?.['accumulated-busy-time']).toBeNull();
+    expect(j.vertices[0]!.metrics?.['write-records']).toBe(1200);
+  });
+
   it('encodes the job id in the path', async () => {
     let path = '';
     await getJob(async (req) => ((path = req.path), answer(200, detail)(req)), 'prod', 'a/b');
@@ -66,6 +73,7 @@ describe('JOB-02 · job detail (GET /jobs/:jid)', () => {
   it('a job the cluster no longer has is API-404-JOB (D07c), not a generic 4xx', async () => {
     await expect(getJob(answer(404, { errors: ['Job not found'] }), 'prod', 'x')).rejects.toMatchObject({
       code: 'API-404-JOB',
+      params: { thing: 'job', conn: 'prod' }, // both catalog params filled
     });
   });
 

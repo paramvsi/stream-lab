@@ -82,6 +82,14 @@ export const JobManagerConfigSchema = z.array(z.looseObject({ key: z.string(), v
  * plan (raw JSON: its shape is not documented, so it is kept as is).
  * FLINK: https://nightlies.apache.org/flink/flink-docs-release-1.20/docs/ops/rest_api/#jobs-jobid
  */
+/**
+ * A metric Flink may not have measured: Jackson writes Java's NaN / Infinity as strings ("NaN"), e.g. busy time
+ * on a legacy SourceFunction source or a task not started yet. Read as null (not measured), never a broken page.
+ * FLINK: https://github.com/apache/flink/blob/release-1.20/flink-runtime/src/main/java/org/apache/flink/runtime/metrics/groups/TaskIOMetricGroup.java
+ */
+const measured = z
+  .union([z.number(), z.enum(['NaN', 'Infinity', '-Infinity'])])
+  .transform((v) => (typeof v === 'number' ? v : null));
 export const VertexSchema = z.looseObject({
   id: z.coerce.string(),
   name: z.string(),
@@ -98,9 +106,9 @@ export const VertexSchema = z.looseObject({
       'write-records': z.number(),
       'read-bytes': z.number(),
       'write-bytes': z.number(),
-      'accumulated-backpressured-time': z.number().optional(),
-      'accumulated-idle-time': z.number().optional(),
-      'accumulated-busy-time': z.number().optional(),
+      'accumulated-backpressured-time': measured.optional(),
+      'accumulated-idle-time': measured.optional(),
+      'accumulated-busy-time': measured.optional(),
     })
     .optional(),
 });

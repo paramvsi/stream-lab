@@ -470,4 +470,29 @@ describe('the app keeps a sent stop (resume, onSent)', () => {
       await vi.advanceTimersByTimeAsync(15_000); // three failed reads: lost
       await vi.waitFor(() => expect(sent).toHaveBeenLastCalledWith(null));
     }));
+
+  it('audit of b654ec6: a lost stop is reported (onLost), and a dialog opened with lostBefore says "may still be running"', () =>
+    run(async () => {
+      const lost = vi.fn();
+      render(
+        <TooltipProvider>
+          <ToastProvider>
+            <StopDialog
+              open
+              onOpenChange={() => {}}
+              http={async (r) => (r.path === '/jobmanager/config' ? cfg('s3://sp') : ok(200, {}))}
+              conn="prod"
+              jid="j1"
+              job="refund-matcher"
+              lostBefore
+              onLost={lost}
+            />
+          </ToastProvider>
+        </TooltipProvider>,
+      );
+      const d = await screen.findByRole('dialog', { name: 'Stop refund-matcher with a savepoint?' });
+      expect(
+        within(d).getByText('A stop sent earlier may still be running on the cluster.'),
+      ).toBeInTheDocument();
+    }));
 });

@@ -47,6 +47,8 @@ export function StopDialog({
   onCancelInstead,
   resume,
   onSent,
+  lostBefore,
+  onLost,
 }: {
   open: boolean;
   onOpenChange: (o: boolean) => void;
@@ -64,6 +66,10 @@ export function StopDialog({
   resume?: { rid: string; at: number } | null;
   /** The app keeps the stop while it runs: told when one is accepted, and (null) when it ended done or failed. */
   onSent?: (s: { rid: string; at: number } | null) => void;
+  /** A stop from this page whose status was lost earlier (the app keeps it): "may still be running" survives. */
+  lostBefore?: boolean;
+  /** Told when a stop's status is lost (true), and when a later stop completed (false: only that settles it). */
+  onLost?: (lost: boolean) => void;
 }) {
   const [step, setStep] = useState<Step>(resume ? { name: 'running' } : { name: 'confirm' });
   const [dir, setDir] = useState<string | null>(null);
@@ -80,7 +86,7 @@ export function StopDialog({
   // A stop whose status was lost may still be running on the cluster. Said on the next question (not a lock: a
   // lock could never clear while the job stays RUNNING, and would take away cancel when a stop is stuck); a new
   // stop that completes clears it.
-  const [uncertain, setUncertain] = useState(false);
+  const [uncertain, setUncertain] = useState(!!lostBefore);
   const running = step.name === 'running';
   useEffect(() => {
     onRunningChange?.(running);
@@ -188,6 +194,7 @@ export function StopDialog({
             // Only a stop that completed settles a lost one (Flink 1.20 accepts a second stop with 202 and fails
             // it later: an accepted or failed one does not).
             setUncertain(false);
+            onLost?.(false);
             onSent?.(null);
             // D15c: the job page with a toast, as drawn; the dialog closes.
             setStep({ name: 'confirm' });
@@ -214,6 +221,7 @@ export function StopDialog({
           if (++fails < MAX_READ_FAILS) return void (timer = setTimeout(ask, AFTER_FAIL_MS));
           const error = asAppError(e, conn);
           setUncertain(true);
+          onLost?.(true);
           // Handed back too: a rid Flink no longer knows would fail again at every visit, with a false warning.
           // "May still be running" is said on the next question (uncertain).
           onSent?.(null);

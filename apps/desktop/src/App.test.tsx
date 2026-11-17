@@ -894,6 +894,40 @@ describe('APP-01 · command palette (board G01)', () => {
     await userEvent.keyboard('gj');
     expect(await screen.findByRole('heading', { level: 1, name: 'Jobs' })).toBeTruthy();
   });
+
+  it('audit of b654ec6: after a lost stop, leaving and coming back still says a stop may still be running', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      const u = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+      const base = jobHttp([]);
+      const http: FlinkHttp = (r) =>
+        r.path.startsWith('/jobs/a1/savepoints/')
+          ? Promise.resolve({ status: 503, headers: {}, url: '', body: '' })
+          : base(r);
+      await withOne(http);
+      await u.keyboard('{Meta>}k{/Meta}');
+      await u.type(screen.getByRole('combobox', { name: 'Search commands' }), 'refund');
+      await screen.findByRole('option', { name: /^refund-matcher/ });
+      await u.keyboard('{Enter}');
+      await u.click(await screen.findByRole('button', { name: 'Stop with savepoint' }));
+      const confirm = await screen.findByRole('dialog', { name: /with a savepoint\?/ });
+      await within(confirm).findByDisplayValue('s3://payments/savepoints');
+      await u.click(within(confirm).getByRole('button', { name: 'Stop with savepoint' }));
+      await vi.advanceTimersByTimeAsync(15_000); // three failed status reads: lost
+      await screen.findByText(/stopped asking for its progress/);
+      await u.keyboard('{Escape}');
+      (document.activeElement as HTMLElement).blur();
+      await u.keyboard('{Meta>},{/Meta}');
+      await u.click(await screen.findByRole('button', { name: 'Back' }));
+      await u.click(await screen.findByRole('button', { name: 'Stop with savepoint' }));
+      const again = await screen.findByRole('dialog', { name: /with a savepoint\?/ });
+      expect(
+        within(again).getByText('A stop sent earlier may still be running on the cluster.'),
+      ).toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });
 
 describe('APP-04 · Settings (boards D21)', () => {

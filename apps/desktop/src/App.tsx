@@ -72,6 +72,19 @@ export function App({
       }),
     [],
   );
+  // Stops whose status was lost (may still run on the cluster), so the page says so after a remount too.
+  const [lostStops, setLostStops] = useState(() => new Set<string>());
+  const onStopLost = useCallback(
+    (key: string) => (lost: boolean) =>
+      setLostStops((m) => {
+        if (m.has(key) === lost) return m;
+        const n = new Set(m);
+        if (lost) n.add(key);
+        else n.delete(key);
+        return n;
+      }),
+    [],
+  );
   // APP-04: what a new connection's refresh starts at (in memory until the Tauri store lands).
   const [defaultPollMs, setDefaultPollMs] = useState(5000);
   const add = () => setScreen({ name: 'kind', kind: null });
@@ -328,6 +341,8 @@ export function App({
           {...(screen.start ? { start: screen.start } : {})}
           stop={stops.get(`${open.id}/${screen.jid}`) ?? null}
           onStop={onStop(`${open.id}/${screen.jid}`)}
+          stopLost={lostStops.has(`${open.id}/${screen.jid}`)}
+          onStopLost={onStopLost(`${open.id}/${screen.jid}`)}
           onStartTaken={dropStart}
           transport={transport}
           history={history}

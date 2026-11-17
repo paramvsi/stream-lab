@@ -224,6 +224,8 @@ export function JobOverview({
   onStartTaken,
   stop,
   onStop,
+  stopLost,
+  onStopLost,
 }: {
   c: Connection;
   jid: string;
@@ -236,6 +238,9 @@ export function JobOverview({
   /** A stop sent from this page earlier and still running (the app keeps it while the page is left). */
   stop?: { rid: string; at: number } | null;
   onStop?: (s: { rid: string; at: number } | null) => void;
+  /** A stop from this page whose status was lost (the app keeps it), and its setter. */
+  stopLost?: boolean;
+  onStopLost?: (lost: boolean) => void;
   /** JOB-06: where this page records what changes (the app's store; one of its own when none is given). */
   history?: HistoryStore;
 }) {
@@ -567,6 +572,8 @@ export function JobOverview({
           onRunningChange={setStopRunning}
           {...(stop ? { resume: stop } : {})}
           {...(onStop ? { onSent: onStop } : {})}
+          lostBefore={!!stopLost}
+          {...(onStopLost ? { onLost: onStopLost } : {})}
           onCancelInstead={() => {
             setStopping(false);
             setCancelling(true);

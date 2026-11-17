@@ -117,6 +117,41 @@ describe('JOB-03 · subtask loads (D09c)', () => {
     expect(l.failed).toMatchObject({ count: 1, error: { code: 'CONN-TIMEOUT' } });
   });
 
+  it('the connection dropping mid-round: 2 connection errors in a row end the round (not 31 timeouts)', async () => {
+    let n = 0;
+    await expect(
+      getSubtaskLoads(
+        async (r) => {
+          n++;
+          if (r.path.includes('/subtasks/0/')) return ok([{ id: 'numRecordsInPerSecond', value: '5' }]);
+          throw new TransportError({ kind: 'timeout', host: 'h', timeoutS: 10 });
+        },
+        'prod',
+        'j',
+        'v',
+        32,
+      ),
+    ).rejects.toMatchObject({ code: 'CONN-TIMEOUT' });
+    expect(n).toBe(3);
+  });
+
+  it('stops between requests when told to (a closed panel sends nothing more)', async () => {
+    let n = 0;
+    let stop = false;
+    await expect(
+      getSubtaskLoads(
+        async () => (n++, (stop = true), ok([])),
+        'prod',
+        'j',
+        'v',
+        32,
+        10_000,
+        () => stop,
+      ),
+    ).rejects.toThrow();
+    expect(n).toBe(1);
+  });
+
   it('skew: the busiest subtask against the mean of the others; none below 2 subtasks or no traffic', () => {
     const at = (...r: (number | null)[]) => r.map((recIn, index) => ({ index, recIn, busy: null }));
     expect(skew(at(2410, 820, 860, 790))).toEqual({ index: 0, times: 2.9 });

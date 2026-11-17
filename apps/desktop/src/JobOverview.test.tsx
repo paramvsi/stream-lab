@@ -1355,6 +1355,79 @@ describe('JOB-02 · Job overview (board D08)', () => {
     expect(await within(panel).findByText('Subtask 0 gets 2.9× the records')).toBeInTheDocument();
   });
 
+  it("audit op #1: switching operators never shows the last one's subtasks under the new name", async () => {
+    show(async (req) => {
+      const m = /\/vertices\/(v\d)\/subtasks\/(\d)\/metrics$/.exec(req.path);
+      if (m) {
+        if (m[1] === 'v3') await new Promise(() => {}); // the new operator has not answered yet
+        return {
+          status: 200,
+          headers: {},
+          url: '',
+          body: JSON.stringify([{ id: 'numRecordsInPerSecond', value: '2410' }]),
+        };
+      }
+      return answer(200, detail)(req);
+    });
+    const ops = await screen.findByRole('table', { name: 'Operators' });
+    await userEvent.click(within(ops).getAllByRole('row')[2]!);
+    await within(await screen.findByRole('region', { name: 'Window aggregate' })).findAllByText('2,410/s');
+    await userEvent.click(within(ops).getAllByRole('row')[3]!);
+    const p = await screen.findByRole('region', { name: 'Sink: alerts' });
+    expect(within(p).queryByText('2,410/s')).toBeNull();
+  });
+
+  it("audit op #2 #4: a job not running sends no subtask reads; a connection error is the page's to say, not a second banner", async () => {
+    let reads = 0;
+    let state = 'FINISHED';
+    show(async (req) => {
+      if (/\/subtasks\/\d\/metrics$/.test(req.path)) {
+        reads++;
+        throw new TransportError({ kind: 'refused', host: 'payments-prod.example.com', port: 8081 });
+      }
+      return answer(200, { ...detail, state })(req);
+    });
+    const ops = await screen.findByRole('table', { name: 'Operators' });
+    await userEvent.click(within(ops).getAllByRole('row')[2]!);
+    const p = await screen.findByRole('region', { name: 'Window aggregate' });
+    await new Promise((r) => setTimeout(r, 300));
+    expect(reads).toBe(0);
+    state = 'RUNNING';
+    await waitFor(() => expect(reads).toBeGreaterThan(0), { timeout: 5_000 });
+    await new Promise((r) => setTimeout(r, 300));
+    expect(within(p).queryByRole('button', { name: /Retry/ })).toBeNull();
+    expect(within(p).queryByRole('alert')).toBeNull();
+  });
+
+  it(
+    "audit op #3: switching operators ends the last one's round: no more reads for it",
+    { timeout: 20_000 },
+    async () => {
+      vi.useFakeTimers({ shouldAdvanceTime: true });
+      try {
+        const reads: Record<string, number> = {};
+        show(async (req) => {
+          const m = /\/vertices\/(v\d)\/subtasks\/\d\/metrics$/.exec(req.path);
+          if (m) {
+            reads[m[1]!] = (reads[m[1]!] ?? 0) + 1;
+            await new Promise((r) => setTimeout(r, 1_000));
+            return { status: 200, headers: {}, url: '', body: '[]' };
+          }
+          return answer(200, detail)(req);
+        });
+        const ops = await screen.findByRole('table', { name: 'Operators' });
+        await userEvent.click(within(ops).getAllByRole('row')[2]!); // Window aggregate, p 4: 4 s a round
+        await act(async () => vi.advanceTimersByTimeAsync(1_500));
+        await userEvent.click(within(ops).getAllByRole('row')[3]!);
+        const at = reads.v2!;
+        for (let t = 0; t < 8; t++) await act(async () => vi.advanceTimersByTimeAsync(1_000));
+        expect(reads.v2).toBe(at);
+      } finally {
+        vi.useRealTimers();
+      }
+    },
+  );
+
   it('lists the operators with parallelism and status', async () => {
     show(answer(200, detail));
     const table = await screen.findByRole('table', { name: 'Operators' });

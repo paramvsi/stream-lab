@@ -50,12 +50,17 @@ export async function getSubtaskLoads(
   vid: string,
   parallelism: number,
   timeoutMs = 10_000,
+  /** Checked before each request: true ends the round (the panel closed or moved on). */
+  stopped: () => boolean = () => false,
 ): Promise<SubtaskLoads> {
   const out: SubtaskLoad[] = [];
   let failed: SubtaskLoads['failed'] = null;
   let answered = false;
+  /** Connection-wide errors in a row: 2 end the round, so a drop mid-round is not 31 timeouts. */
+  let down = 0;
   const n = Math.min(parallelism, MAX_SUBTASKS);
   for (let index = 0; index < n; index++) {
+    if (stopped()) throw new Error('stopped');
     const ms = await getJson(
       http,
       conn,
@@ -73,11 +78,15 @@ export async function getSubtaskLoads(
       // (Only before anything answered: a timeout after good reads is one slow subtask, counted below.)
       if (!(e instanceof AppError)) throw e;
       const whole = e.code.startsWith('CONN-') || e.code === 'API-401' || e.code === 'API-403';
-      if (whole && !answered) throw e;
+      down = whole ? down + 1 : 0;
+      if (whole && (!answered || down >= 2)) throw e;
       failed = { count: (failed?.count ?? 0) + 1, error: failed?.error ?? e };
       return null;
     });
-    if (ms) answered = true;
+    if (ms) {
+      answered = true;
+      down = 0;
+    }
     // One subtask that can not be read is no reading for it alone.
     if (!ms) {
       out.push({ index, recIn: null, busy: null });

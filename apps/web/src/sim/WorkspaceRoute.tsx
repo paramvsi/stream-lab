@@ -25,6 +25,9 @@ import { Workspace } from './Workspace';
 export const AUTOSAVE_MS = 500;
 
 type Stored = Pipeline & { scenario?: string };
+/** What a save stores of the graph: compared to tell whether the screen holds edits stored nowhere. */
+const content = (p: Pick<Stored, 'name' | 'seed' | 'data' | 'nodes' | 'edges'>) =>
+  JSON.stringify([p.name, p.seed, p.data, p.nodes, p.edges]);
 
 /**
  * /sim/:id (SIM-20). IndexedDB is the source of truth on open; memory is used only for a pipeline whose first
@@ -35,6 +38,8 @@ export function WorkspaceRoute({ id }: { id: string }) {
   const navigate = useNavigate();
   const [status, setStatus] = useState<'loading' | 'ready' | 'missing'>('loading');
   const base = useRef<Stored | null>(null);
+  // `content` of the version this tab last read from or wrote to IndexedDB (null: none).
+  const written = useRef<string | null>(null);
   // While true, store changes come from loading a pipeline, not the user: no autosave.
   const loading = useRef(false);
   const [storeError, setStoreError] = useState<AppError | null>(null);
@@ -86,6 +91,7 @@ export function WorkspaceRoute({ id }: { id: string }) {
         if (!newest) return setStatus('missing');
         inDb.current = !!stored || seenStored.has(id);
         if (stored) seenStored.add(id);
+        written.current = stored ? content(stored) : null;
         show(newest);
         const goneElsewhere = () => {
           // Deleted in another tab (maybe while this tab was elsewhere): the edits stay on screen for "Keep a
@@ -103,6 +109,7 @@ export function WorkspaceRoute({ id }: { id: string }) {
             else {
               inDb.current = true;
               seenStored.add(id);
+              written.current = content(newest);
               unsaved.delete(id);
               clearRescue(id);
             }
@@ -164,8 +171,8 @@ export function WorkspaceRoute({ id }: { id: string }) {
       base.current = p;
       // An update once it has been in IndexedDB: a delete elsewhere is not undone by it.
       savePipeline(p, { update: inDb.current }).then(
-        (written) => {
-          if (!written) {
+        (ok) => {
+          if (!ok) {
             // Deleted in another tab; its broadcast may still be on the way.
             wasDeleted.current = true;
             setDeleted(true);
@@ -173,6 +180,7 @@ export function WorkspaceRoute({ id }: { id: string }) {
           }
           inDb.current = true;
           seenStored.add(id);
+          written.current = content(p);
           unsaved.delete(id);
           useSaveState.setState({ state: 'saved' });
           setStoreError(null);
@@ -232,8 +240,13 @@ export function WorkspaceRoute({ id }: { id: string }) {
           setDeleted(true);
         } else {
           setDeleted(false); // saved again elsewhere (e.g. Undo of the delete): it exists, and is newer
-          // "Not saved" that came from the deleted state goes; a failed save of our own stays.
-          if (wasDeleted.current) useSaveState.setState({ state: 'saved' });
+          // "Not saved" that came from the deleted state goes, unless this tab holds edits stored nowhere (made
+          // while deleted, or a copy that never reached IndexedDB): those stay "Not saved" until this tab writes,
+          // and the conflict banner lets the user choose. A failed save of our own stays too.
+          if (wasDeleted.current)
+            useSaveState.setState({
+              state: content(useGraph.getState()) === written.current ? 'saved' : 'error',
+            });
           wasDeleted.current = false;
           setConflict(true);
         }

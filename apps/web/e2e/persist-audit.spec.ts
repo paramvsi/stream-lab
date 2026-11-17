@@ -377,6 +377,26 @@ test('R4 after Undo of a delete elsewhere, the header is not left at "Not saved"
   ).toBe(0);
 });
 
+test('R4b edits made while deleted elsewhere stay "Not saved" after that tab undoes the delete, with the conflict banner', async ({
+  page,
+  context,
+}) => {
+  await openBlank(page);
+  await addNode(page, 'Source');
+  await saved(page);
+  const list = await context.newPage();
+  await list.goto('/#/pipelines');
+  await list.getByRole('button', { name: 'Delete Untitled pipeline' }).click();
+  await list.getByRole('button', { name: 'Delete pipeline' }).click();
+  await expect(page.getByText('This pipeline was deleted in another tab.')).toBeVisible();
+  await addNode(page, 'Filter'); // stored nowhere: the record is gone
+  await list.getByRole('button', { name: 'Undo', exact: true }).click();
+  await expect(page.getByText('This pipeline was deleted in another tab.')).toHaveCount(0);
+  await expect(page.getByText('This pipeline is open in another tab')).toBeVisible();
+  await page.waitForTimeout(800); // past the autosave debounce: nothing may have flipped it to "Saved"
+  await expect(page.getByRole('status').filter({ hasText: /^Not saved$/ })).toBeVisible();
+});
+
 test('R5 a saved pipeline\'s failed edit survives "Manage storage" and Back (still "Not saved")', async ({
   page,
 }) => {

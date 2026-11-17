@@ -400,12 +400,16 @@ export function JobOverview({
   // §4: a single 404 over a job on screen is a blip (HA failover); the page goes only once the banner would.
   const gone = error?.code === 'API-404-JOB' && (!j || !!banner) ? error : null;
   // ACT-01: Stop with savepoint shows for a running job on a writable connection. When the job leaves RUNNING
-  // (stopped, failed), the button goes: focus that was on it (or fell to <body>) goes to the heading.
+  // (stopped, failed), the button goes: focus that was on it goes to the heading.
   const canStop = !!j && !gone && !c.readOnly && j.state === 'RUNNING';
   const [hadStop, setHadStop] = useState(canStop);
   if (canStop !== hadStop) setHadStop(canStop);
+  // Only focus that was on the button moves (as the banner's focus does): React fires no blur when it removes the
+  // button, so stopFocused stays set then; a reader elsewhere on the page is never moved.
+  const stopFocused = useRef(false);
   useEffect(() => {
-    if (hadStop) return;
+    if (hadStop || !stopFocused.current) return;
+    stopFocused.current = false;
     const t = setTimeout(() => {
       if (document.activeElement === document.body || !document.activeElement) h1.current?.focus();
     }, 0);
@@ -465,7 +469,12 @@ export function JobOverview({
           {/* ACT-01: stop with savepoint, the default stop, for a running job on a writable connection. A
               read-only connection hides it (JOB-READONLY above; hidden vs disabled is a pending ruling). */}
           {canStop && (
-            <Button icon={<Square size={16} aria-hidden="true" />} onClick={() => setStopping(true)}>
+            <Button
+              icon={<Square size={16} aria-hidden="true" />}
+              onClick={() => setStopping(true)}
+              onFocus={() => (stopFocused.current = true)}
+              onBlur={() => (stopFocused.current = false)}
+            >
               Stop with savepoint
             </Button>
           )}

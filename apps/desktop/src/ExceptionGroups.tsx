@@ -30,7 +30,7 @@ export function ExceptionGroups({
   const groups = groupExceptions(entries);
   if (!groups.length)
     return (
-      <EmptyState icon={CircleCheck} title="No exceptions" level={3}>
+      <EmptyState icon={CircleCheck} title="No exceptions" level={2}>
         Flink has not recorded a failure for this job.
       </EmptyState>
     );

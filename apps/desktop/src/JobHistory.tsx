@@ -70,9 +70,9 @@ export function JobHistory({
   const problem = readError ?? saveError;
   return (
     <section aria-labelledby={titleId} className="flex flex-col gap-3 pt-5">
-      <h3 id={titleId} className="m-0 text-[16px] font-semibold">
+      <h2 id={titleId} className="m-0 text-[16px] font-semibold">
         Timeline
-      </h3>
+      </h2>
       <p className="m-0 text-[13px] text-muted">Recorded on this computer while Stream Lab was open.</p>
       {problem && (
         <p className="m-0 flex items-center gap-1.5 text-[13px] text-danger-600">

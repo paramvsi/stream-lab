@@ -85,8 +85,8 @@ describe('JOB-02 · job graph view (board D08)', () => {
     render(<JobGraphView graph={graph} />);
     const region = screen.getByRole('region', { name: 'Job graph' });
     expect(region).toHaveAttribute('tabindex', '0');
-    expect(screen.getByRole('heading', { level: 3, name: 'Job graph' })).toBeVisible();
-    expect(screen.getByRole('heading', { level: 4, name: 'Window aggregate' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { level: 2, name: 'Job graph' })).toBeVisible();
+    expect(screen.getByRole('heading', { level: 3, name: 'Window aggregate' })).toBeInTheDocument();
   });
 
   it('JOB-BACKPRESSURE: a HIGH operator gets a warning badge with its percent and the catalog words as its reason', () => {

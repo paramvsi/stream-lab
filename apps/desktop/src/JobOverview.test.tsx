@@ -1749,7 +1749,7 @@ describe('JOB-02 · Job overview (board D08)', () => {
         for (let t = 0; t < 3; t++) await act(async () => vi.advanceTimersByTimeAsync(1_000));
         await userEvent.click(screen.getByRole('tab', { name: 'History' }));
         expect(await screen.findByText(/local history could not be saved/)).toBeInTheDocument();
-        expect(screen.getByRole('heading', { name: 'Timeline', level: 3 })).toBeInTheDocument();
+        expect(screen.getByRole('heading', { name: 'Timeline', level: 2 })).toBeInTheDocument();
         fail = false;
         for (let t = 0; t < 3; t++) await act(async () => vi.advanceTimersByTimeAsync(1_000));
         expect(tries).toBeGreaterThan(1);

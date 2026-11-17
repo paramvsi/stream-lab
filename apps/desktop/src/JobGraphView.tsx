@@ -35,9 +35,9 @@ export function JobGraphView({
   const titleId = useId();
   return (
     <div className="flex flex-col gap-3">
-      <h3 id={titleId} className="m-0 text-[16px] font-semibold">
+      <h2 id={titleId} className="m-0 text-[16px] font-semibold">
         Job graph
-      </h3>
+      </h2>
       {note && <p className="m-0 text-[13px] text-muted">{note}</p>}
       {/* A scroll region the keyboard can reach (WebKit does not focus scrollers by itself), as Table does. */}
       <div
@@ -59,7 +59,7 @@ export function JobGraphView({
                       key={id}
                       className="flex min-w-[180px] flex-col gap-1 rounded-md border border-line p-3"
                     >
-                      <h4 className="m-0 text-[14px] font-semibold">
+                      <h3 className="m-0 text-[14px] font-semibold">
                         {onSelect ? (
                           <button
                             type="button"
@@ -72,7 +72,7 @@ export function JobGraphView({
                         ) : (
                           n.name
                         )}
-                      </h4>
+                      </h3>
                       <span className="font-mono text-[12px] text-muted">p {n.parallelism}</span>
                       {backpressure[id]?.level === 'high' && (
                         // JOB-BACKPRESSURE (D08b): an object badge on the operator; HIGH is the catalog's trigger.

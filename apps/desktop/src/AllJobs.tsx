@@ -2,33 +2,65 @@ import { AppError, ErrorBanner } from '@sl/errors';
 import {
   bucketCounts,
   listJobs,
-  nextDelay,
-  poll,
-  POLL,
-  type Poller,
   queryJobs,
   type Connection,
   type FlinkHttp,
   type FlinkJobRow,
   type JobBucket,
 } from '@sl/flink';
-import { Button, EmptyState, Field, Input, StatusBadge, Table, useToast, type Column } from '@sl/ui';
+import { Button, EmptyState, Field, Input, StatusBadge, Table, type Column } from '@sl/ui';
 import { Inbox, LayoutGrid } from 'lucide-react';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState, type RefObject } from 'react';
 import { useScreenHeading } from './focus';
 import { CHIPS, TONE, word } from './Jobs';
-import { gateFor } from './usePolled';
+import { usePolled } from './usePolled';
 
 type Row = FlinkJobRow & { conn: Connection };
 
 /**
- * JOB-11 / board X18: the jobs of every connection in one list (Job · Connection · Status). Each connection is
- * polled on its own (POLL.jobs), through its shared limiter, with ERRORS_AND_ALERTS §4 per connection, as usePolled
- * does for one: before any data a failure is named in FLEET-PARTIAL (Retry); with data, failure 1 is silent, 2
- * marks its rows stale (with their age), 3 is CONN-LOST over the kept rows (Retry now keeps them), and coming back
- * says "Back in contact" once. Until every connection has answered, the screen says how many it is still reading. ponytail: saved views (X18's chips, Save view) and Restarts (1 h)
- * (per-job history reads) are next slices.
+ * JOB-11 / board X18: the jobs of every connection in one list (Job · Connection · Status). Each connection is a
+ * Feed: usePolled (POLL.jobs, through its shared limiter, with ERRORS_AND_ALERTS §4 exactly as on its own
+ * screens: stale after 2, CONN-LOST / API-TIMEOUT / the API's own error after 3, over the kept rows, "Back in
+ * contact" once, Retry now, focus). Before any data, a failure is FLEET-PARTIAL (X18) with Retry. Until every
+ * connection has answered, the screen says how many it is still reading.
+ * ponytail: saved views (X18's chips, Save view) need a board (MORNING); Restarts (1 h) needs per-job reads.
  */
+type FeedState = { rows: FlinkJobRow[] | null; error: AppError | null; stale: boolean };
+
+/** One connection's poll. It shows usePolled's banner (or the stale note) only once it has data. */
+function Feed({
+  c,
+  transport,
+  heading,
+  onState,
+  retries,
+}: {
+  c: Connection;
+  transport: (c: Connection) => FlinkHttp;
+  heading: RefObject<HTMLHeadingElement | null>;
+  onState: (id: string, s: FeedState) => void;
+  retries: Map<string, () => void>;
+}) {
+  const p = usePolled(c, transport, listJobs, heading);
+  useEffect(() => {
+    retries.set(c.id, p.retry);
+  });
+  useEffect(
+    () => onState(c.id, { rows: p.value, error: p.error, stale: p.stale }),
+    [c.id, onState, p.value, p.error, p.stale],
+  );
+  if (!p.value) return null;
+  return (
+    p.banner ||
+    (p.stale && (
+      <p className="m-0 text-[13px] text-muted">
+        {c.name} is not answering. Showing its data from {p.since}.
+      </p>
+    )) ||
+    null
+  );
+}
+
 export function AllJobs({
   connections,
   transport,
@@ -41,67 +73,12 @@ export function AllJobs({
   onFleet?: () => void;
 }) {
   const h1 = useScreenHeading();
-  const toast = useToast();
-  // Per connection: its last rows (kept through failures) and when they came, its last error, failures in a row.
-  const [read, setRead] = useState<
-    Record<string, { rows?: FlinkJobRow[]; at?: number; error?: AppError; failures: number }>
-  >({});
-  // The same per connection, for the poller's own decisions (kept across a Retry, as usePolled does): failures in
-  // a row, whether it ever answered, and whether CONN-LOST was shown (its recovery says so once).
-  const fails = useRef(new Map<string, number>());
-  const answered = useRef(new Set<string>());
-  const lost = useRef(new Set<string>());
-  // When the last answer of any kind came (for the data's age; never read during render).
-  const [now, setNow] = useState(0);
-  // Per connection, a poller (FLINK_API: the job list every 5 s, back-off, paused while hidden). A Retry restarts
-  // that connection's only.
-  const pollers = useRef(new Map<string, Poller>());
-  const readOne = useCallback(
-    (c: Connection) => {
-      pollers.current.get(c.id)?.stop();
-      const p = poll(() => gateFor(transport, c.id).run(() => listJobs(transport(c), c.name, c.timeoutMs)), {
-        everyMs: POLL.jobs.everyMs,
-        visible: () => !document.hidden,
-        onResult: (r) => {
-          if (pollers.current.get(c.id) !== p) return; // a restarted poller's late answer
-          setNow(Date.now());
-          if (r.ok) {
-            if (lost.current.delete(c.id))
-              toast({ severity: 'success', message: `Back in contact with ${c.name}.` });
-            fails.current.set(c.id, 0);
-            answered.current.add(c.id);
-            setRead((was) => ({ ...was, [c.id]: { rows: r.value, at: Date.now(), failures: 0 } }));
-            return;
-          }
-          const f = (fails.current.get(c.id) ?? 0) + 1;
-          fails.current.set(c.id, f);
-          if (answered.current.has(c.id) && f >= POLL.jobs.bannerAfter) lost.current.add(c.id);
-          const error = r.error instanceof AppError ? r.error : new AppError('API-SHAPE', {}, r.error);
-          setRead((was) => {
-            const prev = was[c.id];
-            return {
-              ...was,
-              [c.id]: {
-                ...(prev?.rows ? { rows: prev.rows, ...(prev.at ? { at: prev.at } : {}) } : {}),
-                error,
-                failures: f,
-              },
-            };
-          });
-        },
-      });
-      pollers.current.set(c.id, p);
-    },
-    [transport, toast],
-  );
-  useEffect(() => {
-    const ps = pollers.current;
-    for (const c of connections) readOne(c);
-    return () => {
-      for (const p of ps.values()) p.stop();
-      ps.clear();
-    };
-  }, [connections, readOne]);
+  const [read, setRead] = useState<Record<string, FeedState>>({});
+  const onState = useCallback((id: string, st: FeedState) => setRead((r) => ({ ...r, [id]: st })), []);
+  // Each Feed's Retry, for FLEET-PARTIAL's (one stable map for the screen's life).
+  const [retries] = useState(() => new Map<string, () => void>());
+  // FLEET-PARTIAL can go on its own (a down connection answers on its next poll): focus on it goes to the heading.
+  const inPartial = useRef(false);
 
   const all: Row[] = connections.flatMap((c) => (read[c.id]?.rows ?? []).map((j) => ({ ...j, conn: c })));
   // The Jobs list's own chips and search (D07b), across connections.
@@ -110,30 +87,23 @@ export function AllJobs({
   const search = useRef<HTMLInputElement>(null);
   const counts = bucketCounts(all);
   const rows = queryJobs(all, { ...(bucket ? { bucket } : {}), q });
-  // §4. No data and an error: its jobs are missing (FLEET-PARTIAL). With rows: stale from 2 failures, lost from 3.
-  const down = connections.filter((c) => !!read[c.id]?.error && !read[c.id]?.rows);
-  const stale = connections.filter(
-    (c) => !!read[c.id]?.rows && (read[c.id]?.failures ?? 0) >= POLL.jobs.staleAfter,
-  );
-  const lostNow = stale.filter((c) => (read[c.id]?.failures ?? 0) >= POLL.jobs.bannerAfter);
-  const reading = connections.filter((c) => !read[c.id]).length;
+  // No data and an error: its jobs are missing (FLEET-PARTIAL). With data, each Feed shows its own §4 states.
+  const down = connections.filter((c) => !read[c.id]?.rows && !!read[c.id]?.error);
+  const stale = connections.filter((c) => !!read[c.id]?.rows && !!read[c.id]?.stale);
+  const reading = connections.filter((c) => !read[c.id] || (!read[c.id]!.rows && !read[c.id]!.error)).length;
   // The list is whole only when every connection has answered with fresh jobs: counts and "no match" wait for it
   // (a connection still reading, down or stale may hold the very jobs they would say are not there).
   const whole = !reading && !down.length && !stale.length;
-  const ago = (at?: number) => {
-    const m = at ? Math.floor((now - at) / 60_000) : 0;
-    return m < 1 ? 'less than a minute ago' : `${m} min ago`;
-  };
-  // The banners and their Retry go when they are answered: focus stays on the page.
   const retryMissing = () => {
     h1.current?.focus();
-    setRead((r) => Object.fromEntries(Object.entries(r).filter(([k]) => !down.some((c) => c.id === k))));
-    for (const c of down) readOne(c);
+    for (const c of down) retries.get(c.id)?.();
   };
-  const retryNow = (c: Connection) => {
-    h1.current?.focus();
-    readOne(c); // its rows and its failures in a row stay (as usePolled's Retry)
-  };
+  const partialUp = down.length > 0;
+  useEffect(() => {
+    if (partialUp || !inPartial.current) return;
+    inPartial.current = false;
+    if (document.activeElement === document.body || !document.activeElement) h1.current?.focus();
+  }, [partialUp, h1]);
   const columns: Column<Row>[] = [
     {
       key: 'job',
@@ -172,34 +142,25 @@ export function AllJobs({
           </Button>
         )}
       </div>
-      {down.length > 0 && (
-        <ErrorBanner
-          error={new AppError('FLEET-PARTIAL', { n: down.length, names: down.map((c) => c.name).join(', ') })}
-          handles={new Set(['Retry'])}
-          onAction={retryMissing}
-        />
+      {partialUp && (
+        <div
+          onFocus={() => (inPartial.current = true)}
+          onBlur={(e) => {
+            if (!e.currentTarget.contains(document.activeElement)) inPartial.current = false;
+          }}
+        >
+          <ErrorBanner
+            error={
+              new AppError('FLEET-PARTIAL', { n: down.length, names: down.map((c) => c.name).join(', ') })
+            }
+            handles={new Set(['Retry'])}
+            onAction={retryMissing}
+          />
+        </div>
       )}
-      {lostNow.map((c) => (
-        <ErrorBanner
-          key={c.id}
-          error={
-            new AppError('CONN-LOST', {
-              conn: c.name,
-              s: Math.round(nextDelay(POLL.jobs.everyMs, read[c.id]?.failures ?? 0) / 1000),
-              ago: ago(read[c.id]?.at),
-            })
-          }
-          handles={new Set(['Retry now'])}
-          onAction={() => retryNow(c)}
-        />
+      {connections.map((c) => (
+        <Feed key={c.id} c={c} transport={transport} heading={h1} onState={onState} retries={retries} />
       ))}
-      {stale
-        .filter((c) => !lostNow.includes(c))
-        .map((c) => (
-          <p key={c.id} className="m-0 text-[13px] text-muted">
-            {c.name} is not answering. Showing its data from {ago(read[c.id]?.at)}.
-          </p>
-        ))}
       <div className="flex flex-wrap items-end gap-3">
         <Field label="Search jobs" className="w-[280px]">
           <Input

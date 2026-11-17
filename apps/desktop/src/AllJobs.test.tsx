@@ -1,4 +1,4 @@
-import type { Connection, FlinkHttp } from '@sl/flink';
+import { TransportError, type Connection, type FlinkHttp } from '@sl/flink';
 import { ToastProvider, TooltipProvider } from '@sl/ui';
 import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
@@ -197,7 +197,7 @@ describe('JOB-11 · jobs across connections (board X18)', () => {
       show((c) => async () => {
         if (c.id === 'p') {
           n++;
-          if (failing) return { status: 503, headers: {}, url: '', body: '' };
+          if (failing) throw new TransportError({ kind: 'refused', host: 'p', port: 8081 }); // no contact
         }
         return ok({
           jobs: [
@@ -228,6 +228,9 @@ describe('JOB-11 · jobs across connections (board X18)', () => {
       });
       await vi.advanceTimersByTimeAsync(100); // its re-read fails again
       expect(n).toBe(6);
+      // the countdown is the restarted poller's own (its next poll is in 10 s), not the kept count's 30 s
+      expect(screen.getByText(/Retrying every 10 s/)).toBeInTheDocument();
+      screen.getByRole('button', { name: 'Retry now' }).focus();
       expect(screen.getByText('p-job')).toBeInTheDocument(); // Retry keeps the rows
       expect(screen.queryByText(/Reading the jobs/)).toBeNull();
       failing = false;
@@ -236,6 +239,34 @@ describe('JOB-11 · jobs across connections (board X18)', () => {
       expect(n).toBe(7);
       expect(await screen.findByText('Back in contact with payments-prod.')).toBeInTheDocument();
       expect(screen.queryByText(/Lost contact/)).toBeNull();
+      expect(screen.getByRole('heading', { level: 1, name: 'Jobs' })).toHaveFocus(); // the banner went on its own
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('audit of 034618d #1: a cluster that answers with an error (503) is not "lost contact": its own message; no "Back in contact"', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      let failing = false;
+      show(
+        (c) => async () =>
+          c.id === 'p' && failing
+            ? { status: 503, headers: {}, url: '', body: '' }
+            : ok({ jobs: [row(c.id + '1', `${c.id}-job`, 'RUNNING')] }),
+      );
+      await screen.findByText('p-job');
+      failing = true;
+      await vi.advanceTimersByTimeAsync(5_100 + 10_100 + 20_100); // three failures
+      await vi.waitFor(() =>
+        expect(screen.queryByText(/payments-prod had an internal error/)).not.toBeNull(),
+      );
+      expect(screen.queryByText(/Lost contact/)).toBeNull();
+      expect(screen.getByText('p-job')).toBeInTheDocument();
+      failing = false;
+      await vi.advanceTimersByTimeAsync(30_100);
+      await vi.waitFor(() => expect(screen.queryByText(/had an internal error/)).toBeNull());
+      expect(screen.queryByText(/Back in contact/)).toBeNull(); // contact was never lost
     } finally {
       vi.useRealTimers();
     }

@@ -60,8 +60,14 @@ export function App({
   // APP-04: what a new connection's refresh starts at (in memory until the Tauri store lands).
   const [defaultPollMs, setDefaultPollMs] = useState(5000);
   const add = () => setScreen({ name: 'kind', kind: null });
-  // Settings remembers where it was opened from: Back returns there (from Settings itself, the same place).
-  const openSettings = () => setScreen((s) => (s.name === 'settings' ? s : { name: 'settings', from: s }));
+  // Settings remembers where it was opened from: Back returns there (from Settings itself, the same place). A job
+  // screen is remembered without its palette pick (start): a remount on Back would run it again (a second POST).
+  const openSettings = () =>
+    setScreen((s) =>
+      s.name === 'settings'
+        ? s
+        : { name: 'settings', from: s.name === 'job' ? { name: 'job', id: s.id, jid: s.jid } : s },
+    );
   const home = () => setScreen({ name: 'home' });
 
   // APP-01 / board G01: ⌘K (Ctrl+K) anywhere but the connection steps (a jump would drop what is typed) and over

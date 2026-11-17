@@ -815,6 +815,23 @@ describe('APP-01 · command palette (board G01)', () => {
     await new Promise((r) => setTimeout(r, 300));
     expect(posts).toEqual([]);
   }, 15_000);
+
+  it('audit of 52e8ca2: Back from Settings to a job page does not run the palette action again (one savepoint POST)', async () => {
+    const posts: string[] = [];
+    await withOne(jobHttp(posts));
+    await userEvent.keyboard('{Meta>}k{/Meta}');
+    await userEvent.type(screen.getByRole('combobox', { name: 'Search commands' }), 'trigger refund');
+    await screen.findByRole('option', { name: /Trigger savepoint: refund-matcher/ });
+    await userEvent.keyboard('{Enter}');
+    await vi.waitFor(() => expect(posts).toEqual(['/jobs/a1/savepoints']));
+    (document.activeElement as HTMLElement).blur();
+    await userEvent.keyboard('{Meta>},{/Meta}');
+    await userEvent.click(await screen.findByRole('button', { name: 'Back' }));
+    await screen.findByRole('heading', { level: 1, name: 'refund-matcher' });
+    await screen.findByRole('button', { name: /Trigger savepoint/ });
+    await new Promise((r) => setTimeout(r, 300));
+    expect(posts).toEqual(['/jobs/a1/savepoints']);
+  });
 });
 
 describe('APP-04 · Settings (boards D21)', () => {

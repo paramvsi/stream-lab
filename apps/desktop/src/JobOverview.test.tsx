@@ -1395,8 +1395,9 @@ describe('JOB-02 · Job overview (board D08)', () => {
     state = 'RUNNING';
     await waitFor(() => expect(reads).toBeGreaterThan(0), { timeout: 5_000 });
     await new Promise((r) => setTimeout(r, 300));
+    // The job itself answers, so the page has no banner: the panel says it (never a skeleton forever).
+    expect(await within(p).findByText(/Subtasks could not be read/)).toBeInTheDocument();
     expect(within(p).queryByRole('button', { name: /Retry/ })).toBeNull();
-    expect(within(p).queryByRole('alert')).toBeNull();
   });
 
   it(
@@ -1422,6 +1423,37 @@ describe('JOB-02 · Job overview (board D08)', () => {
         const at = reads.v2!;
         for (let t = 0; t < 8; t++) await act(async () => vi.advanceTimersByTimeAsync(1_000));
         expect(reads.v2).toBe(at);
+      } finally {
+        vi.useRealTimers();
+      }
+    },
+  );
+
+  it(
+    "audit op2 #1: while the page's own banner is up, the panel does not say the same outage again",
+    { timeout: 30_000 },
+    async () => {
+      vi.useFakeTimers({ shouldAdvanceTime: true });
+      try {
+        let down = false;
+        show(async (req) => {
+          if (down)
+            throw new TransportError({ kind: 'refused', host: 'payments-prod.example.com', port: 8081 });
+          if (/\/subtasks\/\d\/metrics$/.test(req.path)) {
+            // no table yet: each read times out (at its timeoutMs, as the transport contract says)
+            await new Promise((r) => setTimeout(r, req.timeoutMs ?? 10_000));
+            throw new TransportError({ kind: 'timeout', host: 'payments-prod.example.com', timeoutS: 2 });
+          }
+          return answer(200, detail)(req);
+        });
+        const ops = await screen.findByRole('table', { name: 'Operators' });
+        await userEvent.click(within(ops).getAllByRole('row')[2]!);
+        const p = await screen.findByRole('region', { name: 'Window aggregate' });
+        down = true;
+        for (let t = 0; t < 20 && !screen.queryByText(/Lost contact with payments-prod/); t++)
+          await act(async () => vi.advanceTimersByTimeAsync(1_000));
+        expect(screen.getByText(/Lost contact with payments-prod/)).toBeInTheDocument();
+        expect(within(p).queryByText(/could not be read/)).toBeNull();
       } finally {
         vi.useRealTimers();
       }

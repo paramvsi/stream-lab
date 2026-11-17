@@ -482,6 +482,7 @@ export function JobOverview({
                         vertex={op}
                         running={running}
                         heading={h1}
+                        pageBanner={!!banner}
                       />
                     )}
                   </div>

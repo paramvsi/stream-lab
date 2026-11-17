@@ -33,9 +33,6 @@ const columns: Column<SubtaskLoad>[] = [
 /** A skew worth a sentence (board D09c "Subtask 0 gets 2.8× the records"). ponytail: fixed; tune with real jobs. */
 const SKEW_SAID = 2;
 
-/** The page's banner says these (connection down or refused); the panel would only repeat it. */
-const PAGE_SAYS = (code: string) => code.startsWith('CONN-') || code === 'API-401' || code === 'API-403';
-
 type Props = {
   c: Connection;
   transport: (c: Connection) => FlinkHttp;
@@ -43,6 +40,8 @@ type Props = {
   vertex: FlinkVertex;
   running: boolean;
   heading: RefObject<HTMLHeadingElement | null>;
+  /** The page's own banner is up: it says the outage, the panel does not say it again. */
+  pageBanner: boolean;
 };
 
 /**
@@ -67,7 +66,7 @@ export function OperatorPanel(p: Props) {
   );
 }
 
-function Subtasks({ c, transport, jid, vertex, heading }: Props) {
+function Subtasks({ c, transport, jid, vertex, heading, pageBanner }: Props) {
   // Closed, switched or the job stopped: the round in flight sends nothing more. (Nothing in here takes focus,
   // so its going loses none: no Retry, the table neither scrolls nor selects.)
   const gone = useRef(false);
@@ -87,7 +86,7 @@ function Subtasks({ c, transport, jid, vertex, heading }: Props) {
   );
   const v = sub.value;
   const sk = v && !v.failed && v.loads.length === v.total ? skew(v.loads) : null;
-  const err = !v && sub.error && !PAGE_SAYS(sub.error.code) ? sub.error : null;
+  const err = !v && sub.error && !pageBanner ? sub.error : null;
   return (
     <div className="flex flex-col gap-3">
       {!v ? (

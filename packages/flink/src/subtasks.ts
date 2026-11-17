@@ -75,7 +75,7 @@ export async function getSubtaskLoads(
     ).catch((e: unknown) => {
       // The whole connection is down or refused (CONN-*, 401, 403): every other subtask would fail the same way,
       // one timeout each. Stop now.
-      // (Only before anything answered: a timeout after good reads is one slow subtask, counted below.)
+      // (After good reads, one such error is one slow subtask, counted below; 2 in a row end the round.)
       if (!(e instanceof AppError)) throw e;
       const whole = e.code.startsWith('CONN-') || e.code === 'API-401' || e.code === 'API-403';
       down = whole ? down + 1 : 0;

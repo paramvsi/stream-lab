@@ -166,12 +166,13 @@ export function Logs({
           const f = fs.find((x) => x.name === name);
           if (!f) throw new AppError('LOG-GONE', { file: name });
           setFiles(fs); // the size and the 50 MB guard stay current (over it, Follow stops: `big`)
-          setError(null);
-          if (tooLarge(f.size) || f.size === shownSize.current) return;
+          // The error clears once the tick ended well (not before its read: no blink when that read fails too).
+          if (tooLarge(f.size) || f.size === shownSize.current) return setError(null);
           return getJmLog(http, c.name, name).then((t) => {
             if (id !== req.current) return;
             shownSize.current = f.size;
             setText(t);
+            setError(null);
           });
         })
         .catch((e: unknown) => {

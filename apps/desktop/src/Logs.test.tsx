@@ -369,7 +369,7 @@ describe('OPS-01 · Logs (D18, D18b)', () => {
       await vi.advanceTimersByTimeAsync(2_000); // list 2: same size, no read
       expect(st).toEqual({ lists: 2, reads: 1 });
       await vi.advanceTimersByTimeAsync(2_000); // list 3: 60 MB
-      expect(await screen.findByText(/57\.2 MB|60\.0 MB|over 50 MB/)).toBeInTheDocument();
+      expect(await screen.findByText(/This log is .*Showing the last 5,000 lines/)).toBeInTheDocument();
       const sw = screen.getByRole('switch', { name: 'Follow' });
       expect(sw).toBeDisabled();
       await vi.advanceTimersByTimeAsync(6_000);

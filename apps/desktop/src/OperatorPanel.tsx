@@ -264,7 +264,12 @@ function WatermarkTable({ c, transport, jid, vertex, heading, pageBanner, now, i
       )}
       {explain && (
         <div className="flex">
-          <Explain term="watermark" label="Explain watermarks" />
+          {/* The hint matches the signal: a partition that may be idle is the idle-source concept. */}
+          {idleCanHold ? (
+            <Explain term="idle-source" label="Explain idle sources" />
+          ) : (
+            <Explain term="watermark" label="Explain watermarks" />
+          )}
         </div>
       )}
     </div>

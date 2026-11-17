@@ -1560,6 +1560,12 @@ describe('JOB-02 · Job overview (board D08)', () => {
     let p = await screen.findByRole('region', { name: 'Window aggregate' });
     await userEvent.click(within(p).getByRole('tab', { name: 'Watermarks' }));
     expect(await within(p).findByText(/consider an idleness timeout/)).toBeInTheDocument();
+    // audit of dc57f47: the hint matches the signal: idle sources here, not the plain watermark concept
+    expect(within(p).queryByRole('button', { name: 'Explain watermarks' })).toBeNull();
+    await userEvent.click(within(p).getByRole('button', { name: 'Explain idle sources' }));
+    const idle = await screen.findByRole('dialog', { name: termById('idle-source')!.name });
+    expect(within(idle).getByText(termById('idle-source')!.body)).toBeInTheDocument();
+    await userEvent.keyboard('{Escape}');
     await userEvent.click(within(ops).getAllByRole('row')[1]!); // Source: payments
     p = await screen.findByRole('region', { name: 'Source: payments' });
     await userEvent.click(within(p).getByRole('tab', { name: 'Watermarks' }));

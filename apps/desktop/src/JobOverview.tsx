@@ -228,6 +228,7 @@ export function JobOverview({
   // vertex that can not be read is no reading for it alone; Flink's values for a job not running are not read.
   const running = j?.state === 'RUNNING';
   const bpLast = useRef<Record<string, Backpressure | null>>({});
+  const bpMisses = useRef(new Map<string, number>());
   const vids = j ? j.vertices.map((v) => v.id).join(',') : '';
   const bp = usePolled(
     c,
@@ -235,14 +236,34 @@ export function JobOverview({
     async (http, conn, t) => {
       if (!running || !vids || !j) return {} as Record<string, Backpressure | null>;
       const ids = vids.split(',');
-      const rs = await Promise.allSettled(ids.map((v) => getBackpressure(http, conn, jid, v, j.state, t)));
+      // One vertex at a time: one slot of the connection's 6, so the job poll never waits behind a burst, and a
+      // screen left behind leaves at most one request queued.
+      const rs: PromiseSettledResult<Backpressure | null>[] = [];
+      for (const v of ids)
+        rs.push(
+          await getBackpressure(http, conn, jid, v, j.state, t).then(
+            (value) => ({ status: 'fulfilled' as const, value }),
+            (reason: unknown) => ({ status: 'rejected' as const, reason }),
+          ),
+        );
       // §4: every vertex failing is a failed read (the poll keeps the last badges and counts it), not "nothing
-      // to show"; one vertex failing keeps that vertex's last reading (a single failure is silent).
+      // to show". One vertex failing keeps its last reading for at most 2 misses in a row, then has none: never
+      // an old reading that looks current.
       const failed = rs.find((r) => r.status === 'rejected');
       if (failed && rs.every((r) => r.status === 'rejected')) throw failed.reason;
       const prev = bpLast.current;
+      const misses = bpMisses.current;
       return Object.fromEntries(
-        ids.map((v, i) => [v, rs[i]!.status === 'fulfilled' ? rs[i]!.value : (prev[v] ?? null)]),
+        ids.map((v, i) => {
+          const r = rs[i]!;
+          if (r.status === 'fulfilled') {
+            misses.delete(v);
+            return [v, r.value];
+          }
+          const n = (misses.get(v) ?? 0) + 1;
+          misses.set(v, n);
+          return [v, n <= POLL.jobs.staleAfter ? (prev[v] ?? null) : null];
+        }),
       );
     },
     h1,

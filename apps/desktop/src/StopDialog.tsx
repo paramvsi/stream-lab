@@ -71,7 +71,7 @@ export function StopDialog({
   const openRef = useRef(open);
   // A stop whose status was lost may still be running on the cluster. Said on the next question (not a lock: a
   // lock could never clear while the job stays RUNNING, and would take away cancel when a stop is stuck); a new
-  // stop sent clears it.
+  // stop the cluster accepts clears it.
   const [uncertain, setUncertain] = useState(false);
   const running = step.name === 'running';
   useEffect(() => {
@@ -195,11 +195,11 @@ export function StopDialog({
     if (!folder) return setFieldError(new AppError('SP-DIR-MISSING'));
     setFieldError(null);
     setSendError(null);
-    setUncertain(false);
     setSending(true);
     stopWithSavepoint(http, conn, jid, job, { dir: folder, drain }).then(
       (r) => {
         setSending(false);
+        setUncertain(false); // an accepted stop replaces the lost one (a refused one does not)
         setRid(r);
         setStep({ name: 'running' });
       },

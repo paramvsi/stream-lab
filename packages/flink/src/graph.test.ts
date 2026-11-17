@@ -71,8 +71,8 @@ describe('JOB-02 · job graph from the plan (board D08)', () => {
 
   it("edges come from each node's inputs, with the ship strategy when Flink gives one", () => {
     expect(jobGraph(detail(plan)).edges).toEqual([
-      { from: 's', to: 'w', ship: 'HASH' },
-      { from: 'w', to: 'k', ship: null },
+      { from: 's', to: 'w', ship: 'HASH', num: 0 },
+      { from: 'w', to: 'k', ship: null, num: 0 },
     ]);
   });
 
@@ -87,5 +87,23 @@ describe('JOB-02 · job graph from the plan (board D08)', () => {
       nodes: [plan.nodes[0], { ...plan.nodes[1]!, inputs: [{ num: 0, id: 'gone', exchange: 'x' }] }],
     };
     expect(jobGraph(detail(p)).edges).toEqual([]);
+  });
+
+  it('one vertex reading the same upstream twice (a self-join) gives two edges told apart by num', () => {
+    const p = {
+      ...plan,
+      nodes: [
+        plan.nodes[0],
+        {
+          ...plan.nodes[1]!,
+          inputs: [
+            { num: 0, id: 's', ship_strategy: 'HASH', exchange: 'x' },
+            { num: 1, id: 's', ship_strategy: 'HASH', exchange: 'x' },
+          ],
+        },
+      ],
+    };
+    const keys = jobGraph(detail(p)).edges.map((e) => `${e.from}-${e.to}-${e.num}`);
+    expect(new Set(keys).size).toBe(2);
   });
 });

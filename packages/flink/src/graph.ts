@@ -11,7 +11,13 @@ const PlanSchema = z.looseObject({
     z.looseObject({
       id: z.coerce.string(),
       inputs: z
-        .array(z.looseObject({ id: z.coerce.string(), ship_strategy: z.string().nullable().optional() }))
+        .array(
+          z.looseObject({
+            num: z.number().optional(),
+            id: z.coerce.string(),
+            ship_strategy: z.string().nullable().optional(),
+          }),
+        )
         .optional(),
     }),
   ),
@@ -19,7 +25,8 @@ const PlanSchema = z.looseObject({
 
 export interface JobGraph {
   nodes: { id: string; name: string; parallelism: number; status: string }[];
-  edges: { from: string; to: string; ship: string | null }[];
+  /** `num`: the input's index on its target, so two inputs from the same upstream (a self-join) stay apart. */
+  edges: { from: string; to: string; ship: string | null; num: number }[];
 }
 
 /**
@@ -39,7 +46,7 @@ export function jobGraph(j: FlinkJobDetail): JobGraph {
     ? plan.data.nodes.flatMap((n) =>
         (n.inputs ?? [])
           .filter((i) => ids.has(i.id) && ids.has(n.id))
-          .map((i) => ({ from: i.id, to: n.id, ship: i.ship_strategy ?? null })),
+          .map((i, k) => ({ from: i.id, to: n.id, ship: i.ship_strategy ?? null, num: i.num ?? k })),
       )
     : [];
   return { nodes, edges };

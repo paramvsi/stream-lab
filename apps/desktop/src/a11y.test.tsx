@@ -69,6 +69,8 @@ const answers: Record<string, unknown> = {
 const cluster: FlinkHttp = async (r) => {
   if (r.method !== 'GET') return ok({ 'request-id': 'r1' });
   if (r.path === '/jobmanager/logs/jobmanager.log') return { status: 200, headers: {}, url: '', body: log };
+  // The operator panel's reads: a subtask's metrics and the vertex's watermarks (both a top-level array).
+  if (/^\/jobs\/a1\/vertices\/v1\/(subtasks\/\d+\/metrics|watermarks)$/.test(r.path)) return ok([]);
   return ok(answers[r.path] ?? {});
 };
 
@@ -147,23 +149,30 @@ describe('M11 · A11Y · desktop screens', () => {
     await check('Job overview (D08)');
     within(ops).getAllByRole('row')[1]!.focus();
     await userEvent.keyboard('{Enter}');
-    await screen.findByRole('heading', { level: 2, name: 'Window aggregate' });
-    await check('Operator panel (D09b)');
+    await screen.findByRole('table', { name: 'Subtasks' });
+    await check('Operator panel · Subtasks (D09b)');
+    await userEvent.click(screen.getByRole('tab', { name: /^Watermarks/ }));
+    await screen.findByRole('table', { name: 'Watermarks' });
+    await check('Operator panel · Watermarks (D09c)');
     for (const [tab, ready] of [
       ['History', 'Timeline'],
       ['Exceptions', 'No exceptions'],
-      ['Checkpoints', null],
+      ['Checkpoints', 'Checkpoints'],
     ] as const) {
       await userEvent.click(screen.getByRole('tab', { name: new RegExp(`^${tab}`) }));
-      if (ready) await screen.findByRole('heading', { name: ready });
+      // each tab in its loaded state: its heading, or (Checkpoints) its table
+      await (tab === 'Checkpoints'
+        ? screen.findByRole('table', { name: ready })
+        : screen.findByRole('heading', { name: ready }));
       await check(`Job overview · ${tab}`);
     }
     await userEvent.click(screen.getByRole('tab', { name: /^Overview/ }));
 
     await userEvent.click(screen.getByRole('button', { name: 'Stop with savepoint' }));
-    await screen.findByRole('dialog', { name: /with a savepoint\?/ });
+    const stop = await screen.findByRole('dialog', { name: /with a savepoint\?/ });
     await check('Stop with savepoint (D15)');
     await userEvent.click(screen.getByRole('button', { name: 'Cancel without a savepoint instead' }));
+    await gone(stop);
     const cancel = await screen.findByRole('dialog', { name: 'Cancel refund-matcher on Production?' });
     await check('Cancel on Production, type to confirm (D15e)');
     await userEvent.keyboard('{Escape}');

@@ -320,4 +320,37 @@ describe('APP-01 · command palette (board G01)', () => {
     expect(screen.queryByRole('dialog', { name: 'Commands' })).toBeNull();
     expect(importing.isConnected).toBe(true);
   });
+
+  it('G02: "?" (not while typing) and the palette open the shortcuts sheet, listing only keys that work; Escape returns focus', async () => {
+    await withOne();
+    const manage = screen.getByRole('button', { name: 'Connections' });
+    manage.focus();
+    await userEvent.keyboard('?');
+    const sheet = screen.getByRole('dialog', { name: 'Keyboard shortcuts' });
+    expect(
+      within(sheet)
+        .getAllByRole('rowheader')
+        .map((r) => r.textContent),
+    ).toEqual(['⌘K', '?']);
+    await userEvent.keyboard('{Escape}');
+    expect(screen.queryByRole('dialog', { name: 'Keyboard shortcuts' })).toBeNull();
+    expect(manage).toHaveFocus();
+    await userEvent.keyboard('{Meta>}k{/Meta}');
+    await userEvent.type(screen.getByRole('combobox', { name: 'Search commands' }), 'shortcuts');
+    await userEvent.keyboard('{Enter}');
+    expect(await screen.findByRole('dialog', { name: 'Keyboard shortcuts' })).toBeInTheDocument();
+    await userEvent.keyboard('{Escape}');
+  });
+
+  it('G02: "?" in a text field types a "?"', async () => {
+    await withOne();
+    // a field outside any dialog (the palette's own dialog would block "?" anyway): the Logs search box
+    await userEvent.keyboard('{Meta>}k{/Meta}');
+    await userEvent.type(screen.getByRole('combobox', { name: 'Search commands' }), 'logs local');
+    await userEvent.keyboard('{Enter}');
+    const box = await screen.findByRole('searchbox', { name: 'Search logs' });
+    await userEvent.type(box, '?');
+    expect(box).toHaveValue('?');
+    expect(screen.queryByRole('dialog', { name: 'Keyboard shortcuts' })).toBeNull();
+  });
 });

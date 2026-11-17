@@ -99,3 +99,32 @@ export function Palette({ commands, onClose }: { commands: Command[]; onClose: (
     </Dialog>
   );
 }
+
+/** Board G02. Only keys that work today are listed (the board's ⌘1–9, G J, G L, R, E, S are not built yet). */
+export const SHORTCUTS: [string, string][] = [
+  ['⌘K', 'Command palette'],
+  ['?', 'This list'],
+];
+
+/** APP-01 / board G02: the keyboard shortcuts sheet ("?" or the palette). */
+export function ShortcutsSheet({ onClose }: { onClose: () => void }) {
+  return (
+    <Dialog open onOpenChange={(o) => !o && onClose()} title="Keyboard shortcuts" width={480}>
+      <table className="w-full border-collapse text-[14px] text-ink">
+        <caption className="sr-only">Keyboard shortcuts</caption>
+        <tbody>
+          {SHORTCUTS.map(([k, what]) => (
+            <tr key={k} className="border-b border-line last:border-0">
+              <th scope="row" className="py-2 pr-4 text-left font-normal whitespace-nowrap">
+                <kbd className="rounded-sm border border-b-2 border-line px-1.5 py-px font-mono text-[12px] text-muted">
+                  {k}
+                </kbd>
+              </th>
+              <td className="py-2">{what}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </Dialog>
+  );
+}

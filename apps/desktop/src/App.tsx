@@ -9,7 +9,7 @@ import { Cluster } from './Cluster';
 import { memoryHistory } from './history';
 import { JobOverview } from './JobOverview';
 import { Logs } from './Logs';
-import { Palette, type Command } from './Palette';
+import { Palette, ShortcutsSheet, type Command } from './Palette';
 import { Jobs } from './Jobs';
 import { KindPicker } from './KindPicker';
 import { Welcome } from './Welcome';
@@ -52,6 +52,7 @@ export function App({
   // APP-01 / board G01: ⌘K (Ctrl+K) anywhere but the connection steps (a jump would drop what is typed) and over
   // another dialog.
   const [palette, setPalette] = useState(false);
+  const [sheet, setSheet] = useState(false);
   const inSteps = screen.name === 'form' || screen.name === 'kind';
   useEffect(() => {
     if (inSteps) return;
@@ -62,6 +63,13 @@ export function App({
         if (document.querySelector('[role="dialog"], [role="alertdialog"]')) return;
         e.preventDefault();
         setPalette(true);
+      } else if (e.key === '?' && !e.metaKey && !e.ctrlKey && !e.altKey) {
+        // Board G02. Not while typing ("?" is a character there), not over a dialog.
+        const t = e.target as HTMLElement | null;
+        if (t?.closest('input, textarea, select, [contenteditable=""], [contenteditable="true"]')) return;
+        if (document.querySelector('[role="dialog"], [role="alertdialog"]')) return;
+        e.preventDefault();
+        setSheet(true);
       }
     };
     window.addEventListener('keydown', onKey);
@@ -72,6 +80,7 @@ export function App({
     ...(transport && connections.length ? [{ id: 'fleet', label: 'Fleet', run: home }] : []),
     { id: 'list', label: 'Connections', run: () => setScreen({ name: 'list' }) },
     { id: 'add', label: 'Add connection', run: add },
+    { id: 'keys', label: 'Keyboard shortcuts', hint: '?', run: () => setSheet(true) },
     ...(transport
       ? connections.flatMap((c): Command[] => [
           {
@@ -214,6 +223,7 @@ export function App({
     <>
       {view}
       {palette && !inSteps && <Palette commands={commands} onClose={() => setPalette(false)} />}
+      {sheet && !inSteps && <ShortcutsSheet onClose={() => setSheet(false)} />}
     </>
   );
 }

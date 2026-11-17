@@ -69,7 +69,10 @@ export function StopDialog({
   const drainId = useId();
   const toast = useToastOptional();
   const openRef = useRef(open);
-  const running = step.name === 'running';
+  // A stop whose status was lost may still be running on the cluster: for the rest of this page it counts as
+  // running for the page (no Trigger, no Cancel instead), as it can not be told apart from one that is.
+  const [uncertain, setUncertain] = useState(false);
+  const running = step.name === 'running' || uncertain;
   useEffect(() => {
     onRunningChange?.(running);
   }, [running, onRunningChange]);
@@ -172,6 +175,7 @@ export function StopDialog({
           if (!live) return;
           if (++fails < MAX_READ_FAILS) return void (timer = setTimeout(ask, AFTER_FAIL_MS));
           const error = asAppError(e, conn);
+          setUncertain(true);
           if (openRef.current) return setStep({ name: 'lost', error });
           setStep({ name: 'confirm' });
           toast?.({ severity: 'warning', message: `${present(error).message} ${LOST}` });
@@ -262,7 +266,7 @@ export function StopDialog({
       title={`Stop ${job} with a savepoint?`}
       footer={
         <>
-          {onCancelInstead && (
+          {onCancelInstead && !uncertain && (
             <Button variant="ghost" disabled={sending} className="mr-auto" onClick={onCancelInstead}>
               Cancel without a savepoint instead
             </Button>

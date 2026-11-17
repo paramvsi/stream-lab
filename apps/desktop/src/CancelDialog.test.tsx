@@ -88,4 +88,12 @@ describe('ACT-02 · cancel (D15e)', () => {
     expect(await within(d).findByText(/refund-matcher is already finished/)).toBeInTheDocument();
     expect(n).toBe(1);
   });
+
+  it('audit cancel #1: closed without cancelling (Keep running), focus goes to the heading, not <body>', async () => {
+    render(<Harness http={async () => reply(202)} />);
+    const d = await screen.findByRole('dialog');
+    await userEvent.click(within(d).getByRole('button', { name: 'Keep running' }));
+    await new Promise((r) => setTimeout(r, 20));
+    expect(screen.getByRole('heading', { level: 1 })).toHaveFocus();
+  });
 });

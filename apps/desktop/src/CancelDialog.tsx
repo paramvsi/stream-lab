@@ -87,6 +87,14 @@ export function CancelDialog({
     <Dialog
       open={open}
       onOpenChange={change}
+      // However it closes (Keep running, Escape, done): focus that ends on <body> goes to the page heading (its
+      // trigger, the stop dialog's link, is gone).
+      onCloseAutoFocus={() =>
+        setTimeout(() => {
+          if (document.activeElement === document.body || !document.activeElement)
+            fallbackFocus?.current?.focus();
+        }, 0)
+      }
       title={prod ? `Cancel ${job} on Production?` : `Cancel ${job}?`}
       severity="warning"
       footer={

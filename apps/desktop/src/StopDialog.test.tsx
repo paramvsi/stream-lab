@@ -233,4 +233,46 @@ describe('ACT-01 · stop with savepoint (D15, D15b, D15c, D15d)', () => {
       expect(reads).toBe(at); // given up: no more reads
       expect(at).toBe(3);
     }));
+
+  it('audit cancel #3: after a stop lost track of its status, a fresh opening offers no cancel (a stop may still be in flight)', () =>
+    run(async () => {
+      const http: FlinkHttp = async (r) => {
+        if (r.path === '/jobmanager/config') return cfg('s3://sp');
+        if (r.method === 'POST') return ok(202, { 'request-id': 'r1' });
+        return { status: 404, headers: {}, url: '', body: '' };
+      };
+      function WithCancel() {
+        const [open, setOpen] = useState(true);
+        return (
+          <TooltipProvider>
+            <ToastProvider>
+              <button type="button" onClick={() => setOpen(true)}>
+                Open stop
+              </button>
+              <StopDialog
+                open={open}
+                onOpenChange={setOpen}
+                http={http}
+                conn="prod"
+                jid="j1"
+                job="refund-matcher"
+                onCancelInstead={() => {}}
+              />
+            </ToastProvider>
+          </TooltipProvider>
+        );
+      }
+      render(<WithCancel />);
+      const d = await screen.findByRole('dialog');
+      await within(d).findByDisplayValue('s3://sp');
+      expect(
+        within(d).getByRole('button', { name: 'Cancel without a savepoint instead' }),
+      ).toBeInTheDocument();
+      await userEvent.click(within(d).getByRole('button', { name: 'Stop with savepoint' }));
+      await tick(30);
+      await userEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Close' }));
+      await userEvent.click(screen.getByRole('button', { name: 'Open stop' }));
+      const again = await screen.findByRole('dialog', { name: 'Stop refund-matcher with a savepoint?' });
+      expect(within(again).queryByRole('button', { name: 'Cancel without a savepoint instead' })).toBeNull();
+    }));
 });

@@ -973,6 +973,19 @@ describe('APP-01 · command palette (board G01)', () => {
     expect(await screen.findByRole('dialog', { name: 'Stopping refund-matcher' })).toBeInTheDocument();
     expect(posts.filter((p) => p.endsWith('/stop'))).toHaveLength(1);
   });
+
+  it("whole-app audit LOW: G L on Settings opened from a cluster goes to that cluster's logs", async () => {
+    await withOne();
+    (document.activeElement as HTMLElement).blur();
+    await userEvent.keyboard('{Meta>}1{/Meta}');
+    await screen.findByRole('heading', { level: 1, name: 'local-docker' });
+    (document.activeElement as HTMLElement).blur();
+    await userEvent.keyboard('{Meta>},{/Meta}');
+    await screen.findByRole('heading', { level: 1, name: 'Settings' });
+    (document.activeElement as HTMLElement).blur();
+    await userEvent.keyboard('gl');
+    expect(await screen.findByRole('heading', { level: 1, name: 'Logs' })).toBeTruthy();
+  });
 });
 
 describe('APP-04 · Settings (boards D21)', () => {

@@ -119,7 +119,9 @@ export function App({
   // Board G02 keys. None over another dialog: a jump would get around its own lock (a Stop or Cancel that is
   // sending), drop what is typed in it (type-to-confirm, a folder), or leave it open in state for later (Import).
   // The plain keys (?, G J, G L) never while typing: there they are characters.
-  const cur = 'id' in screen ? screen.id : null;
+  // The open connection: on Settings, the one it was opened from (G J / G L go there).
+  const cur =
+    'id' in screen ? screen.id : screen.name === 'settings' && 'id' in screen.from ? screen.from.id : null;
   const gAt = useRef(0);
   useEffect(() => {
     if (inSteps) return;

@@ -406,7 +406,15 @@ export function JobOverview({
                 <ErrorBoundary resetKey={jid}>
                   <div className="pt-5">
                     {ex.value ? (
-                      <ExceptionGroups entries={ex.value.entries} capped={exCapped} />
+                      <div className="flex flex-col gap-3">
+                        {/* §4: reads failing after a good one keep the groups, and say they are old. */}
+                        {ex.stale && (
+                          <p className="m-0 text-[13px] text-muted">
+                            Not answering. Showing data from {ex.since}.
+                          </p>
+                        )}
+                        <ExceptionGroups entries={ex.value.entries} capped={exCapped} />
+                      </div>
                     ) : readError ? (
                       <ReadError error={readError} onRetry={ex.retry} heading={h1} />
                     ) : (

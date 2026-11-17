@@ -731,6 +731,44 @@ describe('JOB-02 · Job overview (board D08)', () => {
     }
   });
 
+  it('audit tab #1: a full history (16, Flink\'s default) says "16+" in the tab pill and the table', async () => {
+    const many = {
+      exceptionHistory: {
+        entries: Array.from({ length: 16 }, (_, i) => npe(detail.now - i * 30_000)),
+        truncated: false,
+      },
+    };
+    show(async (req) =>
+      req.path.endsWith('/exceptions')
+        ? { status: 200, headers: {}, url: '', body: JSON.stringify(many) }
+        : answer(200, detail)(req),
+    );
+    await screen.findByRole('table', { name: 'Operators' });
+    await userEvent.click(screen.getByRole('tab', { name: /Exceptions/ }));
+    expect(await screen.findByText('1 group, 16+ occurrences')).toBeInTheDocument();
+    expect(screen.getByRole('tab', { name: /Exceptions/ })).toHaveTextContent('16+');
+  });
+
+  it('audit tab #2: exceptions that stop answering after a good read say so (stale), not silently old', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      let bad = false;
+      show(async (req) =>
+        req.path.endsWith('/exceptions') && bad
+          ? { status: 500, headers: {}, url: '', body: '' }
+          : answer(200, detail)(req),
+      );
+      await screen.findByRole('table', { name: 'Operators' });
+      await userEvent.click(screen.getByRole('tab', { name: /Exceptions/ }));
+      await screen.findByRole('table', { name: 'Exceptions' });
+      bad = true;
+      for (let t = 0; t < 30; t++) await act(async () => vi.advanceTimersByTimeAsync(1_000));
+      expect(screen.getByText(/Not answering\. Showing data from/)).toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('lists the operators with parallelism and status', async () => {
     show(answer(200, detail));
     const table = await screen.findByRole('table', { name: 'Operators' });

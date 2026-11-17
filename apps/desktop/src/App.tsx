@@ -1,5 +1,12 @@
 import { AppError, present } from '@sl/errors';
-import { listJobs, type Connection, type FlinkHttp, type FlinkJobRow, type KindChoice } from '@sl/flink';
+import {
+  jobBucket,
+  listJobs,
+  type Connection,
+  type FlinkHttp,
+  type FlinkJobRow,
+  type KindChoice,
+} from '@sl/flink';
 import { Fleet, type CardState } from './Fleet';
 import { useToast } from '@sl/ui';
 import { useEffect, useRef, useState } from 'react';
@@ -13,6 +20,7 @@ import { Logs } from './Logs';
 import { Palette, ShortcutsSheet, type Command } from './Palette';
 import { Jobs } from './Jobs';
 import { KindPicker } from './KindPicker';
+import { gateFor } from './usePolled';
 import { Welcome } from './Welcome';
 
 /**
@@ -116,27 +124,39 @@ export function App({
     if (!palette || !transport) return;
     let live = true;
     for (const c of connections)
-      listJobs(transport(c), c.name).then(
-        (jobs) => live && setPaletteJobs((p) => ({ ...p, [c.id]: { jobs } })),
-        (e: unknown) =>
-          live &&
-          setPaletteJobs((p) => ({
-            ...p,
-            [c.id]: { error: e instanceof AppError ? e : new AppError('API-SHAPE', {}, e) },
-          })),
-      );
+      // Through the connection's shared limiter (FLINK_API: at most 6 in flight), with its own timeout.
+      gateFor(transport, c.id)
+        .run(() => listJobs(transport(c), c.name, c.timeoutMs))
+        .then(
+          (jobs) => live && setPaletteJobs((p) => ({ ...p, [c.id]: { jobs } })),
+          (e: unknown) =>
+            live &&
+            setPaletteJobs((p) => ({
+              ...p,
+              [c.id]: { error: e instanceof AppError ? e : new AppError('API-SHAPE', {}, e) },
+            })),
+        );
     return () => {
       live = false;
     };
   }, [palette, transport, connections]);
   const reading = transport ? connections.filter((c) => !paletteJobs[c.id]).length : 0;
+  // Each note names its cluster: some catalog messages do not (API-SHAPE), and a transport error names the host.
   const paletteNotes = [
-    ...(reading ? [`Reading the jobs of ${reading} connection${reading === 1 ? '' : 's'}…`] : []),
+    ...(reading
+      ? [{ key: 'reading', text: `Reading the jobs of ${reading} connection${reading === 1 ? '' : 's'}…` }]
+      : []),
     ...connections.flatMap((c) => {
       const e = paletteJobs[c.id]?.error;
-      return e ? [present(e).message] : [];
+      return e ? [{ key: c.id, text: `${c.name}: ${present(e).message}` }] : [];
     }),
   ];
+  // Same-name runs (a stop and resubmit) told apart by their state, in words; active ones first.
+  const stateWord = (s: string) => s.charAt(0) + s.slice(1).toLowerCase();
+  const jobsOf = (id: string) =>
+    [...(paletteJobs[id]?.jobs ?? [])].sort(
+      (a, b) => Number(jobBucket(a.state) === 'finished') - Number(jobBucket(b.state) === 'finished'),
+    );
   // ponytail: job actions (board G01 "Trigger savepoint: …") are the next slice.
   const commands: Command[] = [
     ...(transport && connections.length ? [{ id: 'fleet', label: 'Fleet', run: home }] : []),
@@ -153,10 +173,10 @@ export function App({
           },
           { id: `j-${c.id}`, label: `Jobs · ${c.name}`, run: () => setScreen({ name: 'jobs', id: c.id }) },
           { id: `l-${c.id}`, label: `Logs · ${c.name}`, run: () => setScreen({ name: 'logs', id: c.id }) },
-          ...(paletteJobs[c.id]?.jobs ?? []).map((j): Command => ({
+          ...jobsOf(c.id).map((j): Command => ({
             id: `job-${c.id}-${j.jid}`,
             label: j.name,
-            hint: `Job · ${c.name}`,
+            hint: `Job · ${c.name} · ${stateWord(j.state)}`,
             run: () => setScreen({ name: 'job', id: c.id, jid: j.jid }),
           })),
         ])

@@ -28,7 +28,7 @@ export const HOST_DOWN = new Set([
  */
 const gates = new WeakMap<object, Map<string, ReturnType<typeof limiter>>>();
 /** Per transport (the app passes one for every screen) and connection: one cluster, one budget. */
-const gateFor = (transport: object, id: string) => {
+export const gateFor = (transport: object, id: string) => {
   let byConn = gates.get(transport);
   if (!byConn) gates.set(transport, (byConn = new Map()));
   let g = byConn.get(id);

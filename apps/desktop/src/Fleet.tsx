@@ -1,17 +1,10 @@
 import { AppError, ErrorBanner, present } from '@sl/errors';
-import {
-  fleetStatus,
-  limiter,
-  poll,
-  POLL,
-  type Connection,
-  type FlinkHttp,
-  type FleetStatus,
-} from '@sl/flink';
+import { fleetStatus, poll, POLL, type Connection, type FlinkHttp, type FleetStatus } from '@sl/flink';
 import { Button, Dialog, Skeleton, StatusBadge, useToast, type BadgeTone } from '@sl/ui';
 import { List, Plus, RotateCw } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { DOT, ENV, shortAddress } from './Connections';
+import { gateFor } from './usePolled';
 import { useScreenHeading } from './focus';
 import { VersionCapabilities } from './VersionCapabilities';
 
@@ -86,8 +79,9 @@ function FleetCard({
   const heading = useRef<HTMLHeadingElement>(null);
   /** Retry was pressed and focus was on it: once the card answers, focus goes to its heading. */
   const retryFocused = useRef(false);
-  // At most 6 requests in flight per connection (FLINK_API "Concurrency"), across Retries too.
-  const gate = useMemo(() => limiter(), []);
+  // At most 6 requests in flight per connection (FLINK_API "Concurrency"), across Retries too, shared with every
+  // other read of this connection (the palette's, the screens' polls): one budget per cluster.
+  const gate = useMemo(() => gateFor(transport, c.id), [transport, c.id]);
   const http = useMemo<FlinkHttp>(() => {
     let t: FlinkHttp;
     try {

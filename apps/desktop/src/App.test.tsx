@@ -252,11 +252,15 @@ describe('audit of 8671a2f', () => {
 });
 
 describe('APP-01 · command palette (board G01)', () => {
-  const withOne = async (http: FlinkHttp = async () => ({ status: 503, headers: {}, body: '', url: '' })) => {
+  const withOne = async (
+    http: FlinkHttp = async () => ({ status: 503, headers: {}, body: '', url: '' }),
+    /** Per connection (a request carries only its path). */
+    byConn?: (c: { url: string }) => FlinkHttp,
+  ) => {
     render(
       <TooltipProvider>
         <ToastProvider>
-          <App transport={() => http} />
+          <App transport={byConn ?? (() => http)} />
         </ToastProvider>
       </TooltipProvider>,
     );
@@ -491,5 +495,96 @@ describe('APP-01 · command palette (board G01)', () => {
     const dialog = screen.getByRole('dialog', { name: 'Commands' });
     expect(await within(dialog).findByText(/local-docker .*reading the jobs/)).toBeInTheDocument();
     expect(within(dialog).getByRole('option', { name: /Logs · local-docker/ })).toBeInTheDocument();
+  });
+
+  const row = (jid: string, name: string, state: string) => ({
+    jid,
+    name,
+    state,
+    'start-time': 1,
+    'end-time': -1,
+    duration: 60_000,
+    'last-modification': 1,
+  });
+  const ok = (body: unknown) => ({ status: 200, headers: {}, url: '', body: JSON.stringify(body) });
+  const addSecond = async () => {
+    await userEvent.keyboard('{Meta>}k{/Meta}');
+    await userEvent.type(screen.getByRole('combobox', { name: 'Search commands' }), 'add connection');
+    await userEvent.keyboard('{Enter}');
+    await userEvent.click(await screen.findByRole('radio', { name: /Self-managed/ }));
+    await userEvent.click(screen.getByRole('button', { name: 'Continue' }));
+    await userEvent.type(screen.getByLabelText(/^Name/), 'payments-staging');
+    await userEvent.selectOptions(screen.getByLabelText(/^Environment/), 'staging');
+    await userEvent.type(screen.getByLabelText(/JobManager REST URL/), 'http://staging:8081');
+    await userEvent.click(screen.getByRole('button', { name: 'Save' }));
+    await screen.findByRole('heading', { level: 1, name: 'Fleet' });
+    (document.activeElement as HTMLElement).blur();
+  };
+
+  it("audit of df70949 #1: the palette's reads share the per-connection limiter (never more than 6 in flight)", async () => {
+    let inFlight = 0;
+    let most = 0;
+    const http: FlinkHttp = () => {
+      most = Math.max(most, ++inFlight);
+      return new Promise(() => {}); // a cluster that never answers
+    };
+    await withOne(http);
+    for (let i = 0; i < 7; i++) {
+      await userEvent.keyboard('{Meta>}k{/Meta}');
+      await userEvent.keyboard('{Escape}');
+    }
+    expect(most).toBeLessThanOrEqual(6);
+  });
+
+  it('audit of df70949 #2: the highlighted command stays the same when jobs arrive above it', async () => {
+    const held: (() => void)[] = []; // the fleet's reads are held too
+    const release = () => held.splice(0).forEach((f) => f());
+    const byConn =
+      (c: { url: string }): FlinkHttp =>
+      async (r) => {
+        if (r.path !== '/jobs/overview') return { status: 503, headers: {}, body: '', url: '' };
+        if (c.url.includes('localhost')) {
+          await new Promise<void>((res) => held.push(res));
+          return ok({ jobs: [row('a1', 'refund-matcher', 'RUNNING')] });
+        }
+        return ok({ jobs: [] });
+      };
+    await withOne(undefined, byConn);
+    await addSecond();
+    await userEvent.keyboard('{Meta>}k{/Meta}');
+    const dialog = screen.getByRole('dialog', { name: 'Commands' });
+    const box = within(dialog).getByRole('combobox');
+    for (let i = 0; i < 7; i++) await userEvent.keyboard('{ArrowDown}');
+    const at = () => document.getElementById(box.getAttribute('aria-activedescendant') ?? '')?.textContent;
+    expect(at()).toMatch(/^payments-staging/);
+    release();
+    await within(dialog).findByRole('option', { name: /refund-matcher/ });
+    expect(at()).toMatch(/^payments-staging/);
+    await userEvent.keyboard('{Enter}');
+    expect(await screen.findByRole('heading', { level: 1, name: 'payments-staging' })).toBeTruthy();
+  });
+
+  it('audit of df70949 #3–5: notes name their cluster (also an unreadable reply), in a mounted live region; same-name runs show their state', async () => {
+    const byConn =
+      (c: { url: string }): FlinkHttp =>
+      async (r) =>
+        r.path !== '/jobs/overview'
+          ? { status: 503, headers: {}, body: '', url: '' }
+          : c.url.includes('localhost')
+            ? { status: 200, headers: {}, url: '', body: '<html>Sign in</html>' } // a proxy's page
+            : ok({ jobs: [row('o', 'refund-matcher', 'FINISHED'), row('n', 'refund-matcher', 'RUNNING')] });
+    await withOne(undefined, byConn);
+    await addSecond();
+    await userEvent.keyboard('{Meta>}k{/Meta}');
+    const dialog = screen.getByRole('dialog', { name: 'Commands' });
+    const notes = within(dialog).getByRole('list', { name: 'Palette notes' });
+    expect(notes).toHaveAttribute('aria-live', 'polite');
+    expect(notes).toHaveAttribute('aria-atomic', 'false');
+    expect(await within(notes).findByText(/^local-docker: /)).toBeInTheDocument();
+    const runs = await within(dialog).findAllByRole('option', { name: /refund-matcher/ });
+    expect(runs.map((o) => o.textContent)).toEqual([
+      expect.stringContaining('Running'),
+      expect.stringContaining('Finished'),
+    ]);
   });
 });

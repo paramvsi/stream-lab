@@ -23,11 +23,13 @@ export function Palette({
 }: {
   commands: Command[];
   onClose: () => void;
-  /** What is still being read, or could not be (catalog messages), said in a live region. */
-  notes?: string[];
+  /** What is still being read, or could not be (catalog messages), said in a live region; key: what it is about. */
+  notes?: { key: string; text: string }[];
 }) {
   const [q, setQ] = useState('');
-  const [active, setActive] = useState(0);
+  // The highlighted command by id, not by row: rows that arrive above it (a cluster's jobs) must not change what
+  // Enter runs.
+  const [activeId, setActiveId] = useState<string | null>(null);
   const input = useRef<HTMLInputElement>(null);
   const listId = useId();
   const items = useMemo(() => {
@@ -37,6 +39,12 @@ export function Palette({
       return words.every((w) => t.includes(w));
     });
   }, [commands, q]);
+  const found = items.findIndex((c) => c.id === activeId);
+  const active = found < 0 ? 0 : found;
+  const move = (by: number) => {
+    const c = items[Math.min(Math.max(active + by, 0), items.length - 1)];
+    if (c) setActiveId(c.id);
+  };
   // Keep the active option in view as ↑/↓ move it (aria-activedescendant does not scroll).
   useEffect(() => {
     document.getElementById(`${listId}-${active}`)?.scrollIntoView?.({ block: 'nearest' });
@@ -69,11 +77,11 @@ export function Palette({
         value={q}
         onChange={(e) => {
           setQ(e.target.value);
-          setActive(0);
+          setActiveId(null);
         }}
         onKeyDown={(e) => {
-          if (e.key === 'ArrowDown') setActive((a) => Math.min(a + 1, items.length - 1));
-          else if (e.key === 'ArrowUp') setActive((a) => Math.max(a - 1, 0));
+          if (e.key === 'ArrowDown') move(1);
+          else if (e.key === 'ArrowUp') move(-1);
           else if (e.key === 'Enter') pick(active);
           else return;
           e.preventDefault();
@@ -83,13 +91,17 @@ export function Palette({
       <p role="status" className={items.length === 0 ? 'm-0 text-[14px]' : 'sr-only'}>
         {items.length === 0 ? 'No commands match.' : ''}
       </p>
-      {notes.length > 0 && (
-        <ul role="status" className="m-0 list-none p-0 text-[13px] text-muted">
-          {notes.map((n) => (
-            <li key={n}>{n}</li>
-          ))}
-        </ul>
-      )}
+      {/* Always mounted (a live region added with its text is often not read); only new lines are read. */}
+      <ul
+        aria-label="Palette notes"
+        aria-live="polite"
+        aria-atomic="false"
+        className="m-0 list-none p-0 text-[13px] text-muted empty:hidden"
+      >
+        {notes.map((n) => (
+          <li key={n.key}>{n.text}</li>
+        ))}
+      </ul>
       <ul
         id={listId}
         role="listbox"
@@ -103,7 +115,7 @@ export function Palette({
             role="option"
             aria-selected={i === active}
             onMouseDown={(e) => e.preventDefault()}
-            onMouseEnter={() => setActive(i)}
+            onMouseEnter={() => setActiveId(c.id)}
             onClick={() => pick(i)}
             className="flex cursor-pointer items-center justify-between rounded-md px-2.5 py-2 text-[14px] text-ink aria-selected:bg-rose-50"
           >

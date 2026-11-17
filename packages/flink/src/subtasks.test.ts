@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { FlinkHttp } from './http';
-import { getSubtaskLoads, skew } from './subtasks';
+import { MAX_SUBTASKS, getSubtaskLoads, skew } from './subtasks';
 
 const ok = (body: unknown) => ({ status: 200, headers: {}, url: '', body: JSON.stringify(body) });
 
@@ -48,5 +48,32 @@ describe('JOB-03 · subtask loads (D09c)', () => {
     expect(skew(at(100))).toBeNull();
     expect(skew(at(0, 0))).toBeNull();
     expect(skew(at(5, null))).toBeNull();
+  });
+
+  it('bounded: reads at most MAX_SUBTASKS subtasks however large the parallelism', async () => {
+    let n = 0;
+    const l = await getSubtaskLoads(async () => (n++, ok([])), 'prod', 'j', 'v', 500);
+    expect(n).toBe(MAX_SUBTASKS);
+    expect(l).toHaveLength(MAX_SUBTASKS);
+  });
+
+  it('one subtask failing is no reading for it alone; only every subtask failing is an error', async () => {
+    const l = await getSubtaskLoads(
+      async (r) =>
+        r.path.includes('/subtasks/1/')
+          ? { status: 500, headers: {}, url: '', body: '' }
+          : ok([{ id: 'numRecordsInPerSecond', value: '7' }]),
+      'prod',
+      'j',
+      'v',
+      2,
+    );
+    expect(l).toEqual([
+      { index: 0, recIn: 7, busy: null },
+      { index: 1, recIn: null, busy: null },
+    ]);
+    await expect(
+      getSubtaskLoads(async () => ({ status: 500, headers: {}, url: '', body: '' }), 'prod', 'j', 'v', 2),
+    ).rejects.toMatchObject({ code: expect.stringMatching(/^API-/) });
   });
 });

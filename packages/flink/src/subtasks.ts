@@ -20,6 +20,9 @@ export interface SubtaskLoad {
   busy: number | null;
 }
 
+/** At most this many subtasks are read (one request each); the panel says when there are more. */
+export const MAX_SUBTASKS = 32;
+
 const num = (v: string | undefined) => {
   const n = v === undefined ? NaN : Number(v);
   return Number.isFinite(n) ? n : null;
@@ -39,7 +42,8 @@ export async function getSubtaskLoads(
   timeoutMs = 10_000,
 ): Promise<SubtaskLoad[]> {
   const out: SubtaskLoad[] = [];
-  for (let index = 0; index < parallelism; index++) {
+  let firstError: unknown;
+  for (let index = 0; index < Math.min(parallelism, MAX_SUBTASKS); index++) {
     const ms = await getJson(
       http,
       conn,
@@ -51,7 +55,15 @@ export async function getSubtaskLoads(
       },
       MetricsSchema,
       'reading subtask metrics',
-    );
+    ).catch((e: unknown) => {
+      firstError ??= e;
+      return null;
+    });
+    // One subtask that can not be read is no reading for it alone.
+    if (!ms) {
+      out.push({ index, recIn: null, busy: null });
+      continue;
+    }
     const get = (id: string) => num(ms.find((m) => m.id === id)?.value);
     const busy = get('busyTimeMsPerSecond');
     out.push({
@@ -60,10 +72,14 @@ export async function getSubtaskLoads(
       busy: busy === null ? null : Math.round(busy / 10),
     });
   }
+  if (firstError !== undefined && out.every((l) => l.recIn === null && l.busy === null)) throw firstError;
   return out;
 }
 
-/** Board D09c "Subtask 0 gets 2.8× the records": the busiest subtask against the mean of the others. */
+/**
+ * Board D09c "Subtask 0 gets 2.8× the records": the busiest subtask against the mean of the others. (The board's
+ * own rows give 2.9 this way; its 2.8 is top / second. Product call in MORNING.md.)
+ */
 export function skew(loads: readonly SubtaskLoad[]): { index: number; times: number } | null {
   if (loads.length < 2 || loads.some((l) => l.recIn === null)) return null;
   const top = loads.reduce((a, b) => (b.recIn! > a.recIn! ? b : a));

@@ -57,9 +57,18 @@ export async function getExceptions(
   }
 }
 
-/** JOB-FAILED "{root cause first line}": the stack trace starts "Name: message"; the name alone if it is empty. */
-export const rootCauseLine = (e: Pick<FlinkException, 'exceptionName' | 'stacktrace'>) =>
-  e.stacktrace.split('\n', 1)[0]?.trim() || e.exceptionName;
+/**
+ * JOB-FAILED "{root cause first line}" (JOB-04 "root cause first"). Flink's stacktrace is Java's printStackTrace:
+ * the outermost wrapper first, then one unindented "Caused by: " line per cause. The root cause is the last of
+ * those; indented ones belong to Suppressed blocks. No cause: the first line; an empty trace: the class name.
+ * FLINK: https://github.com/apache/flink/blob/release-1.20/flink-core/src/main/java/org/apache/flink/util/ExceptionUtils.java
+ */
+export const rootCauseLine = (e: Pick<FlinkException, 'exceptionName' | 'stacktrace'>) => {
+  const lines = e.stacktrace.split('\n');
+  const causes = lines.filter((l) => l.startsWith('Caused by: '));
+  const line = causes.length ? causes[causes.length - 1]!.slice('Caused by: '.length) : lines[0];
+  return line?.trim() || e.exceptionName;
+};
 
 /** Failures at or after `now − windowMs` (JOB-RESTARTING "restarted {n} times in {period}"). */
 export const recentFailures = <T extends { timestamp: number }>(

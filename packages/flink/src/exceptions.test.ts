@@ -27,7 +27,7 @@ const answer =
   async () => ({ status, headers: {}, url: '', body: JSON.stringify(b) });
 
 describe('JOB-04 · exceptions (GET /jobs/:jid/exceptions, exceptionHistory)', () => {
-  it('reads the history (not the deprecated root-exception), newest first, asking for at most 20', async () => {
+  it('reads the history (not the deprecated root-exception) as Flink orders it (newest first), asking for at most 20', async () => {
     let req = { path: '', query: {} as Record<string, string> | undefined };
     const e = await getExceptions(
       async (r) => ((req = { path: r.path, query: r.query }), answer(body)(r)),
@@ -54,6 +54,22 @@ describe('JOB-04 · exceptions (GET /jobs/:jid/exceptions, exceptionHistory)', (
       'java.lang.NullPointerException: merchant_id is null',
     );
     expect(rootCauseLine({ exceptionName: 'x.Y', stacktrace: '' })).toBe('x.Y');
+  });
+
+  it('audit #1: a wrapped failure gives the innermost "Caused by:", not the wrapper (Kafka fetcher example)', () => {
+    const stacktrace = [
+      'java.lang.RuntimeException: One or more fetchers have encountered exception',
+      '\tat org.apache.flink.connector.base.source.reader.SourceReaderBase.pollNext(SourceReaderBase.java:179)',
+      'Caused by: java.lang.RuntimeException: SplitFetcher thread 0 received unexpected exception',
+      '\tat org.apache.flink.connector.base.source.reader.fetcher.SplitFetcher.run(SplitFetcher.java:168)',
+      '\tSuppressed: java.io.IOException: close failed',
+      '\t\tCaused by: java.lang.IllegalStateException: not the root',
+      'Caused by: org.apache.kafka.common.errors.TopicAuthorizationException: Not authorized to access topics: [payments]',
+      '\t... 6 more',
+    ].join('\n');
+    expect(rootCauseLine({ exceptionName: 'java.lang.RuntimeException', stacktrace })).toBe(
+      'org.apache.kafka.common.errors.TopicAuthorizationException: Not authorized to access topics: [payments]',
+    );
   });
 
   it('failures in a window (JOB-RESTARTING "restarted {n} times in {period}")', () => {

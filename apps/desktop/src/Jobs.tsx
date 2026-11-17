@@ -111,7 +111,7 @@ export function Jobs({
         onOpenJob ? (
           <button
             type="button"
-            className="sl-focus -mx-1 rounded-sm px-1 text-left font-semibold text-ink hover:underline"
+            className="sl-focus -mx-1 rounded-sm px-1 text-left font-bold text-ink hover:underline"
             onClick={() => onOpenJob(r.jid)}
           >
             {r.name}

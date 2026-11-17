@@ -208,9 +208,7 @@ export function JobOverview({
     h1,
     POLL.checkpoints.everyMs,
     // The state, not just in/out of trouble: RESTARTING → FAILED reads again at once, naming the final failure.
-    // Also when the job poll's banner comes or goes: after an outage the exceptions ask again at once, so the
-    // outage's error is never shown as if it were current.
-    { quiet: true, restartOn: troubled ? `${j.state}|${banner ? 'down' : 'up'}` : '' },
+    { quiet: true, restartOn: troubled ? j.state : '' },
   );
   const status = j && troubled ? statusError(j, ex.value) : null;
   // §4: a single 404 over a job on screen is a blip (HA failover); the page goes only once the banner would.
@@ -224,13 +222,20 @@ export function JobOverview({
     if (document.activeElement === document.body || !document.activeElement) h1.current?.focus();
   }, [isGone, h1]);
   const p = j ? Math.max(0, ...j.vertices.map((v) => v.parallelism)) : 0;
-  // A failed exceptions read says so, under the job poll's own rule (§4): 3 failures in a row, any kind, and
-  // never while the job poll's banner already speaks for the connection. A 404 is said as the HTTP refusal it
-  // wraps: API-404-JOB is a full-page code, wrong over a job that is on screen.
+  // A failed exceptions read says so, under the job poll's own rule (§4): 3 failures in a row, and never while
+  // the job poll's banner speaks for the connection. A lost connection (refused, DNS, TLS…) is the job poll's to
+  // say, also just after an outage, when this read still holds the outage's error; a timeout on this read alone
+  // is its own problem (a large history) and is said. A 404 is said as the HTTP refusal it wraps.
   const exErr =
     ex.error?.code === 'API-404-JOB' && ex.error.cause instanceof AppError ? ex.error.cause : ex.error;
   const failedRead =
-    !gone && troubled && !banner && !ex.value && !!exErr && ex.failures >= POLL.jobs.bannerAfter;
+    !gone &&
+    troubled &&
+    !banner &&
+    !ex.value &&
+    !!exErr &&
+    (!exErr.code.startsWith('CONN-') || exErr.code === 'CONN-TIMEOUT') &&
+    ex.failures >= POLL.jobs.bannerAfter;
   // When it goes while holding focus (the code changed, or the job recovered), focus goes to the heading.
   useEffect(() => {
     if (!failedRead && (document.activeElement === document.body || !document.activeElement))
@@ -270,7 +275,9 @@ export function JobOverview({
           cluster is the job poll's banner, not a second one. */}
       {!gone && status && <ErrorBanner error={status} handles={new Set()} />}
       {/* One element whatever the code, so a change of error never drops focus. */}
-      {failedRead && exErr && <ErrorBanner error={exErr} handles={new Set()} />}
+      {failedRead && exErr && (
+        <ErrorBanner error={exErr} handles={new Set(['Retry', 'Retry now'])} onAction={ex.retry} />
+      )}
       {gone ? (
         <ErrorPage error={gone} icon={SearchX} {...(onJobs ? { onAction: () => onJobs() } : {})} />
       ) : !j ? (

@@ -24,6 +24,8 @@ export function usePolled<T>(
   error: AppError | null;
   /** Failures in a row (across Retries). */
   failures: number;
+  /** Ask again now (a fresh poller). */
+  retry: () => void;
   stale: boolean;
   since: string;
   banner: ReactNode;
@@ -134,5 +136,13 @@ export function usePolled<T>(
       )}
     </div>
   );
-  return { value, error, failures, stale: has && !!error && failures >= POLL.jobs.staleAfter, since, banner };
+  return {
+    value,
+    error,
+    failures,
+    retry,
+    stale: has && !!error && failures >= POLL.jobs.staleAfter,
+    since,
+    banner,
+  };
 }

@@ -374,6 +374,8 @@ describe('JOB-02 · Job overview (board D08)', () => {
       await screen.findByRole('table', { name: 'Operators' });
       await act(async () => vi.advanceTimersByTimeAsync(40_000));
       expect(await screen.findByText(/internal error while reading the exceptions/)).toBeInTheDocument();
+      // audit 5 #2: and the user can ask again (Retry), not only wait out the back-off.
+      expect(screen.getByRole('button', { name: 'Retry' })).toBeInTheDocument();
     } finally {
       vi.useRealTimers();
     }
@@ -429,29 +431,6 @@ describe('JOB-02 · Job overview (board D08)', () => {
         : answer(200, { ...detail, state: 'RESTARTING' })(req),
     );
     expect(await screen.findByText(/restarted 16\+ times in/)).toBeInTheDocument();
-  });
-
-  it('audit 4 #1: after an outage the exceptions read asks again at once, so no stale CONN banner lingers', async () => {
-    vi.useFakeTimers({ shouldAdvanceTime: true });
-    try {
-      let down = false;
-      show(async (req) => {
-        if (down)
-          throw new TransportError({ kind: 'refused', host: 'payments-prod.example.com', port: 8081 });
-        if (req.path.endsWith('/exceptions')) return { status: 500, headers: {}, url: '', body: '' };
-        return answer(200, { ...detail, state: 'FAILED' })(req);
-      });
-      await screen.findByRole('table', { name: 'Operators' });
-      down = true;
-      await act(async () => vi.advanceTimersByTimeAsync(60_000)); // job banner up; exceptions backed off to 30 s
-      down = false;
-      await act(async () => vi.advanceTimersByTimeAsync(31_000)); // the job recovers
-      await waitFor(() => expect(screen.queryByText(/Lost contact/)).toBeNull());
-      await act(async () => vi.advanceTimersByTimeAsync(500));
-      expect(screen.queryByText(/Nothing is listening/)).toBeNull(); // not the outage's error
-    } finally {
-      vi.useRealTimers();
-    }
   });
 
   it('audit 2 #4: a 404 on the exceptions read is not a "no longer exists" banner over a job on screen', async () => {

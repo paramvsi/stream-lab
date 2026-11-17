@@ -8,7 +8,7 @@ import {
   type FleetStatus,
 } from '@sl/flink';
 import { Button, Drawer, EmptyState, Loading, Skeleton, StatusBadge, Table, type Column } from '@sl/ui';
-import { LayoutGrid, ListChecks, Server } from 'lucide-react';
+import { LayoutGrid, ListChecks, ScrollText, Server } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { ENV } from './Connections';
 import { useScreenHeading } from './focus';
@@ -65,11 +65,14 @@ export function Cluster({
   transport,
   onFleet,
   onJobs,
+  onLogs,
 }: {
   c: Connection;
   transport: (c: Connection) => FlinkHttp;
   onFleet?: () => void;
   onJobs?: () => void;
+  /** OPS-01: the connection's logs (D18). */
+  onLogs?: () => void;
 }) {
   const h1 = useScreenHeading();
   useEffect(() => {
@@ -115,6 +118,11 @@ export function Cluster({
           {onFleet && (
             <Button icon={<LayoutGrid size={16} aria-hidden="true" />} onClick={onFleet}>
               Fleet
+            </Button>
+          )}
+          {onLogs && (
+            <Button icon={<ScrollText size={16} aria-hidden="true" />} onClick={onLogs}>
+              Logs
             </Button>
           )}
           {onJobs && (

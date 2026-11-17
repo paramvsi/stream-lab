@@ -8,6 +8,7 @@ import { ImportDialog } from './ImportDialog';
 import { Cluster } from './Cluster';
 import { memoryHistory } from './history';
 import { JobOverview } from './JobOverview';
+import { Logs } from './Logs';
 import { Jobs } from './Jobs';
 import { KindPicker } from './KindPicker';
 import { Welcome } from './Welcome';
@@ -25,6 +26,7 @@ type Screen =
   | { name: 'cluster'; id: string }
   | { name: 'jobs'; id: string }
   | { name: 'job'; id: string; jid: string }
+  | { name: 'logs'; id: string }
   | { name: 'kind'; kind: KindChoice | null }
   | { name: 'form'; kind: Connection['kind'] };
 
@@ -71,7 +73,7 @@ export function App({
   // Home: Welcome (D01) with no connections yet, else the connection list (D03).
   const add = () => setScreen({ name: 'kind', kind: null });
   const open =
-    screen.name === 'jobs' || screen.name === 'cluster' || screen.name === 'job'
+    screen.name === 'jobs' || screen.name === 'cluster' || screen.name === 'job' || screen.name === 'logs'
       ? connections.find((c) => c.id === screen.id)
       : undefined;
   const home = () => setScreen({ name: 'home' });
@@ -83,8 +85,11 @@ export function App({
         transport={transport}
         onFleet={home}
         onJobs={() => setScreen({ name: 'jobs', id: open.id })}
+        onLogs={() => setScreen({ name: 'logs', id: open.id })}
       />
     );
+  if (transport && open && screen.name === 'logs')
+    return <Logs key={open.id} c={open} transport={transport} />;
   if (transport && open && screen.name === 'job')
     return (
       <JobOverview

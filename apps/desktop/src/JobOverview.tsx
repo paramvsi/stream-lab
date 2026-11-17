@@ -1,4 +1,4 @@
-import { AppError, cleanCause, ErrorBanner, ErrorPage, present } from '@sl/errors';
+import { AppError, ErrorBanner, ErrorPage, present } from '@sl/errors';
 import {
   checkpointingOff,
   getCheckpoints,
@@ -63,29 +63,46 @@ const shortAgo = (ms: number) =>
       : `${Math.floor(ms / 86_400_000)} d ago`;
 
 /**
- * The states with a JOB-05 banner. FAILING is not one: it is the short step before FAILED or RESTARTING, and
- * calling it "restarted" would be a guess.
+ * The states with a JOB-05 banner. FAILING is a job that has failed for good and is still cancelling its tasks:
+ * Flink takes it only to FAILED (or CANCELLING), never back to RESTARTING, so it is JOB-FAILED too.
+ * FLINK: https://github.com/apache/flink/blob/release-1.20/flink-runtime/src/main/java/org/apache/flink/runtime/executiongraph/DefaultExecutionGraph.java
+ * FLINK: https://github.com/apache/flink/blob/release-1.20/flink-runtime/src/main/java/org/apache/flink/runtime/scheduler/adaptive/Failing.java
  */
-const TROUBLED = new Set(['RESTARTING', 'FAILED']);
-/** getExceptions asks for at most this many (maxExceptions). */
-const KEPT = 20;
+const TROUBLED = new Set(['RESTARTING', 'FAILING', 'FAILED']);
+/**
+ * Flink keeps web.exception-history-size failures per job, 16 by default.
+ * FLINK: https://nightlies.apache.org/flink/flink-docs-release-1.20/docs/deployment/config/#web-exception-history-size
+ * ponytail: the default, not the cluster's setting; read it from /jobmanager/config if a cluster changes it.
+ */
+const KEPT = 16;
+
+/**
+ * The banner's cause: the message, not the Java class that wraps it (never raw exception text as the message).
+ * "pkg.SomeException: text" → "text"; no message → the simple class name.
+ */
+export const causeText = (line: string) => {
+  // A qualified class, then ": message" or nothing. Anything else (plain text) is kept as it is.
+  const m = /^(?:[\w$]+\.)*([\w$]+)(?:\s*:\s*(.*))?$/.exec(line.trim());
+  if (!m) return line.trim();
+  return (m[2] ?? '').replace(/\.$/, '').trim() || m[1]!;
+};
 const DAY = 86_400_000;
 /**
- * JOB-05: the job's state as its catalog code (D08c, D11): FAILED is JOB-FAILED with the root cause; RESTARTING /
- * FAILING is JOB-RESTARTING with the failures in the last 24 h (the D08 "Restarts · last 24 h" window) and the
+ * JOB-05: the job's state as its catalog code (D08c, D11): FAILED or FAILING is JOB-FAILED with the root cause;
+ * RESTARTING is JOB-RESTARTING with the failures in the last 24 h (the D08 "Restarts · last 24 h" window) and the
  * newest root cause. Nothing until the exceptions have been read (a banner without its cause would say less).
  */
 function statusError(j: { name: string; state: string; now: number }, ex: FlinkExceptions | null) {
   const newest = ex?.entries[0];
   if (!newest) return null;
-  // The root cause without its Java class wrapper (never raw exception text as the message; Copy details has it).
-  const cause = cleanCause(rootCauseLine(newest));
-  if (j.state === 'FAILED')
+  // The root cause without its Java class wrapper (Copy details has the full trace).
+  const cause = causeText(rootCauseLine(newest));
+  if (j.state !== 'RESTARTING')
     return new AppError('JOB-FAILED', { job: j.name, 'root cause first line': cause });
   const recent = recentFailures(ex.entries, j.now, DAY);
   if (!recent.length) return null;
   const oldest = recent[recent.length - 1]!.timestamp;
-  // All kept entries are recent and Flink may have more: the count is a lower bound ("20+").
+  // All kept entries are recent and Flink may have dropped more: the count is a lower bound ("16+").
   const capped = recent.length === ex.entries.length && (ex.truncated || ex.entries.length >= KEPT);
   return new AppError('JOB-RESTARTING', {
     job: j.name,
@@ -204,6 +221,21 @@ export function JobOverview({
     if (document.activeElement === document.body || !document.activeElement) h1.current?.focus();
   }, [isGone, h1]);
   const p = j ? Math.max(0, ...j.vertices.map((v) => v.parallelism)) : 0;
+  // A failed exceptions read says so, once: not when the job poll's banner already speaks for the connection,
+  // and never as API-404-JOB (a full-page code; a lone 404 is an HA blip, as for the job itself).
+  const failedRead =
+    !gone &&
+    troubled &&
+    !banner &&
+    !ex.value &&
+    !!ex.error &&
+    !ex.error.code.startsWith('CONN-') &&
+    ex.error.code !== 'API-404-JOB';
+  // When it goes while holding focus (the code changed, or the job recovered), focus goes to the heading.
+  useEffect(() => {
+    if (!failedRead && (document.activeElement === document.body || !document.activeElement))
+      h1.current?.focus();
+  }, [failedRead, h1]);
   return (
     <main className="flex min-h-screen flex-col gap-5 bg-surface px-8 py-7">
       {!gone && banner}
@@ -237,7 +269,7 @@ export function JobOverview({
       {/* JOB-05: below the job header (D08c). A failed exceptions read says so rather than nothing; losing the
           cluster is the job poll's banner, not a second one. */}
       {!gone && status && <ErrorBanner error={status} handles={new Set()} />}
-      {!gone && troubled && !ex.value && ex.error && !ex.error.code.startsWith('CONN-') && ex.banner}
+      {failedRead && ex.banner}
       {gone ? (
         <ErrorPage error={gone} icon={SearchX} {...(onJobs ? { onAction: () => onJobs() } : {})} />
       ) : !j ? (

@@ -3,7 +3,7 @@ import { ToastProvider, TooltipProvider } from '@sl/ui';
 import { act, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
-import { duration, JobOverview, size } from './JobOverview';
+import { causeText, duration, JobOverview, size } from './JobOverview';
 
 globalThis.requestAnimationFrame = (cb) => setTimeout(() => cb(performance.now()), 0) as unknown as number;
 globalThis.cancelAnimationFrame = (id) => clearTimeout(id);
@@ -404,11 +404,44 @@ describe('JOB-02 · Job overview (board D08)', () => {
     ).toBeInTheDocument();
   });
 
-  it('FAILING is not called "restarted": no banner until Flink says RESTARTING or FAILED', async () => {
+  it('audit 2 #1: FAILING (failed, still cancelling tasks; never back to RESTARTING) is JOB-FAILED', async () => {
     show(answer(200, { ...detail, state: 'FAILING' }));
+    expect(await screen.findByText('refund-matcher failed: merchant_id is null.')).toBeInTheDocument();
+  });
+
+  it('audit 2 #2: 16 kept failures, all recent (Flink keeps 16 by default): "16+ times"', async () => {
+    const many = {
+      exceptionHistory: {
+        entries: Array.from({ length: 16 }, (_, i) => npe(detail.now - i * 30_000)),
+        truncated: false,
+      },
+    };
+    show(async (req) =>
+      req.path.endsWith('/exceptions')
+        ? { status: 200, headers: {}, url: '', body: JSON.stringify(many) }
+        : answer(200, { ...detail, state: 'RESTARTING' })(req),
+    );
+    expect(await screen.findByText(/restarted 16\+ times in/)).toBeInTheDocument();
+  });
+
+  it('audit 2 #4: a 404 on the exceptions read is not a "no longer exists" banner over a job on screen', async () => {
+    show(async (req) =>
+      req.path.endsWith('/exceptions')
+        ? { status: 404, headers: {}, url: '', body: JSON.stringify({ errors: ['Job x not found'] }) }
+        : answer(200, { ...detail, state: 'FAILED' })(req),
+    );
     await screen.findByRole('table', { name: 'Operators' });
     await new Promise((r) => setTimeout(r, 100));
-    expect(screen.queryByText(/restarted/)).toBeNull();
+    expect(screen.queryByText(/no longer exists/)).toBeNull();
+  });
+
+  it('audit 2 #6: the cause keeps its message, even one that starts with a class name; never a bare "Class:"', () => {
+    expect(causeText('java.io.IOException: IOException while writing to s3://bucket')).toBe(
+      'IOException while writing to s3://bucket',
+    );
+    expect(causeText('java.lang.NullPointerException: merchant_id is null')).toBe('merchant_id is null');
+    expect(causeText('java.lang.NullPointerException')).toBe('NullPointerException');
+    expect(causeText('java.lang.IllegalStateException:')).toBe('IllegalStateException');
   });
 
   it('JOB-05: a running job neither asks for exceptions nor shows a status banner', async () => {

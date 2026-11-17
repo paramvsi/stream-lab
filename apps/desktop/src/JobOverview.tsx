@@ -424,7 +424,9 @@ export function JobOverview({
     setAct(start.act);
   }
   const [fire, setFire] = useState(0);
-  if (act && j) {
+  // The first answer decides: the job, or an error before any job (the cluster may answer minutes later: the
+  // pick is not kept for then).
+  if (act && (j || error)) {
     setAct(undefined);
     if (canStop && !sp.busy && !stopping && !stopRunning) {
       if (act === 'stop') setStopping(true);

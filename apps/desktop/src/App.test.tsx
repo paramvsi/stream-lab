@@ -784,4 +784,35 @@ describe('APP-01 · command palette (board G01)', () => {
     await userEvent.keyboard('{Enter}');
     await vi.waitFor(() => expect(posts).toEqual(['/jobs/a1/savepoints']));
   });
+
+  it('audit of 2899731: a pick whose first job read fails is dropped (no savepoint when the cluster answers later)', async () => {
+    const posts: string[] = [];
+    let reads = 0;
+    const base = jobHttp(posts);
+    const http: FlinkHttp = async (req) => {
+      if (req.path === '/jobs/a1')
+        return ++reads === 1
+          ? { status: 503, headers: {}, body: '', url: '' } // the first read fails
+          : ok({
+              jid: 'a1',
+              name: 'refund-matcher',
+              state: 'RUNNING',
+              'start-time': 1,
+              'end-time': -1,
+              duration: 60_000,
+              now: 60_001,
+              vertices: [],
+            });
+      return base(req);
+    };
+    await withOne(http);
+    await userEvent.keyboard('{Meta>}k{/Meta}');
+    await userEvent.type(screen.getByRole('combobox', { name: 'Search commands' }), 'trigger refund');
+    await screen.findByRole('option', { name: /Trigger savepoint: refund-matcher/ });
+    await userEvent.keyboard('{Enter}');
+    await vi.waitFor(() => expect(reads).toBeGreaterThanOrEqual(2), { timeout: 8_000 }); // the cluster answers again
+    await screen.findByRole('button', { name: 'Trigger savepoint' });
+    await new Promise((r) => setTimeout(r, 300));
+    expect(posts).toEqual([]);
+  }, 15_000);
 });

@@ -331,7 +331,7 @@ describe('APP-01 · command palette (board G01)', () => {
       within(sheet)
         .getAllByRole('rowheader')
         .map((r) => r.textContent),
-    ).toEqual(['⌘K', '?']);
+    ).toEqual(['⌘K', '⌘1–9', 'G J', 'G L', '?']);
     await userEvent.keyboard('{Escape}');
     expect(screen.queryByRole('dialog', { name: 'Keyboard shortcuts' })).toBeNull();
     expect(manage).toHaveFocus();
@@ -363,5 +363,41 @@ describe('APP-01 · command palette (board G01)', () => {
     await userEvent.click(within(sheet).getByRole('button', { name: 'Done' }));
     expect(screen.queryByRole('dialog', { name: 'Keyboard shortcuts' })).toBeNull();
     expect(manage).toHaveFocus();
+  });
+
+  it("G02 keys: ⌘1–9 switch connection; G J and G L go to the open connection's jobs and logs; the sheet lists them", async () => {
+    await withOne();
+    // a second connection, through the palette
+    await userEvent.keyboard('{Meta>}k{/Meta}');
+    await userEvent.type(screen.getByRole('combobox', { name: 'Search commands' }), 'add connection');
+    await userEvent.keyboard('{Enter}');
+    await userEvent.click(await screen.findByRole('radio', { name: /Self-managed/ }));
+    await userEvent.click(screen.getByRole('button', { name: 'Continue' }));
+    await userEvent.type(screen.getByLabelText(/^Name/), 'payments-staging');
+    await userEvent.selectOptions(screen.getByLabelText(/^Environment/), 'staging');
+    await userEvent.type(screen.getByLabelText(/JobManager REST URL/), 'http://staging:8081');
+    await userEvent.click(screen.getByRole('button', { name: 'Save' }));
+    await screen.findByRole('heading', { level: 1, name: 'Fleet' });
+    (document.activeElement as HTMLElement).blur();
+    await userEvent.keyboard('{Meta>}2{/Meta}');
+    expect(await screen.findByRole('heading', { level: 1, name: 'payments-staging' })).toHaveFocus();
+    await userEvent.keyboard('gj');
+    expect(await screen.findByRole('heading', { level: 1, name: 'Jobs' })).toHaveFocus();
+    await userEvent.keyboard('gl');
+    expect(await screen.findByRole('heading', { level: 1, name: 'Logs' })).toHaveFocus();
+    // in a field, g and l are letters
+    const box = screen.getByRole('searchbox', { name: 'Search logs' });
+    await userEvent.type(box, 'gj');
+    expect(box).toHaveValue('gj');
+    expect(screen.getByRole('heading', { level: 1, name: 'Logs' })).toBeTruthy();
+    box.blur();
+    await userEvent.keyboard('{Control>}1{/Control}');
+    expect(await screen.findByRole('heading', { level: 1, name: 'local-docker' })).toBeTruthy();
+    await userEvent.keyboard('?');
+    expect(
+      within(screen.getByRole('dialog', { name: 'Keyboard shortcuts' }))
+        .getAllByRole('rowheader')
+        .map((r) => r.textContent),
+    ).toEqual(['⌘K', '⌘1–9', 'G J', 'G L', '?']);
   });
 });

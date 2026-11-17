@@ -100,9 +100,12 @@ export function Palette({ commands, onClose }: { commands: Command[]; onClose: (
   );
 }
 
-/** Board G02. Only keys that work today are listed (the board's ⌘1–9, G J, G L, R, E, S are not built yet). */
+/** Board G02. Only keys that work today are listed (the board's R, E and S belong to screens: not built yet). */
 export const SHORTCUTS: [string, string][] = [
   ['⌘K', 'Command palette'],
+  ['⌘1–9', 'Switch connection'],
+  ['G J', 'Go to jobs'],
+  ['G L', 'Go to logs'],
   ['?', 'This list'],
 ];
 

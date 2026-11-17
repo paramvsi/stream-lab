@@ -1,7 +1,7 @@
 import type { Connection, FlinkHttp, KindChoice } from '@sl/flink';
 import { Fleet, type CardState } from './Fleet';
 import { useToast } from '@sl/ui';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { ConnectionForm } from './ConnectionForm';
 import { Connections } from './Connections';
 import { ImportDialog } from './ImportDialog';
@@ -54,27 +54,53 @@ export function App({
   const [palette, setPalette] = useState(false);
   const [sheet, setSheet] = useState(false);
   const inSteps = screen.name === 'form' || screen.name === 'kind';
+  // Board G02 keys. None over another dialog: a jump would get around its own lock (a Stop or Cancel that is
+  // sending), drop what is typed in it (type-to-confirm, a folder), or leave it open in state for later (Import).
+  // The plain keys (?, G J, G L) never while typing: there they are characters.
+  const cur = 'id' in screen ? screen.id : null;
+  const gAt = useRef(0);
   useEffect(() => {
     if (inSteps) return;
+    const overDialog = () => !!document.querySelector('[role="dialog"], [role="alertdialog"]');
+    const typing = (e: KeyboardEvent) =>
+      !!(e.target as HTMLElement | null)?.closest?.(
+        'input, textarea, select, [contenteditable=""], [contenteditable="true"]',
+      );
     const onKey = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && !e.altKey && !e.shiftKey && e.key.toLowerCase() === 'k') {
-        // Not over another dialog: a jump would get around its own lock (a Stop or Cancel that is sending), drop
-        // what is typed in it (type-to-confirm, a folder), or leave it open in state for later (Import).
-        if (document.querySelector('[role="dialog"], [role="alertdialog"]')) return;
+      const mod = (e.metaKey || e.ctrlKey) && !e.altKey && !e.shiftKey;
+      const plain = !e.metaKey && !e.ctrlKey && !e.altKey;
+      if (mod && e.key.toLowerCase() === 'k') {
+        if (overDialog()) return;
         e.preventDefault();
         setPalette(true);
-      } else if (e.key === '?' && !e.metaKey && !e.ctrlKey && !e.altKey) {
-        // Board G02. Not while typing ("?" is a character there), not over a dialog.
-        const t = e.target as HTMLElement | null;
-        if (t?.closest('input, textarea, select, [contenteditable=""], [contenteditable="true"]')) return;
-        if (document.querySelector('[role="dialog"], [role="alertdialog"]')) return;
+      } else if (mod && /^[1-9]$/.test(e.key)) {
+        const c = transport ? connections[Number(e.key) - 1] : undefined;
+        if (!c || overDialog()) return;
+        e.preventDefault();
+        setScreen({ name: 'cluster', id: c.id });
+      } else if (plain && e.key === '?') {
+        if (typing(e) || overDialog()) return;
         e.preventDefault();
         setSheet(true);
+      } else if (
+        plain &&
+        !e.shiftKey &&
+        (e.key === 'j' || e.key === 'l') &&
+        Date.now() - gAt.current < 1_000
+      ) {
+        gAt.current = 0;
+        if (!transport || !cur || typing(e) || overDialog()) return;
+        e.preventDefault();
+        setScreen(e.key === 'j' ? { name: 'jobs', id: cur } : { name: 'logs', id: cur });
+      } else if (plain && !e.shiftKey && e.key === 'g' && !typing(e)) {
+        gAt.current = Date.now(); // G, then J or L within a second
+      } else {
+        gAt.current = 0;
       }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [inSteps]);
+  }, [inSteps, transport, connections, cur]);
   // ponytail: navigation only for now; jobs and job actions (board G01) are the next slices.
   const commands: Command[] = [
     ...(transport && connections.length ? [{ id: 'fleet', label: 'Fleet', run: home }] : []),

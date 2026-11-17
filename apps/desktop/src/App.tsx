@@ -6,6 +6,7 @@ import { ConnectionForm } from './ConnectionForm';
 import { Connections } from './Connections';
 import { ImportDialog } from './ImportDialog';
 import { Cluster } from './Cluster';
+import { JobOverview } from './JobOverview';
 import { Jobs } from './Jobs';
 import { KindPicker } from './KindPicker';
 import { Welcome } from './Welcome';
@@ -22,6 +23,7 @@ type Screen =
   | { name: 'list' }
   | { name: 'cluster'; id: string }
   | { name: 'jobs'; id: string }
+  | { name: 'job'; id: string; jid: string }
   | { name: 'kind'; kind: KindChoice | null }
   | { name: 'form'; kind: Connection['kind'] };
 
@@ -66,7 +68,7 @@ export function App({
   // Home: Welcome (D01) with no connections yet, else the connection list (D03).
   const add = () => setScreen({ name: 'kind', kind: null });
   const open =
-    screen.name === 'jobs' || screen.name === 'cluster'
+    screen.name === 'jobs' || screen.name === 'cluster' || screen.name === 'job'
       ? connections.find((c) => c.id === screen.id)
       : undefined;
   const home = () => setScreen({ name: 'home' });
@@ -80,6 +82,16 @@ export function App({
         onJobs={() => setScreen({ name: 'jobs', id: open.id })}
       />
     );
+  if (transport && open && screen.name === 'job')
+    return (
+      <JobOverview
+        key={`${open.id}/${screen.jid}`}
+        c={open}
+        jid={screen.jid}
+        transport={transport}
+        onJobs={() => setScreen({ name: 'jobs', id: open.id })}
+      />
+    );
   if (transport && open)
     return (
       <Jobs
@@ -88,6 +100,7 @@ export function App({
         transport={transport}
         onFleet={home}
         onCluster={() => setScreen({ name: 'cluster', id: open.id })}
+        onOpenJob={(jid) => setScreen({ name: 'job', id: open.id, jid })}
       />
     );
   const importDialog = (

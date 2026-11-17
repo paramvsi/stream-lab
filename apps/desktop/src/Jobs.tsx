@@ -26,7 +26,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useScreenHeading } from './focus';
 import { usePolled } from './usePolled';
 
-const TONE: Record<string, BadgeTone> = {
+export const TONE: Record<string, BadgeTone> = {
   RUNNING: 'success',
   // Board D07: the restarting pill is danger-50 / danger-600.
   RESTARTING: 'error',
@@ -34,7 +34,7 @@ const TONE: Record<string, BadgeTone> = {
   FAILED: 'error',
 };
 /** Words with every colour (DoD): "RESTARTING" → "Restarting". */
-const word = (state: string) => state.charAt(0) + state.slice(1).toLowerCase();
+export const word = (state: string) => state.charAt(0) + state.slice(1).toLowerCase();
 /** Board D07 "Uptime": 12 min, 3 h, 6 d. */
 export const uptime = (ms: number) =>
   ms < 3_600_000
@@ -62,11 +62,14 @@ export function Jobs({
   transport,
   onFleet,
   onCluster,
+  onOpenJob,
 }: {
   c: Connection;
   transport: (c: Connection) => FlinkHttp;
   onFleet?: () => void;
   onCluster?: () => void;
+  /** A row opens that job (JOB-02, D08). */
+  onOpenJob?: (jid: string) => void;
 }) {
   const h1 = useScreenHeading();
   useEffect(() => {
@@ -178,7 +181,13 @@ export function Jobs({
       ) : (
         <>
           {stale && <p className="m-0 text-[13px] text-muted">Not answering. Showing data from {since}.</p>}
-          <Table label="Jobs" columns={columns} rows={shown} rowKey={(r) => r.jid} />
+          <Table
+            label="Jobs"
+            columns={columns}
+            rows={shown}
+            rowKey={(r) => r.jid}
+            {...(onOpenJob ? { onSelect: (r: FlinkJobRow) => onOpenJob(r.jid) } : {})}
+          />
         </>
       )}
       {/* Mounted empty, so the words are announced when they come (a region born full often is not). Outside the rows

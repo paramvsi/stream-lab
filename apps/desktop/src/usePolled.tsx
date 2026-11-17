@@ -17,7 +17,7 @@ export function usePolled<T>(
   read: (http: FlinkHttp, conn: string, timeoutMs: number) => Promise<T>,
   heading: RefObject<HTMLHeadingElement | null>,
   everyMs: number = POLL.jobs.everyMs,
-): { value: T | null; stale: boolean; since: string; banner: ReactNode } {
+): { value: T | null; error: AppError | null; stale: boolean; since: string; banner: ReactNode } {
   const toast = useToast();
   const [value, setValue] = useState<T | null>(null);
   const [error, setError] = useState<AppError | null>(null);
@@ -122,5 +122,5 @@ export function usePolled<T>(
       )}
     </div>
   );
-  return { value, stale: has && !!error && failures >= POLL.jobs.staleAfter, since, banner };
+  return { value, error, stale: has && !!error && failures >= POLL.jobs.staleAfter, since, banner };
 }

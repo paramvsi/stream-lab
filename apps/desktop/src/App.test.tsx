@@ -117,19 +117,29 @@ describe('JOB-01 · Open on a fleet card', () => {
               }
             : req.path === '/taskmanagers'
               ? { taskmanagers: [] }
-              : {
-                  jobs: [
-                    {
-                      jid: 'a1',
-                      name: 'refund-matcher',
-                      state: 'RUNNING',
-                      'start-time': 1,
-                      'end-time': -1,
-                      duration: 60_000,
-                      'last-modification': 1,
-                    },
-                  ],
-                },
+              : req.path === '/jobs/a1'
+                ? {
+                    jid: 'a1',
+                    name: 'refund-matcher',
+                    state: 'RUNNING',
+                    'start-time': 1,
+                    'end-time': -1,
+                    duration: 60_000,
+                    vertices: [],
+                  }
+                : {
+                    jobs: [
+                      {
+                        jid: 'a1',
+                        name: 'refund-matcher',
+                        state: 'RUNNING',
+                        'start-time': 1,
+                        'end-time': -1,
+                        duration: 60_000,
+                        'last-modification': 1,
+                      },
+                    ],
+                  },
       ),
     });
     render(
@@ -151,7 +161,11 @@ describe('JOB-01 · Open on a fleet card', () => {
     expect(screen.getByRole('heading', { level: 1, name: 'local-docker' })).toHaveFocus();
     await userEvent.click(await screen.findByRole('button', { name: 'Jobs' }));
     expect(screen.getByRole('heading', { level: 1, name: 'Jobs' })).toHaveFocus();
-    expect(await screen.findByRole('row', { name: /refund-matcher/ })).toBeTruthy();
+    // JOB-02: a row opens that job (D08); Jobs comes back to the list.
+    await userEvent.click(await screen.findByRole('row', { name: /refund-matcher/ }));
+    expect(await screen.findByRole('heading', { level: 1, name: 'refund-matcher' })).toBeTruthy();
+    await userEvent.click(screen.getByRole('button', { name: 'Jobs' }));
+    expect(screen.getByRole('heading', { level: 1, name: 'Jobs' })).toBeTruthy();
     await userEvent.click(screen.getByRole('button', { name: 'Cluster' }));
     expect(screen.getByRole('heading', { level: 1, name: 'local-docker' })).toBeTruthy();
     await userEvent.click(screen.getByRole('button', { name: 'Fleet' }));

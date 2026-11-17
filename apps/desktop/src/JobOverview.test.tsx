@@ -1815,6 +1815,47 @@ describe('JOB-02 · Job overview (board D08)', () => {
     },
   );
 
+  it(
+    'audit hist4: changes read while a slow write is in flight are queued, none lost (4 → 8 → 16 → 8)',
+    { timeout: 30_000 },
+    async () => {
+      vi.useFakeTimers({ shouldAdvanceTime: true });
+      try {
+        const base = memoryHistory();
+        const history: HistoryStore = {
+          ...base,
+          append: async (...a) => {
+            await new Promise((r) => setTimeout(r, 5_000)); // a busy database: longer than the 2 s job poll
+            return base.append(...a);
+          },
+        };
+        let p2 = 4;
+        show(
+          async (req) =>
+            answer(200, {
+              ...detail,
+              vertices: detail.vertices.map((v) => (v.id === 'v2' ? { ...v, parallelism: p2 } : v)),
+            })(req),
+          { history },
+        );
+        await screen.findByRole('table', { name: 'Operators' });
+        for (const next of [8, 16, 8]) {
+          p2 = next;
+          for (let t = 0; t < 3; t++) await act(async () => vi.advanceTimersByTimeAsync(1_000));
+        }
+        for (let t = 0; t < 15; t++) await act(async () => vi.advanceTimersByTimeAsync(1_000));
+        const ev = (await base.events(conn.id, detail.jid)).map((e) => e.detail).reverse();
+        expect(ev).toEqual([
+          'Window aggregate: parallelism 4 → 8',
+          'Window aggregate: parallelism 8 → 16',
+          'Window aggregate: parallelism 16 → 8',
+        ]);
+      } finally {
+        vi.useRealTimers();
+      }
+    },
+  );
+
   it('lists the operators with parallelism and status', async () => {
     show(answer(200, detail));
     const table = await screen.findByRole('table', { name: 'Operators' });

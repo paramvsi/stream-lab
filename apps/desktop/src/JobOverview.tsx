@@ -235,37 +235,53 @@ export function JobOverview({
   const store = history ?? own;
   const last = useRef<FlinkJobDetail | null>(null);
   const [recorded, setRecorded] = useState(0);
-  // A write that fails says so (HISTORY-IO on the tab) and its events stay pending: each later read tries them
-  // again, with whatever that read found, until one write succeeds. The baseline always moves on, so a change that
-  // reverses before the retry is recorded both ways, never dropped. The error clears only on a good write.
+  // A queue: every read is diffed against the one before (the baseline always moves on) and its events join
+  // `pending`; one write at a time takes the whole queue. A write that fails puts its batch back in front and says
+  // so (HISTORY-IO on the tab); each later read tries again. Events read while a write is in flight wait in the
+  // queue, and a good write goes on to the next batch. Nothing is dropped; the error clears only on a good write.
+  // A write that settles after a later read still refreshes the tab and goes on to the next batch: only leaving
+  // the page stops that (not each new read).
+  const mounted = useRef(true);
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
   const [saveError, setSaveError] = useState<AppError | null>(null);
   const saving = useRef(false);
   const pending = useRef<HistoryEvent[]>([]);
   useEffect(() => {
-    if (!j || j === last.current || saving.current) return;
-    const batch = [...pending.current, ...diffJob(last.current, j, Date.now())];
+    if (!j || j === last.current) return;
+    pending.current.push(...diffJob(last.current, j, Date.now()));
     last.current = j;
-    if (!batch.length) return;
-    saving.current = true;
-    store.append(c.id, jid, batch).then(
-      () => {
-        saving.current = false;
-        pending.current = [];
-        setSaveError(null);
-        setRecorded((n) => n + 1);
-      },
-      (e: unknown) => {
-        saving.current = false;
-        pending.current = batch;
-        setSaveError(
-          new AppError(
-            'HISTORY-IO',
-            { action: 'saved', reason: cleanCause(e instanceof Error ? e.message : String(e)) },
-            e,
-          ),
-        );
-      },
-    );
+    const flush = () => {
+      if (saving.current || !pending.current.length) return;
+      const batch = pending.current.splice(0);
+      saving.current = true;
+      store.append(c.id, jid, batch).then(
+        () => {
+          saving.current = false;
+          if (!mounted.current) return;
+          setSaveError(null);
+          setRecorded((n) => n + 1);
+          flush();
+        },
+        (e: unknown) => {
+          saving.current = false;
+          pending.current.unshift(...batch);
+          if (!mounted.current) return;
+          setSaveError(
+            new AppError(
+              'HISTORY-IO',
+              { action: 'saved', reason: cleanCause(e instanceof Error ? e.message : String(e)) },
+              e,
+            ),
+          );
+        },
+      );
+    };
+    flush();
   }, [j, store, c.id, jid]);
   // Checkpoints on their own poll (5 s, FLINK_API) and their own failures: one widget never blanks the page
   // (ERRORS_AND_ALERTS: "one broken widget does not blank the page"). Its banner is not shown; the KPI says it.

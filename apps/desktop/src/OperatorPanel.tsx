@@ -47,6 +47,12 @@ type Props = {
   pageBanner: boolean;
   /** The JobManager's clock (the job read's `now`): watermark lag is measured against it. */
   now: number;
+  /**
+   * A source, or fed from one through FORWARD edges only: one subtask's watermark can lag because its own source
+   * partition is idle. Behind HASH / REBALANCE every subtask takes the minimum over all inputs, so one lagging
+   * subtask is itself slow.
+   */
+  sourceForward: boolean;
 };
 
 /**
@@ -159,7 +165,7 @@ function Running({ running, children }: Props & { children: ReactNode }) {
 
 /** Seconds as the board writes them: "41 s", "3 min 20 s". */
 const lagText = (ms: number) => {
-  const s = Math.max(0, Math.round(ms / 1000));
+  const s = Math.round(ms / 1000);
   return s < 60 ? `${s} s` : `${Math.floor(s / 60)} min${s % 60 ? ` ${s % 60} s` : ''}`;
 };
 const timeOf = (ms: number) =>
@@ -170,16 +176,27 @@ const timeOf = (ms: number) =>
     hour12: false,
   });
 
-function Watermarks({ c, transport, jid, vertex, heading, pageBanner, now }: Props) {
+function Watermarks({ c, transport, jid, vertex, heading, pageBanner, now, sourceForward }: Props) {
+  // The JobManager's time at the moment of each watermark read: the last job read's `now`, plus the time since it
+  // came. Lag is fixed at the read, never against a later job read (it would swing with the two polls).
+  const base = useRef({ jm: now, at: 0 });
+  useEffect(() => {
+    base.current = { jm: now, at: Date.now() };
+  }, [now]);
   const wm = usePolled(
     c,
     transport,
-    (http, conn, t) => getWatermarks(http, conn, jid, vertex.id, vertex.parallelism, t),
+    async (http, conn, t) => {
+      const rows = await getWatermarks(http, conn, jid, vertex.id, vertex.parallelism, t);
+      const b = base.current;
+      return { rows, jmNow: b.jm + (b.at ? Date.now() - b.at : 0) };
+    },
     heading,
     5_000,
     { quiet: true },
   );
-  const v = wm.value;
+  const read = wm.value;
+  const v = read?.rows ?? null;
   const err = !v && wm.error && !pageBanner && !HOST_DOWN.has(wm.error.code) ? wm.error : null;
   if (!v)
     return err ? (
@@ -203,8 +220,13 @@ function Watermarks({ c, transport, jid, vertex, heading, pageBanner, now }: Pro
       header: 'Lag',
       mono: true,
       align: 'right',
-      render: (w) =>
-        w.at === null ? '—' : `${lagText(now - w.at)}${held?.index === w.index ? ' · holding back' : ''}`,
+      render: (w) => {
+        if (w.at === null || !read) return '—';
+        const ms = read.jmNow - w.at;
+        // An event-time watermark can run ahead of the clock: said, never shown as 0.
+        const lag = ms < 0 ? `${lagText(-ms)} ahead` : lagText(ms);
+        return `${lag}${held?.index === w.index ? ' · holding back' : ''}`;
+      },
     },
   ];
   return (
@@ -214,7 +236,10 @@ function Watermarks({ c, transport, jid, vertex, heading, pageBanner, now }: Pro
       {held && (
         <p className="m-0 text-[14px]">
           Subtask {held.index} is {lagText(held.behindMs)} behind the others, so the operator's watermark
-          waits for it. Its source partition may be idle: consider an idleness timeout.
+          waits for it.{' '}
+          {sourceForward
+            ? 'Its source partition may be idle: consider an idleness timeout.'
+            : 'Check whether it is busy or gets more records than the others (Subtasks).'}
         </p>
       )}
     </div>

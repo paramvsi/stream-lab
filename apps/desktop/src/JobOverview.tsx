@@ -6,6 +6,7 @@ import {
   getExceptions,
   getJob,
   jobGraph,
+  type JobGraph,
   lastCompleted,
   POLL,
   recentFailures,
@@ -39,6 +40,16 @@ import { HOST_DOWN, usePolled } from './usePolled';
  * FLINK: https://github.com/apache/flink/blob/release-1.20/flink-runtime/src/main/java/org/apache/flink/runtime/executiongraph/DefaultExecutionGraph.java
  * FLINK: https://github.com/apache/flink/blob/release-1.20/flink-runtime/src/main/java/org/apache/flink/runtime/scheduler/adaptive/Failing.java
  */
+/**
+ * A source, or reached from sources through FORWARD edges only (D09b's idleness hint applies): an edge with any
+ * other strategy, or none given, ends it. Bounded by the vertex count, so a cycle (not possible) ends too.
+ * FLINK: https://nightlies.apache.org/flink/flink-docs-stable/docs/dev/datastream/event-time/generating_watermarks/#dealing-with-idle-sources
+ */
+function sourceForward(g: JobGraph, id: string, depth = 0): boolean {
+  if (depth > g.nodes.length) return false;
+  const ins = g.edges.filter((e) => e.to === id);
+  return ins.every((e) => e.ship === 'FORWARD' && sourceForward(g, e.from, depth + 1));
+}
 const TROUBLED = new Set(['RESTARTING', 'FAILING', 'FAILED']);
 /**
  * Flink keeps web.exception-history-size failures per job, 16 by default.
@@ -469,6 +480,7 @@ export function JobOverview({
                         heading={h1}
                         pageBanner={!!banner}
                         now={j.now}
+                        sourceForward={sourceForward(jobGraph(j), op.id)}
                       />
                     )}
                   </div>

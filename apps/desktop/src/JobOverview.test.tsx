@@ -41,6 +41,14 @@ const detail = {
   now: 1 + 6 * 86_400_000,
   vertices: [v('v1', 'Source: payments', 4), v('v2', 'Window aggregate', 4), v('v3', 'Sink: alerts', 2)],
 };
+/** v1 → v2 by HASH, v2 → v3 FORWARD (board D08). */
+const hashPlan = {
+  nodes: [
+    { id: 'v1' },
+    { id: 'v2', inputs: [{ num: 0, id: 'v1', ship_strategy: 'HASH' }] },
+    { id: 'v3', inputs: [{ num: 0, id: 'v2', ship_strategy: 'FORWARD' }] },
+  ],
+};
 const ckpt = {
   counts: { completed: 9, failed: 0, in_progress: 0, restored: 0, total: 9 },
   latest: {
@@ -1489,7 +1497,7 @@ describe('JOB-02 · Job overview (board D08)', () => {
           ]),
         };
       if (req.path.includes('/subtasks/')) return { status: 200, headers: {}, url: '', body: '[]' };
-      return answer(200, detail)(req);
+      return answer(200, { ...detail, plan: hashPlan })(req);
     });
     const ops = await screen.findByRole('table', { name: 'Operators' });
     await userEvent.click(within(ops).getAllByRole('row')[2]!);
@@ -1503,10 +1511,73 @@ describe('JOB-02 · Job overview (board D08)', () => {
     expect(rows[0]).toMatch(/41 s · holding back/);
     expect(rows[1]).toMatch(/2 s$/);
     expect(rows[3]).toMatch(/Input ended/);
-    expect(
-      within(p).getByText(/Subtask 0 is 39 s behind the others, so the operator's watermark waits for it\./),
-    ).toBeInTheDocument();
+    const said = within(p).getByText(
+      /Subtask 0 is 39 s behind the others, so the operator's watermark waits for it\./,
+    );
+    // Behind a HASH edge every subtask sees every input: one lagging subtask is itself slow, not an idle partition.
+    expect(said).toHaveTextContent(/busy or gets more records/);
+    expect(said).not.toHaveTextContent(/idleness/);
   });
+
+  it('audit wm #2: on a source (no inputs), the one holding back may be an idle partition: the idleness hint', async () => {
+    const now = detail.now;
+    show(async (req) => {
+      if (req.path.endsWith('/vertices/v1/watermarks'))
+        return {
+          status: 200,
+          headers: {},
+          url: '',
+          body: JSON.stringify([
+            { id: '0.currentInputWatermark', value: String(now - 60_000) },
+            { id: '1.currentInputWatermark', value: String(now - 1_000) },
+            { id: '2.currentInputWatermark', value: String(now - 1_500) },
+            { id: '3.currentInputWatermark', value: String(now - 1_200) },
+          ]),
+        };
+      if (req.path.includes('/subtasks/')) return { status: 200, headers: {}, url: '', body: '[]' };
+      return answer(200, { ...detail, plan: hashPlan })(req);
+    });
+    const ops = await screen.findByRole('table', { name: 'Operators' });
+    await userEvent.click(within(ops).getAllByRole('row')[1]!); // Source: payments
+    const p = await screen.findByRole('region', { name: 'Source: payments' });
+    await userEvent.click(within(p).getByRole('tab', { name: 'Watermarks' }));
+    expect(await within(p).findByText(/consider an idleness timeout/)).toBeInTheDocument();
+  });
+
+  it(
+    'audit wm #1: lag is measured at the read, so a steady 2 s lag reads 2 s every time (no swing with the job poll)',
+    { timeout: 30_000 },
+    async () => {
+      vi.useFakeTimers({ shouldAdvanceTime: true });
+      try {
+        show(async (req) => {
+          if (req.path.endsWith('/vertices/v2/watermarks'))
+            return {
+              status: 200,
+              headers: {},
+              url: '',
+              body: JSON.stringify([{ id: '0.currentInputWatermark', value: String(Date.now() - 2_000) }]),
+            };
+          if (req.path.includes('/subtasks/')) return { status: 200, headers: {}, url: '', body: '[]' };
+          return answer(200, { ...detail, now: Date.now() })(req);
+        });
+        const ops = await screen.findByRole('table', { name: 'Operators' });
+        await userEvent.click(within(ops).getAllByRole('row')[2]!);
+        const p = await screen.findByRole('region', { name: 'Window aggregate' });
+        await userEvent.click(within(p).getByRole('tab', { name: 'Watermarks' }));
+        await within(p).findByRole('table', { name: 'Watermarks' });
+        const seen = new Set<string>();
+        for (let t = 0; t < 12; t++) {
+          await act(async () => vi.advanceTimersByTimeAsync(1_000));
+          const t2 = within(p).getByRole('table', { name: 'Watermarks' });
+          seen.add(within(within(t2).getAllByRole('row')[1]!).getAllByRole('cell').at(-1)!.textContent!);
+        }
+        expect([...seen]).toEqual(['2 s']);
+      } finally {
+        vi.useRealTimers();
+      }
+    },
+  );
 
   it('lists the operators with parallelism and status', async () => {
     show(answer(200, detail));

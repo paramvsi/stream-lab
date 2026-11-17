@@ -45,7 +45,8 @@ export function primaryPlacement(raw: string): Placement {
 }
 
 export function paramsOf(code: ErrorCode): string[] {
-  return [...new Set([...CATALOG[code].message.matchAll(/\{(\w+)\}/g)].map((m) => m[1]!))];
+  // A placeholder is words and spaces: the catalog has {root cause first line} (JOB-FAILED), {first line}.
+  return [...new Set([...CATALOG[code].message.matchAll(/\{([\w ]+)\}/g)].map((m) => m[1]!))];
 }
 
 function severityOf(raw: string, e: AppError): Severity {
@@ -79,7 +80,7 @@ export function present(e: AppError): Presented {
     return present(new AppError('API-SHAPE', {}, e));
   }
   const fill = (tpl: string) =>
-    tpl.replace(/\{(\w+)\}/g, (_, k: string) => {
+    tpl.replace(/\{([\w ]+)\}/g, (_, k: string) => {
       const v = e.params[k];
       if (v === undefined) {
         if (DEV) throw new Error(`${e.code}: param {${k}} is not filled`);

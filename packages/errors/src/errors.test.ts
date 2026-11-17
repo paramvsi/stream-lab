@@ -23,7 +23,7 @@ describe('ERR · catalog', () => {
 
   it.each(codes)('%s renders through present() with sample params', (code) => {
     const p = present(new AppError(code, sample(code)));
-    expect(p.message).not.toMatch(/\{\w+\}/);
+    expect(p.message).not.toMatch(/\{[\w ]+\}/); // a placeholder may have spaces ({root cause first line})
     expect(p.message.length).toBeGreaterThan(0);
     expect(p.title.length).toBeGreaterThan(0);
     expect(PLACEMENTS).toContain(p.placement);

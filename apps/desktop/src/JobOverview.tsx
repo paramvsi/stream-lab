@@ -64,8 +64,9 @@ type Ckpt = { off: true } | { off: false; last: FlinkCheckpoint | null; failed: 
  * Board D08c "3 failures in a row": FAILED checkpoints since the last completed one, newest first. Savepoints
  * are left out (a failed stop-with-savepoint is not a checkpoint failure; latest.completed holds checkpoints
  * only), as is one in progress. Flink keeps only the last web.checkpoints.history entries (10 by default): a run
- * that reaches the oldest entry kept, when Flink has dropped older ones (counts.total > entries kept), is "N+";
- * a short history (a new job) is exact.
+ * that reaches the oldest entry kept, when counts.total says more were started than are kept, is "N+" = at least N.
+ * It is never too low; it can read "+" when nothing was dropped, because a trigger that fails before it starts
+ * (tasks still deploying, a restarting region) counts in total with no history entry. A short history is exact.
  */
 const failedInRow = (h: readonly FlinkCheckpoint[], total: number): Failures => {
   let n = 0;

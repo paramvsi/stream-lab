@@ -8,6 +8,7 @@ import {
   POLL,
   recentFailures,
   rootCauseLine,
+  splitCause,
   type FlinkExceptions,
   type Connection,
   type FlinkCheckpoint,
@@ -96,11 +97,8 @@ const KEPT = 16;
  * "pkg.SomeException: text" → "text"; no message → the simple class name.
  */
 export const causeText = (line: string) => {
-  // A qualified class, then ": message" or nothing. Anything else (plain text) is kept as it is.
-  // Java identifiers may be any letter (u flag: \p{L}, not ASCII-only \w).
-  const m = /^(?:[\p{L}\p{N}_$]+\.)*([\p{L}\p{N}_$]+)(?:\s*:\s*(.*))?$/u.exec(line.trim());
-  if (!m) return line.trim();
-  return (m[2] ?? '').replace(/\.$/, '').trim() || m[1]!;
+  const { name, message } = splitCause(line);
+  return message || name;
 };
 const DAY = 86_400_000;
 /**

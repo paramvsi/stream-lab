@@ -76,3 +76,47 @@ export const recentFailures = <T extends { timestamp: number }>(
   now: number,
   windowMs: number,
 ) => es.filter((e) => e.timestamp >= now - windowMs);
+
+/**
+ * A cause line as its simple class name and message: "java.util.concurrent.TimeoutException: Kafka describeTopics"
+ * → TimeoutException + "Kafka describeTopics". Java identifiers may be any letter (\p{L}). Plain text that is not
+ * "pkg.Class[: message]" is all message.
+ */
+export function splitCause(line: string): { name: string; message: string } {
+  const t = line.trim();
+  const m = /^(?:[\p{L}\p{N}_$]+\.)*([\p{L}\p{N}_$]+)(?:\s*:\s*(.*))?$/u.exec(t);
+  if (!m) return { name: '', message: t.replace(/\.$/, '') };
+  return { name: m[1]!, message: (m[2] ?? '').replace(/\.$/, '').trim() };
+}
+
+export interface ExceptionGroup {
+  name: string;
+  /** The newest occurrence's words. */
+  message: string;
+  count: number;
+  first: number;
+  last: number;
+  /** Each occurrence, newest first. */
+  entries: FlinkException[];
+}
+
+/**
+ * JOB-08 / board X20: failures collapsed by root cause type and message, most frequent first (ties: most recent
+ * first). Numbers and hex ids in the message do not split a group ("Checkpoint 41 / 42 expired").
+ * ponytail: the 16–20 entries Flink keeps (web.exception-history-size), not all time; JOB-06 history widens it.
+ */
+export function groupExceptions(entries: readonly FlinkException[]): ExceptionGroup[] {
+  const groups = new Map<string, ExceptionGroup>();
+  for (const e of [...entries].sort((a, b) => b.timestamp - a.timestamp)) {
+    const { name, message } = splitCause(rootCauseLine(e));
+    const key = `${name}\u0000${message.replace(/\b[0-9a-f]{8,}\b|\d+/gi, '#')}`;
+    const g = groups.get(key);
+    if (g) {
+      g.count++;
+      g.first = Math.min(g.first, e.timestamp);
+      g.last = Math.max(g.last, e.timestamp);
+      g.entries.push(e);
+    } else groups.set(key, { name, message, count: 1, first: e.timestamp, last: e.timestamp, entries: [e] });
+  }
+  return [...groups.values()].sort((a, b) => b.count - a.count || b.last - a.last);
+}

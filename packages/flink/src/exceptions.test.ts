@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { getExceptions, recentFailures, rootCauseLine } from './exceptions';
+import { getExceptions, groupExceptions, recentFailures, rootCauseLine, splitCause } from './exceptions';
 import type { FlinkHttp } from './http';
 
 const entry = (ts: number, name: string, msg: string) => ({
@@ -97,5 +97,64 @@ describe('JOB-04 · exceptions (GET /jobs/:jid/exceptions, exceptionHistory)', (
     ).rejects.toMatchObject({
       code: 'API-404-JOB',
     });
+  });
+});
+
+describe('JOB-08 · grouped exceptions (board X20)', () => {
+  const ex = (ts: number, cause: string) => ({
+    exceptionName: 'java.lang.RuntimeException',
+    stacktrace: `java.lang.RuntimeException: wrapped\n\tat a\nCaused by: ${cause}\n\tat b`,
+    timestamp: ts,
+  });
+
+  it('splits a cause line into its simple class name and message', () => {
+    expect(splitCause('java.util.concurrent.TimeoutException: Kafka describeTopics')).toEqual({
+      name: 'TimeoutException',
+      message: 'Kafka describeTopics',
+    });
+    expect(splitCause('java.lang.NullPointerException')).toEqual({
+      name: 'NullPointerException',
+      message: '',
+    });
+    expect(splitCause('com.acme.ZahlungsFehlerÄ: kaputt')).toEqual({
+      name: 'ZahlungsFehlerÄ',
+      message: 'kaputt',
+    });
+    expect(splitCause('plain text, no class')).toEqual({ name: '', message: 'plain text, no class' });
+  });
+
+  it('groups by root cause type and message, most frequent first, with count and first/last seen', () => {
+    const gs = groupExceptions([
+      ex(300, 'java.util.concurrent.TimeoutException: Kafka describeTopics'),
+      ex(250, 'java.lang.NullPointerException: ScoreFunction.map'),
+      ex(200, 'java.util.concurrent.TimeoutException: Kafka describeTopics'),
+      ex(100, 'java.util.concurrent.TimeoutException: Kafka describeTopics'),
+    ]);
+    expect(gs.map((g) => [g.name, g.message, g.count, g.first, g.last])).toEqual([
+      ['TimeoutException', 'Kafka describeTopics', 3, 100, 300],
+      ['NullPointerException', 'ScoreFunction.map', 1, 250, 250],
+    ]);
+    expect(gs[0]!.entries.map((e) => e.timestamp)).toEqual([300, 200, 100]); // each occurrence, newest first
+  });
+
+  it('numbers and ids in the message do not split a group (checkpoint 41 vs 42 expired)', () => {
+    const gs = groupExceptions([
+      ex(
+        2,
+        'org.apache.flink.runtime.checkpoint.CheckpointException: Checkpoint 42 expired before completing.',
+      ),
+      ex(
+        1,
+        'org.apache.flink.runtime.checkpoint.CheckpointException: Checkpoint 41 expired before completing.',
+      ),
+    ]);
+    expect(gs).toHaveLength(1);
+    expect(gs[0]!.count).toBe(2);
+    expect(gs[0]!.message).toBe('Checkpoint 42 expired before completing'); // the newest one's words
+  });
+
+  it('a tie in count puts the most recent group first', () => {
+    const gs = groupExceptions([ex(9, 'a.B: x'), ex(5, 'c.D: y')]);
+    expect(gs.map((g) => g.name)).toEqual(['B', 'D']);
   });
 });

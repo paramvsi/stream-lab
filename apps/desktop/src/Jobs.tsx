@@ -93,6 +93,16 @@ export function Jobs({
    * <body>: it goes to the heading instead. Removal fires no blur with a target, so leaving to elsewhere clears it.
    */
   const focusInBanner = useRef(false);
+  const bannerBox = useRef<HTMLDivElement>(null);
+  // A press anywhere outside the banner leaves it too, even on text that takes no focus (blur then has no
+  // relatedTarget, the same as the banner's removal).
+  useEffect(() => {
+    const down = (e: PointerEvent) => {
+      if (!bannerBox.current?.contains(e.target as Node)) focusInBanner.current = false;
+    };
+    document.addEventListener('pointerdown', down, true);
+    return () => document.removeEventListener('pointerdown', down, true);
+  }, []);
   /** When the last good answer came, and when the last answer of any kind came (for "data from N min ago"). */
   const [at, setAt] = useState(0);
   const [now, setNow] = useState(0);
@@ -203,6 +213,7 @@ export function Jobs({
     <main className="flex min-h-screen flex-col gap-5 bg-surface px-8 py-7">
       {banner && (
         <div
+          ref={bannerBox}
           className="flex flex-col gap-3"
           onFocus={() => (focusInBanner.current = true)}
           onBlur={(e) => {

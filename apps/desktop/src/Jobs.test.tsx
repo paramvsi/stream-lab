@@ -358,3 +358,26 @@ describe('audit 4 of 31039a3: focus on the banner when it goes', () => {
     }
   });
 });
+
+describe('audit 5 of 04ddce8', () => {
+  it('on Retry now, then a click on table text, then a quiet recovery: focus is not moved', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      const f = flaky();
+      show(f.http);
+      await screen.findByRole('table', { name: 'Jobs' });
+      f.st.down = true;
+      for (const ms of [5_000, 10_000, 20_000]) await tick(ms);
+      await screen.findByText(/Lost contact with payments-prod/);
+      screen.getByRole('button', { name: 'Retry now' }).focus();
+      await userEvent.click(screen.getByText('refund-matcher')); // not focusable: focus goes to <body>
+      expect(document.activeElement).toBe(document.body);
+      f.st.down = false;
+      await tick(30_000);
+      await waitFor(() => expect(screen.queryByText(/Lost contact/)).toBeNull());
+      expect(document.activeElement).toBe(document.body);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});

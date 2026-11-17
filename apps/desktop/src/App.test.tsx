@@ -1,4 +1,4 @@
-import { render, screen, within } from '@testing-library/react';
+import { fireEvent, render, screen, within } from '@testing-library/react';
 import { exportConnections, type FlinkHttp } from '@sl/flink';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it } from 'vitest';
@@ -399,5 +399,17 @@ describe('APP-01 · command palette (board G01)', () => {
         .getAllByRole('rowheader')
         .map((r) => r.textContent),
     ).toEqual(['⌘K', '⌘1–9', 'G J', 'G L', '?']);
+  });
+
+  it('audit of 7cee880: the keys work by physical key too (AZERTY ⌘ + "1/&" gives "&"; G J on an Arabic layout)', async () => {
+    await withOne();
+    (document.activeElement as HTMLElement).blur();
+    fireEvent.keyDown(document.body, { key: '&', code: 'Digit1', metaKey: true }); // AZERTY
+    expect(await screen.findByRole('heading', { level: 1, name: 'local-docker' })).toBeTruthy();
+    fireEvent.keyDown(document.body, { key: 'ل', code: 'KeyG' }); // Arabic layout
+    fireEvent.keyDown(document.body, { key: 'ت', code: 'KeyJ' });
+    expect(await screen.findByRole('heading', { level: 1, name: 'Jobs' })).toBeTruthy();
+    fireEvent.keyDown(document.body, { key: 'ن', code: 'KeyK', metaKey: true });
+    expect(screen.getByRole('dialog', { name: 'Commands' })).toBeInTheDocument();
   });
 });

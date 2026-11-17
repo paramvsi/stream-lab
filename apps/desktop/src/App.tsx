@@ -66,15 +66,21 @@ export function App({
       !!(e.target as HTMLElement | null)?.closest?.(
         'input, textarea, select, [contenteditable=""], [contenteditable="true"]',
       );
+    // A letter or digit by the character typed or by the physical key: AZERTY's ⌘ + "1/&" gives "&", an Arabic or
+    // Cyrillic layout gives its own letters; Dvorak keeps its labelled letters. ("?" is by character: it moves.)
+    const is = (e: KeyboardEvent, ch: string) =>
+      e.key.toLowerCase() === ch || e.code === (/\d/.test(ch) ? `Digit${ch}` : `Key${ch.toUpperCase()}`);
+    const digit = (e: KeyboardEvent) => /^[1-9]$/.exec(e.key)?.[0] ?? /^Digit([1-9])$/.exec(e.code)?.[1];
     const onKey = (e: KeyboardEvent) => {
       const mod = (e.metaKey || e.ctrlKey) && !e.altKey && !e.shiftKey;
       const plain = !e.metaKey && !e.ctrlKey && !e.altKey;
-      if (mod && e.key.toLowerCase() === 'k') {
+      const n = digit(e);
+      if (mod && is(e, 'k')) {
         if (overDialog()) return;
         e.preventDefault();
         setPalette(true);
-      } else if (mod && /^[1-9]$/.test(e.key)) {
-        const c = transport ? connections[Number(e.key) - 1] : undefined;
+      } else if (mod && n) {
+        const c = transport ? connections[Number(n) - 1] : undefined;
         if (!c || overDialog()) return;
         e.preventDefault();
         setScreen({ name: 'cluster', id: c.id });
@@ -82,17 +88,12 @@ export function App({
         if (typing(e) || overDialog()) return;
         e.preventDefault();
         setSheet(true);
-      } else if (
-        plain &&
-        !e.shiftKey &&
-        (e.key === 'j' || e.key === 'l') &&
-        Date.now() - gAt.current < 1_000
-      ) {
+      } else if (plain && !e.shiftKey && (is(e, 'j') || is(e, 'l')) && Date.now() - gAt.current < 1_000) {
         gAt.current = 0;
         if (!transport || !cur || typing(e) || overDialog()) return;
         e.preventDefault();
-        setScreen(e.key === 'j' ? { name: 'jobs', id: cur } : { name: 'logs', id: cur });
-      } else if (plain && !e.shiftKey && e.key === 'g' && !typing(e)) {
+        setScreen(is(e, 'j') ? { name: 'jobs', id: cur } : { name: 'logs', id: cur });
+      } else if (plain && !e.shiftKey && is(e, 'g') && !typing(e)) {
         gAt.current = Date.now(); // G, then J or L within a second
       } else {
         gAt.current = 0;

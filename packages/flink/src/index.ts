@@ -8,3 +8,5 @@ export * from './poll';
 export * from './kinds';
 export * from './fleet';
 export * from './capabilities';
+export * from './endpoints/jobs';
+export * from './jobs';

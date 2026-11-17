@@ -20,6 +20,11 @@ const FAILING = new Set(['FAILING', 'RESTARTING']);
  */
 const DONE = new Set(['FINISHED', 'CANCELED', 'FAILED']);
 
+/** The board's three job groups (D04 fleet card, D07 list chips): one rule, so a cluster gives one answer. */
+export type JobBucket = 'running' | 'failing' | 'finished';
+export const jobBucket = (state: string): JobBucket =>
+  FAILING.has(state) ? 'failing' : DONE.has(state) ? 'finished' : 'running';
+
 /** One fleet card (FLEET-01, board D04): what a cluster says about itself, or why it did not answer (D04b). */
 export type FleetStatus =
   | {
@@ -36,7 +41,7 @@ export type FleetStatus =
     }
   | { state: 'down'; error: AppError };
 
-async function getJson<S extends z.ZodType>(
+export async function getJson<S extends z.ZodType>(
   http: FlinkHttp,
   conn: string,
   req: FlinkRequest,

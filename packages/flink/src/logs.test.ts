@@ -1,0 +1,67 @@
+import { describe, expect, it } from 'vitest';
+import type { FlinkRequest } from './http';
+import { filterLines, getJmLog, LOG_TAIL_LINES, listJmLogs, tail, tooLarge } from './logs';
+
+const reply = (status: number, body: string) => async () => ({ status, headers: {}, url: '', body });
+
+describe('OPS-01 · logs (D18)', () => {
+  it('listJmLogs: {logs:[{name,size,mtime}]}, newest first', async () => {
+    let path = '';
+    const l = await listJmLogs(
+      async (r: FlinkRequest) => (
+        (path = r.path),
+        reply(
+          200,
+          JSON.stringify({
+            logs: [
+              { name: 'jobmanager.log.1', size: 10, mtime: 100 },
+              { name: 'jobmanager.log', size: 20, mtime: 200 },
+            ],
+          }),
+        )()
+      ),
+      'prod',
+    );
+    expect(path).toBe('/jobmanager/logs');
+    expect(l.map((x) => x.name)).toEqual(['jobmanager.log', 'jobmanager.log.1']);
+  });
+
+  it('getJmLog: the file as text (encoded name); a missing one is API-404-style catalog error, never raw', async () => {
+    let path = '';
+    expect(
+      await getJmLog(async (r) => ((path = r.path), reply(200, 'a\nb\n')()), 'prod', 'job manager.log'),
+    ).toBe('a\nb\n');
+    expect(path).toBe('/jobmanager/logs/job%20manager.log');
+    await expect(
+      getJmLog(reply(404, '{"errors":["This file does not exist in JobManager log dir."]}'), 'prod', 'x'),
+    ).rejects.toMatchObject({
+      code: expect.stringMatching(/^API-/),
+    });
+  });
+
+  it('tail: the last N lines; tooLarge: over 50 MB (LOG-TOO-LARGE)', () => {
+    const text = Array.from({ length: 6_000 }, (_, i) => `line ${i}`).join('\n');
+    const t = tail(text, LOG_TAIL_LINES);
+    expect(t.lines).toHaveLength(5_000);
+    expect(t.lines[0]).toBe('line 1000');
+    expect(t.cut).toBe(1_000);
+    expect(tooLarge(50 * 1024 * 1024)).toBe(false);
+    expect(tooLarge(50 * 1024 * 1024 + 1)).toBe(true);
+  });
+
+  it('filterLines: plain text (case-insensitive) or a regex; a bad regex is LOG-REGEX with the reason', () => {
+    const lines = ['INFO start', 'WARN slow checkpoint', 'ERROR CheckpointException'];
+    expect(filterLines(lines, 'checkpoint', false)).toEqual([
+      'WARN slow checkpoint',
+      'ERROR CheckpointException',
+    ]);
+    expect(filterLines(lines, '^(WARN|ERROR)', true)).toEqual([
+      'WARN slow checkpoint',
+      'ERROR CheckpointException',
+    ]);
+    expect(filterLines(lines, '', true)).toEqual(lines);
+    expect(() => filterLines(lines, '(unclosed', true)).toThrow(
+      expect.objectContaining({ code: 'LOG-REGEX' }),
+    );
+  });
+});

@@ -1517,35 +1517,52 @@ describe('JOB-02 · Job overview (board D08)', () => {
     // Behind a HASH edge every subtask sees every input: one lagging subtask is itself slow, not an idle partition.
     expect(said).toHaveTextContent(/busy or gets more records/);
     expect(said).not.toHaveTextContent(/idleness/);
+    // Flink caches REST metrics (metrics.fetcher.update-interval, 10 s by default): said, not hidden.
+    expect(within(p).getByText(/can read up to 10 s high/)).toBeInTheDocument();
   });
 
-  it('audit wm #2: on a source (no inputs), the one holding back may be an idle partition: the idleness hint', async () => {
+  it('audit wm2 #1 #2: fed from a source point-to-point (RESCALE), one lagging subtask gets the idleness hint; a source itself has no input watermark', async () => {
     const now = detail.now;
+    const plan = {
+      nodes: [
+        { id: 'v1' },
+        { id: 'v2', inputs: [{ num: 0, id: 'v1', ship_strategy: 'RESCALE' }] },
+        { id: 'v3', inputs: [{ num: 0, id: 'v2', ship_strategy: 'HASH' }] },
+      ],
+    };
     show(async (req) => {
-      if (req.path.endsWith('/vertices/v1/watermarks'))
+      if (req.path.endsWith('/vertices/v2/watermarks'))
         return {
           status: 200,
           headers: {},
           url: '',
           body: JSON.stringify([
-            { id: '0.currentInputWatermark', value: String(now - 60_000) },
-            { id: '1.currentInputWatermark', value: String(now - 1_000) },
-            { id: '2.currentInputWatermark', value: String(now - 1_500) },
+            { id: '0.currentInputWatermark', value: String(now - 1_000) },
+            { id: '1.currentInputWatermark', value: String(now - 1_500) },
+            { id: '2.currentInputWatermark', value: String(now - 60_000) },
             { id: '3.currentInputWatermark', value: String(now - 1_200) },
           ]),
         };
+      // A source registers no input watermark gauge (SourceOperatorStreamTask): Flink sends none.
+      if (req.path.endsWith('/vertices/v1/watermarks'))
+        return { status: 200, headers: {}, url: '', body: '[]' };
       if (req.path.includes('/subtasks/')) return { status: 200, headers: {}, url: '', body: '[]' };
-      return answer(200, { ...detail, plan: hashPlan })(req);
+      return answer(200, { ...detail, plan })(req);
     });
     const ops = await screen.findByRole('table', { name: 'Operators' });
-    await userEvent.click(within(ops).getAllByRole('row')[1]!); // Source: payments
-    const p = await screen.findByRole('region', { name: 'Source: payments' });
+    await userEvent.click(within(ops).getAllByRole('row')[2]!); // Window aggregate, fed by RESCALE
+    let p = await screen.findByRole('region', { name: 'Window aggregate' });
     await userEvent.click(within(p).getByRole('tab', { name: 'Watermarks' }));
     expect(await within(p).findByText(/consider an idleness timeout/)).toBeInTheDocument();
+    await userEvent.click(within(ops).getAllByRole('row')[1]!); // Source: payments
+    p = await screen.findByRole('region', { name: 'Source: payments' });
+    await userEvent.click(within(p).getByRole('tab', { name: 'Watermarks' }));
+    expect(await within(p).findByText(/A source has no input watermark/)).toBeInTheDocument();
+    expect(within(p).queryByRole('table', { name: 'Watermarks' })).toBeNull();
   });
 
   it(
-    'audit wm #1: lag is measured at the read, so a steady 2 s lag reads 2 s every time (no swing with the job poll)',
+    "audit wm #1: lag is measured at its read, so it does not swing with the job poll (Flink's own 10 s metric cache aside)",
     { timeout: 30_000 },
     async () => {
       vi.useFakeTimers({ shouldAdvanceTime: true });
@@ -1559,7 +1576,7 @@ describe('JOB-02 · Job overview (board D08)', () => {
               body: JSON.stringify([{ id: '0.currentInputWatermark', value: String(Date.now() - 2_000) }]),
             };
           if (req.path.includes('/subtasks/')) return { status: 200, headers: {}, url: '', body: '[]' };
-          return answer(200, { ...detail, now: Date.now() })(req);
+          return answer(200, { ...detail, plan: hashPlan, now: Date.now() })(req);
         });
         const ops = await screen.findByRole('table', { name: 'Operators' });
         await userEvent.click(within(ops).getAllByRole('row')[2]!);

@@ -41,14 +41,21 @@ import { HOST_DOWN, usePolled } from './usePolled';
  * FLINK: https://github.com/apache/flink/blob/release-1.20/flink-runtime/src/main/java/org/apache/flink/runtime/scheduler/adaptive/Failing.java
  */
 /**
- * A source, or reached from sources through FORWARD edges only (D09b's idleness hint applies): an edge with any
- * other strategy, or none given, ends it. Bounded by the vertex count, so a cycle (not possible) ends too.
- * FLINK: https://nightlies.apache.org/flink/flink-docs-stable/docs/dev/datastream/event-time/generating_watermarks/#dealing-with-idle-sources
+ * D09b's idleness hint: fed from a source through point-to-point edges only (FORWARD, RESCALE: POINTWISE in
+ * Flink), so one source subtask's idle partition holds back only the subtasks it feeds. Behind HASH / REBALANCE
+ * (ALL_TO_ALL) every subtask takes the minimum over all inputs, so one lagging subtask is itself slow. A source has
+ * no input watermark at all (no hint). An edge with no strategy given ends it. Bounded by the vertex count.
+ * FLINK: https://nightlies.apache.org/flink/flink-docs-stable/docs/concepts/time/#watermarks-in-parallel-streams
+ * FLINK: https://github.com/apache/flink/blob/release-1.20/flink-streaming-java/src/main/java/org/apache/flink/streaming/api/graph/StreamingJobGraphGenerator.java
  */
-function sourceForward(g: JobGraph, id: string, depth = 0): boolean {
+const POINTWISE = new Set(['FORWARD', 'RESCALE']);
+function fedPointwiseFromSource(g: JobGraph, id: string, depth = 0): boolean {
   if (depth > g.nodes.length) return false;
   const ins = g.edges.filter((e) => e.to === id);
-  return ins.every((e) => e.ship === 'FORWARD' && sourceForward(g, e.from, depth + 1));
+  if (!ins.length) return depth > 0; // reached a source (the vertex itself being a source: no)
+  return ins.every(
+    (e) => e.ship !== null && POINTWISE.has(e.ship) && fedPointwiseFromSource(g, e.from, depth + 1),
+  );
 }
 const TROUBLED = new Set(['RESTARTING', 'FAILING', 'FAILED']);
 /**
@@ -307,6 +314,7 @@ export function JobOverview({
   // JOB-03: the operator whose panel is open (by id: the job refreshes under it; gone from the job, it closes).
   const [openOp, setOpenOp] = useState<string | null>(null);
   const op = openOp ? j?.vertices.find((v) => v.id === openOp) : undefined;
+  const opGraph = op && j ? jobGraph(j) : null;
   // Exceptions are read while the job is in trouble (JOB-05) or the Exceptions tab is open (JOB-08): never for a
   // healthy job nobody is looking at.
   const wantExceptions = troubled || tab === 'exceptions';
@@ -480,7 +488,8 @@ export function JobOverview({
                         heading={h1}
                         pageBanner={!!banner}
                         now={j.now}
-                        sourceForward={sourceForward(jobGraph(j), op.id)}
+                        source={!opGraph!.edges.some((e) => e.to === op.id)}
+                        idleCanHold={fedPointwiseFromSource(opGraph!, op.id)}
                       />
                     )}
                   </div>

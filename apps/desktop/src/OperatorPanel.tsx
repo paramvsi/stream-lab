@@ -47,12 +47,10 @@ type Props = {
   pageBanner: boolean;
   /** The JobManager's clock (the job read's `now`): watermark lag is measured against it. */
   now: number;
-  /**
-   * A source, or fed from one through FORWARD edges only: one subtask's watermark can lag because its own source
-   * partition is idle. Behind HASH / REBALANCE every subtask takes the minimum over all inputs, so one lagging
-   * subtask is itself slow.
-   */
-  sourceForward: boolean;
+  /** A source: Flink keeps no input watermark for it (SourceOperatorStreamTask registers no gauge). */
+  source: boolean;
+  /** Fed from a source point-to-point only: one lagging subtask may be an idle source partition (see JobOverview). */
+  idleCanHold: boolean;
 };
 
 /**
@@ -165,7 +163,7 @@ function Running({ running, children }: Props & { children: ReactNode }) {
 
 /** Seconds as the board writes them: "41 s", "3 min 20 s". */
 const lagText = (ms: number) => {
-  const s = Math.round(ms / 1000);
+  const s = Math.max(0, Math.round(ms / 1000));
   return s < 60 ? `${s} s` : `${Math.floor(s / 60)} min${s % 60 ? ` ${s % 60} s` : ''}`;
 };
 const timeOf = (ms: number) =>
@@ -176,7 +174,18 @@ const timeOf = (ms: number) =>
     hour12: false,
   });
 
-function Watermarks({ c, transport, jid, vertex, heading, pageBanner, now, sourceForward }: Props) {
+function Watermarks(p: Props) {
+  if (p.source)
+    return (
+      <p className="m-0 text-[14px] text-muted">
+        A source has no input watermark. Its watermarks show on the operators it feeds.
+      </p>
+    );
+  return <WatermarkTable {...p} />;
+}
+
+// FLINK: https://github.com/apache/flink/blob/release-1.20/flink-runtime/src/main/java/org/apache/flink/streaming/runtime/tasks/SourceOperatorStreamTask.java
+function WatermarkTable({ c, transport, jid, vertex, heading, pageBanner, now, idleCanHold }: Props) {
   // The JobManager's time at the moment of each watermark read: the last job read's `now`, plus the time since it
   // came. Lag is fixed at the read, never against a later job read (it would swing with the two polls).
   const base = useRef({ jm: now, at: 0 });
@@ -224,7 +233,7 @@ function Watermarks({ c, transport, jid, vertex, heading, pageBanner, now, sourc
         if (w.at === null || !read) return '—';
         const ms = read.jmNow - w.at;
         // An event-time watermark can run ahead of the clock: said, never shown as 0.
-        const lag = ms < 0 ? `${lagText(-ms)} ahead` : lagText(ms);
+        const lag = ms <= -500 ? `${lagText(-ms)} ahead` : lagText(ms);
         return `${lag}${held?.index === w.index ? ' · holding back' : ''}`;
       },
     },
@@ -233,11 +242,15 @@ function Watermarks({ c, transport, jid, vertex, heading, pageBanner, now, sourc
     <div className="flex flex-col gap-3">
       {wm.stale && <p className="m-0 text-[13px] text-muted">Not answering. Showing data from {wm.since}.</p>}
       <Table label="Watermarks" columns={cols} rows={v} rowKey={(w) => String(w.index)} />
+      {/* FLINK: MetricFetcherImpl refreshes at most every metrics.fetcher.update-interval (10 s by default). */}
+      <p className="m-0 text-[13px] text-muted">
+        Flink refreshes these values about every 10 s, so a lag can read up to 10 s high.
+      </p>
       {held && (
         <p className="m-0 text-[14px]">
           Subtask {held.index} is {lagText(held.behindMs)} behind the others, so the operator's watermark
           waits for it.{' '}
-          {sourceForward
+          {idleCanHold
             ? 'Its source partition may be idle: consider an idleness timeout.'
             : 'Check whether it is busy or gets more records than the others (Subtasks).'}
         </p>

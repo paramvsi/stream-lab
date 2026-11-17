@@ -21,6 +21,7 @@ import { useCallback, useDeferredValue, useEffect, useId, useMemo, useRef, useSt
 import { useScreenHeading } from './focus';
 import { size } from './format';
 import { filterLinesBounded, makeFilterWorker, type FilterWorker } from './logFilter';
+import { gateFor } from './usePolled';
 
 type Level = 'all' | 'warn' | 'error';
 const LEVELS: { value: Level; label: string }[] = [
@@ -105,7 +106,12 @@ export function Logs({
   useEffect(() => {
     document.title = `Logs · ${c.name} · Stream Lab`;
   }, [c.name]);
-  const http = useMemo(() => transport(c), [transport, c]);
+  // Through the connection's shared limiter (FLINK_API: at most 6 in flight per connection, polls share a budget).
+  const http = useMemo<FlinkHttp>(() => {
+    const t = transport(c);
+    const gate = gateFor(transport, c.id);
+    return (req) => gate.run(() => t(req));
+  }, [transport, c]);
   const [files, setFiles] = useState<LogFile[] | null>(null);
   const [name, setName] = useState<string | null>(null);
   const [text, setText] = useState<string | null>(null);

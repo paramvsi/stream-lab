@@ -4,6 +4,7 @@ import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 import { Logs, savedLogName } from './Logs';
+import { gateFor } from './usePolled';
 import { answerFilter, type FilterWorker } from './logFilter';
 
 const conn = {
@@ -821,5 +822,25 @@ describe('OPS-01 · Logs (D18, D18b)', () => {
     expect(screen.getByRole('combobox', { name: 'Log file' })).toBeInTheDocument();
     await userEvent.click(screen.getByRole('button', { name: 'Reload' }));
     expect(screen.queryByRole('combobox', { name: 'Log file' })).toBeNull();
+  });
+
+  it('FLINK_API: Logs reads share the connection limiter (6 in flight held elsewhere: Logs waits, sends nothing)', async () => {
+    let asked = 0;
+    const http: FlinkHttp = async () => {
+      asked++;
+      return list([{ name: 'jobmanager.log', size: 1, mtime: 1 }]);
+    };
+    const transport = () => http;
+    const gate = gateFor(transport, conn.id);
+    for (let i = 0; i < 6; i++) void gate.run(() => new Promise(() => {})); // six reads that never answer
+    render(
+      <TooltipProvider>
+        <ToastProvider>
+          <Logs c={conn} transport={transport} makeWorker={worker} />
+        </ToastProvider>
+      </TooltipProvider>,
+    );
+    await new Promise((r) => setTimeout(r, 100));
+    expect(asked).toBe(0);
   });
 });

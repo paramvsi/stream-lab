@@ -1,3 +1,4 @@
+import { AppError } from '@sl/errors';
 import { z } from 'zod';
 import { getJson } from './fleet';
 import type { FlinkHttp } from './http';
@@ -20,6 +21,15 @@ export interface SubtaskLoad {
   busy: number | null;
 }
 
+export interface SubtaskLoads {
+  /** The subtasks read, from 0 (at most MAX_SUBTASKS). */
+  loads: SubtaskLoad[];
+  /** How many subtasks the vertex has (more than `loads` when capped). */
+  total: number;
+  /** Reads that failed (their rows are null), with the first error to show: never hidden. */
+  failed: { count: number; error: AppError } | null;
+}
+
 /** At most this many subtasks are read (one request each); the panel says when there are more. */
 export const MAX_SUBTASKS = 32;
 
@@ -40,10 +50,11 @@ export async function getSubtaskLoads(
   vid: string,
   parallelism: number,
   timeoutMs = 10_000,
-): Promise<SubtaskLoad[]> {
+): Promise<SubtaskLoads> {
   const out: SubtaskLoad[] = [];
-  let firstError: unknown;
-  for (let index = 0; index < Math.min(parallelism, MAX_SUBTASKS); index++) {
+  let failed: SubtaskLoads['failed'] = null;
+  const n = Math.min(parallelism, MAX_SUBTASKS);
+  for (let index = 0; index < n; index++) {
     const ms = await getJson(
       http,
       conn,
@@ -56,7 +67,16 @@ export async function getSubtaskLoads(
       MetricsSchema,
       'reading subtask metrics',
     ).catch((e: unknown) => {
-      firstError ??= e;
+      // The whole connection is down or refused (CONN-*, 401, 403): every other subtask would fail the same way,
+      // one timeout each. Stop now.
+      if (
+        !(e instanceof AppError) ||
+        e.code.startsWith('CONN-') ||
+        e.code === 'API-401' ||
+        e.code === 'API-403'
+      )
+        throw e;
+      failed = { count: (failed?.count ?? 0) + 1, error: failed?.error ?? e };
       return null;
     });
     // One subtask that can not be read is no reading for it alone.
@@ -72,8 +92,9 @@ export async function getSubtaskLoads(
       busy: busy === null ? null : Math.round(busy / 10),
     });
   }
-  if (firstError !== undefined && out.every((l) => l.recIn === null && l.busy === null)) throw firstError;
-  return out;
+  const f = failed as SubtaskLoads['failed'];
+  if (f && f.count === n) throw f.error; // every read failed: an error, not a table of blanks
+  return { loads: out, total: parallelism, failed: f };
 }
 
 /**

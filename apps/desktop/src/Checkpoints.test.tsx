@@ -33,7 +33,7 @@ describe('JOB-12 · Checkpoints tab (boards D12, D12b)', () => {
       />,
     );
     expect(screen.getByRole('group', { name: 'Completed' })).toHaveTextContent('4,812');
-    expect(screen.getByRole('group', { name: 'Failed' })).toHaveTextContent('0');
+    expect(screen.getByRole('group', { name: 'Failed' })).toHaveTextContent(/^Failed0$/);
     const rows = within(screen.getByRole('table', { name: 'Checkpoints' }))
       .getAllByRole('row')
       .slice(1);
@@ -83,6 +83,36 @@ describe('JOB-12 · Checkpoints tab (boards D12, D12b)', () => {
         .getAllByRole('cell')
         .map((c) => c.textContent),
     ).toEqual(['4813', 'In progress', '—', '—']);
+  });
+
+  it('audit #4: savepoints are not in the checkpoint table (they have their own tab)', () => {
+    render(
+      <Checkpoints
+        stats={stats([cp(4813, 'FAILED', { is_savepoint: true }), cp(4812, 'COMPLETED')])}
+        failedInRow={{ n: 0, more: false }}
+      />,
+    );
+    const ids = within(screen.getByRole('table', { name: 'Checkpoints' }))
+      .getAllByRole('row')
+      .slice(1)
+      .map((r) => within(r).getAllByRole('cell')[0]!.textContent);
+    expect(ids).toEqual(['4812']);
+  });
+
+  it('a reason from another checkpoint is never borrowed (latest.failed id mismatch)', async () => {
+    render(
+      <Checkpoints
+        stats={stats([cp(4812, 'FAILED', { end_to_end_duration: 5_000 })], 1, {
+          id: 4700,
+          failure_message: 'an old reason',
+        })}
+        failedInRow={{ n: 1, more: false }}
+      />,
+    );
+    await waitFor(() =>
+      expect(screen.getByText(/^Checkpoint 4812 failed/)).toHaveTextContent('no reason given'),
+    );
+    expect(screen.queryByText(/an old reason/)).toBeNull();
   });
 
   it('checkpointing off: JOB-CKPT-NONE, no table', () => {

@@ -260,6 +260,11 @@ export function JobOverview({
   // that can not be reached, says that). Shown once: in the Exceptions tab while it is open (at once: the user is
   // waiting for it), else on the page for a troubled job after 3 in a row (§4).
   const readError = !gone && !banner && !ex.value && exErr && !HOST_DOWN.has(exErr.code) ? exErr : null;
+  // The checkpoint read's own error in its tab, under the same rules (not the connection; a 404 as the HTTP
+  // refusal it wraps).
+  const ckErr =
+    ck.error?.code === 'API-404-JOB' && ck.error.cause instanceof AppError ? ck.error.cause : ck.error;
+  const ckReadError = !gone && !banner && !cp && ckErr && !HOST_DOWN.has(ckErr.code) ? ckErr : null;
   const onExceptionsTab = tab === 'exceptions';
   const failedRead = !!readError && !onExceptionsTab && troubled && ex.failures >= POLL.jobs.bannerAfter;
   return (
@@ -398,17 +403,21 @@ export function JobOverview({
                 <ErrorBoundary resetKey={jid}>
                   <div className="pt-5">
                     {cp ? (
-                      cp.off ? (
-                        <Checkpoints off />
-                      ) : (
-                        <Checkpoints stats={cp.stats} failedInRow={cp.failed} />
-                      )
-                    ) : ck.error ? (
-                      <ErrorBanner
-                        error={ck.error}
-                        handles={new Set(['Retry', 'Retry now'])}
-                        onAction={ck.retry}
-                      />
+                      <div className="flex flex-col gap-3">
+                        {/* §4: reads failing after a good one keep the data, and say it is old. */}
+                        {ck.stale && (
+                          <p className="m-0 text-[13px] text-muted">
+                            Not answering. Showing data from {ck.since}.
+                          </p>
+                        )}
+                        {cp.off ? (
+                          <Checkpoints off />
+                        ) : (
+                          <Checkpoints stats={cp.stats} failedInRow={cp.failed} />
+                        )}
+                      </div>
+                    ) : ckReadError ? (
+                      <ReadError error={ckReadError} onRetry={ck.retry} heading={h1} />
                     ) : (
                       <Loading label="Loading checkpoints">
                         <Skeleton height={46} />

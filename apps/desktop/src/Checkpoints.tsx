@@ -64,7 +64,8 @@ export function Checkpoints(
           ).replace(/\.$/, ''),
         })
       : null;
-  const history = [...stats.history].sort((a, b) => b.id - a.id);
+  // Checkpoints only: savepoints have their own tab, and the KPI and banner leave them out too.
+  const history = stats.history.filter((c) => !c.is_savepoint).sort((a, b) => b.id - a.id);
   return (
     <div className="flex flex-col gap-5">
       {failing && <ErrorBanner error={failing} handles={new Set()} />}

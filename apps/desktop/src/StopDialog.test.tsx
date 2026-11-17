@@ -111,7 +111,9 @@ describe('ACT-01 · stop with savepoint (D15, D15b, D15c, D15d)', () => {
       expect(await screen.findByRole('dialog', { name: 'Stopping refund-matcher' })).toBeInTheDocument();
       await tick(4);
       expect(screen.queryByRole('dialog')).toBeNull();
-      expect(await screen.findAllByText('refund-matcher stopped. Savepoint saved.')).not.toHaveLength(0);
+      expect(
+        await screen.findAllByText('refund-matcher stopped. Savepoint savepoint-a71e saved.'),
+      ).not.toHaveLength(0);
       expect(screen.getAllByRole('button', { name: 'Copy path' }).length).toBeGreaterThan(0);
       await tick(1); // the close's focus move
       expect(document.activeElement).not.toBe(document.body);
@@ -165,7 +167,7 @@ describe('ACT-01 · stop with savepoint (D15, D15b, D15c, D15d)', () => {
         return Promise.resolve(
           reads < 3
             ? ok(200, { status: { id: 'IN_PROGRESS' } })
-            : ok(200, { status: { id: 'COMPLETED' }, operation: { location: 's3://sp/x' } }),
+            : ok(200, { status: { id: 'COMPLETED' }, operation: { location: 's3://sp/savepoint-a71e' } }),
         );
       };
       render(<Harness http={http} />);
@@ -185,11 +187,13 @@ describe('ACT-01 · stop with savepoint (D15, D15b, D15c, D15d)', () => {
       // Step until it ends (a toast closes by itself after a while: look as soon as it is there).
       for (
         let t = 0;
-        t < 12 && !screen.queryAllByText('refund-matcher stopped. Savepoint saved.').length;
+        t < 12 && !screen.queryAllByText('refund-matcher stopped. Savepoint savepoint-a71e saved.').length;
         t++
       )
         await tick(1);
-      expect(screen.queryAllByText('refund-matcher stopped. Savepoint saved.')).not.toHaveLength(0);
+      expect(
+        screen.queryAllByText('refund-matcher stopped. Savepoint savepoint-a71e saved.'),
+      ).not.toHaveLength(0);
     }));
 
   it('a stop that is refused says why in the dialog and is not sent again', async () => {
@@ -206,4 +210,27 @@ describe('ACT-01 · stop with savepoint (D15, D15b, D15c, D15d)', () => {
     expect(await within(d).findByRole('alert')).toBeInTheDocument();
     expect(posts).toBe(1);
   });
+
+  it('audit stop2 #3: status reads that keep failing stop after 3 and say so (the stop may still finish), not spin forever', () =>
+    run(async () => {
+      let reads = 0;
+      const http: FlinkHttp = async (r) => {
+        if (r.path === '/jobmanager/config') return cfg('s3://sp');
+        if (r.method === 'POST') return ok(202, { 'request-id': 'r1' });
+        reads++;
+        return { status: 404, headers: {}, url: '', body: '' };
+      };
+      render(<Harness http={http} />);
+      const d = await screen.findByRole('dialog');
+      await within(d).findByDisplayValue('s3://sp');
+      await userEvent.click(within(d).getByRole('button', { name: 'Stop with savepoint' }));
+      await tick(30);
+      const r = screen.getByRole('dialog', { name: 'Stopping refund-matcher' });
+      expect(within(r).getByRole('alert')).toBeInTheDocument();
+      expect(r).toHaveTextContent(/may still finish on the cluster/);
+      const at = reads;
+      await tick(20);
+      expect(reads).toBe(at); // given up: no more reads
+      expect(at).toBe(3);
+    }));
 });

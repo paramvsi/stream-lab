@@ -1872,6 +1872,26 @@ describe('JOB-02 · Job overview (board D08)', () => {
     expect(screen.queryByRole('button', { name: 'Stop with savepoint' })).toBeNull();
   });
 
+  it(
+    'audit stop2 #1: the job leaving RUNNING takes Stop with savepoint away; focus on it goes to the heading, not <body>',
+    { timeout: 20_000 },
+    async () => {
+      vi.useFakeTimers({ shouldAdvanceTime: true });
+      try {
+        let state = 'RUNNING';
+        show(async (req) => answer(200, { ...detail, state })(req));
+        const b = await screen.findByRole('button', { name: 'Stop with savepoint' });
+        b.focus();
+        state = 'FINISHED';
+        for (let t = 0; t < 4; t++) await act(async () => vi.advanceTimersByTimeAsync(1_000));
+        expect(screen.queryByRole('button', { name: 'Stop with savepoint' })).toBeNull();
+        expect(screen.getByRole('heading', { level: 1 })).toHaveFocus();
+      } finally {
+        vi.useRealTimers();
+      }
+    },
+  );
+
   it('lists the operators with parallelism and status', async () => {
     show(answer(200, detail));
     const table = await screen.findByRole('table', { name: 'Operators' });

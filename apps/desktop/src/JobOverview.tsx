@@ -399,6 +399,18 @@ export function JobOverview({
   const exCapped = !!ex.value && (ex.value.truncated || ex.value.entries.length >= KEPT);
   // §4: a single 404 over a job on screen is a blip (HA failover); the page goes only once the banner would.
   const gone = error?.code === 'API-404-JOB' && (!j || !!banner) ? error : null;
+  // ACT-01: Stop with savepoint shows for a running job on a writable connection. When the job leaves RUNNING
+  // (stopped, failed), the button goes: focus that was on it (or fell to <body>) goes to the heading.
+  const canStop = !!j && !gone && !c.readOnly && j.state === 'RUNNING';
+  const [hadStop, setHadStop] = useState(canStop);
+  if (canStop !== hadStop) setHadStop(canStop);
+  useEffect(() => {
+    if (hadStop) return;
+    const t = setTimeout(() => {
+      if (document.activeElement === document.body || !document.activeElement) h1.current?.focus();
+    }, 0);
+    return () => clearTimeout(t);
+  }, [hadStop, h1]);
   useEffect(() => {
     document.title = `${gone ? 'Job not found' : (j?.name ?? 'Job')} · Stream Lab`;
   }, [j?.name, gone]);
@@ -452,7 +464,7 @@ export function JobOverview({
         <div className="flex flex-wrap items-center gap-2">
           {/* ACT-01: stop with savepoint, the default stop, for a running job on a writable connection. A
               read-only connection hides it (JOB-READONLY above; hidden vs disabled is a pending ruling). */}
-          {j && !gone && !c.readOnly && j.state === 'RUNNING' && (
+          {canStop && (
             <Button icon={<Square size={16} aria-hidden="true" />} onClick={() => setStopping(true)}>
               Stop with savepoint
             </Button>

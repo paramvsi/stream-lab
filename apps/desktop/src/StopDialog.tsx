@@ -3,7 +3,17 @@ import { getSavepointDir, savepointStatus, stopWithSavepoint, type FlinkHttp } f
 import { Button, Dialog, Field, Input, Loading, Skeleton, useToastOptional } from '@sl/ui';
 import { useEffect, useId, useRef, useState, type RefObject } from 'react';
 
-type Step = { name: 'confirm' } | { name: 'running' } | { name: 'failed'; error: AppError };
+type Step =
+  | { name: 'confirm' }
+  | { name: 'running' }
+  | { name: 'failed'; error: AppError }
+  /** The status could not be read 3 times in a row: no more reads; the stop may still finish on the cluster. */
+  | { name: 'lost'; error: AppError };
+
+/** Reads in a row that may fail before giving up (a 404 trigger id, a cluster gone): never ask forever. */
+const MAX_READ_FAILS = 3;
+const LOST =
+  'Stream Lab stopped asking for its progress. The stop may still finish on the cluster: check the job.';
 
 /** How often a running stop is asked about: one GET each (the stop itself is never sent again); slower when a read fails. */
 const EVERY_MS = 1_000;
@@ -120,10 +130,12 @@ export function StopDialog({
     if (step.name !== 'running' || !rid) return;
     let live = true;
     let timer: ReturnType<typeof setTimeout> | undefined;
+    let fails = 0;
     const ask = () =>
       savepointStatus(http, conn, jid, rid).then(
         (s) => {
           if (!live) return;
+          fails = 0;
           if (!s.done) timer = setTimeout(ask, EVERY_MS);
           else if ('location' in s) {
             // D15c: the job page with a toast, as drawn; the dialog closes.
@@ -131,9 +143,11 @@ export function StopDialog({
             closedByUs.current = true;
             onOpenChange(false);
             const location = s.location;
+            // D15c "refund-matcher stopped. Savepoint sp-a71e saved.": the savepoint's own folder name.
+            const name = location.split('/').filter(Boolean).at(-1) ?? location;
             toast?.({
               severity: 'success',
-              message: `${job} stopped. Savepoint saved.`,
+              message: `${job} stopped. Savepoint ${name} saved.`,
               action: { label: 'Copy path', onClick: () => copy(location) },
             });
           } else if (openRef.current) setStep({ name: 'failed', error: s.error });
@@ -143,8 +157,15 @@ export function StopDialog({
             toast?.({ severity: p.severity, message: p.message });
           }
         },
-        // A read that fails is asked again, slower: a GET; the stop itself is not re-sent.
-        () => live && (timer = setTimeout(ask, AFTER_FAIL_MS)),
+        // A read that fails is asked again, slower (a GET; the stop itself is not re-sent), up to MAX_READ_FAILS.
+        (e: unknown) => {
+          if (!live) return;
+          if (++fails < MAX_READ_FAILS) return void (timer = setTimeout(ask, AFTER_FAIL_MS));
+          const error = asAppError(e, conn);
+          if (openRef.current) return setStep({ name: 'lost', error });
+          setStep({ name: 'confirm' });
+          toast?.({ severity: 'warning', message: `${present(error).message} ${LOST}` });
+        },
       );
     timer = setTimeout(ask, EVERY_MS);
     return () => {
@@ -194,8 +215,15 @@ export function StopDialog({
           <Skeleton className="mt-3 h-2 w-full" />
         </Loading>
         <p className="m-0 text-[13px] text-muted">
-          You can close this; the stop goes on, and you will be told when it ends.
+          You can close this; the stop goes on. Stay on this page to be told when it ends.
         </p>
+      </Dialog>
+    );
+  if (step.name === 'lost')
+    return (
+      <Dialog {...shared} title={`Stopping ${job}`} footer={<Button onClick={close}>Close</Button>}>
+        <ErrorBanner error={step.error} />
+        <p className="m-0 text-[14px]">{LOST}</p>
       </Dialog>
     );
   if (step.name === 'failed')

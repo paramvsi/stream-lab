@@ -735,4 +735,43 @@ describe('OPS-01 · Logs (D18, D18b)', () => {
       URL.createObjectURL = create;
     }
   });
+
+  it('audit dl2: a cluster name keeps its own letters (Arabic, spaces); only characters a file name can not hold change', async () => {
+    const names: string[] = [];
+    const create = URL.createObjectURL;
+    URL.createObjectURL = vi.fn(() => 'blob:log');
+    const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(function (
+      this: HTMLAnchorElement,
+    ) {
+      names.push(this.download);
+    });
+    try {
+      for (const name of ['مدفوعات الإمارات', 'Payments Prod/EU']) {
+        const { unmount } = render(
+          <TooltipProvider>
+            <ToastProvider>
+              <Logs
+                c={{ ...conn, name }}
+                transport={() =>
+                  noTms(async (r) =>
+                    r.path === '/jobmanager/logs'
+                      ? list([{ name: 'jobmanager.log', size: 1, mtime: 1 }])
+                      : ok(200, text),
+                  )
+                }
+                makeWorker={worker}
+              />
+            </ToastProvider>
+          </TooltipProvider>,
+        );
+        await screen.findByRole('table', { name: 'Log lines' });
+        await userEvent.click(screen.getByRole('button', { name: 'Download' }));
+        unmount();
+      }
+      expect(names).toEqual(['مدفوعات الإمارات-jobmanager.log', 'Payments Prod_EU-jobmanager.log']);
+    } finally {
+      click.mockRestore();
+      URL.createObjectURL = create;
+    }
+  });
 });

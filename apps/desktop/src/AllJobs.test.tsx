@@ -175,4 +175,17 @@ describe('JOB-11 · jobs across connections (board X18)', () => {
     expect(screen.getByRole('button', { name: 'Failing' })).toBeInTheDocument(); // prod is down: no "Failing 0"
     expect(screen.queryByText('No jobs match this search or filter.')).toBeNull(); // prod's jobs are missing
   });
+
+  it('audit of 96b81e0: one connection answered, another still reading: a filter with no match among the read says nothing yet', async () => {
+    let release = () => {};
+    show((c) => async () => {
+      if (c.id === 'p') await new Promise<void>((r) => (release = r)); // prod still reading (it holds the failing job)
+      return ok({ jobs: [row(c.id + '1', `${c.id}-job`, c.id === 'p' ? 'RESTARTING' : 'RUNNING')] });
+    });
+    await screen.findByText('s-job');
+    await userEvent.click(screen.getByRole('button', { name: 'Failing' }));
+    expect(screen.queryByText('No jobs match this search or filter.')).toBeNull();
+    release();
+    expect(await screen.findByText('p-job')).toBeInTheDocument(); // the filter's match was on its way
+  });
 });

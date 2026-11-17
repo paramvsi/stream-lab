@@ -323,11 +323,13 @@ export function StopDialog({
             <Button
               variant="primary"
               onClick={() => {
-                // As an opening: the question with its folder read (a resumed stop never read it).
                 setStep({ name: 'confirm' });
-                setDir(null);
-                setDirError(null);
-                setOpening((n) => n + 1);
+                // A resumed stop never read the folder: read it now, as an opening does. A folder already there
+                // (perhaps typed) stays: a form keeps its content on error.
+                if (dir === null) {
+                  setDirError(null);
+                  setOpening((n) => n + 1);
+                }
               }}
             >
               Try again

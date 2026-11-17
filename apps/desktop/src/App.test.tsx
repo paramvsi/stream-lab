@@ -951,6 +951,28 @@ describe('APP-01 · command palette (board G01)', () => {
     await new Promise((r) => setTimeout(r, 300));
     expect(posts.filter((p) => p.endsWith('/savepoints'))).toEqual([]); // only the stop, never a trigger meanwhile
   });
+
+  it('audit of ca74bd0 #1: a palette "Stop with savepoint" on a job whose stop runs in the background opens its progress', async () => {
+    const posts: string[] = [];
+    await withOne(jobHttp(posts));
+    await userEvent.keyboard('{Meta>}k{/Meta}');
+    await userEvent.type(screen.getByRole('combobox', { name: 'Search commands' }), 'refund');
+    await screen.findByRole('option', { name: /^refund-matcher/ });
+    await userEvent.keyboard('{Enter}');
+    await userEvent.click(await screen.findByRole('button', { name: 'Stop with savepoint' }));
+    const confirm = await screen.findByRole('dialog', { name: /with a savepoint\?/ });
+    await within(confirm).findByDisplayValue('s3://payments/savepoints');
+    await userEvent.click(within(confirm).getByRole('button', { name: 'Stop with savepoint' }));
+    await userEvent.click(await screen.findByRole('button', { name: 'Run in background' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Jobs' }));
+    (document.activeElement as HTMLElement).blur();
+    await userEvent.keyboard('{Meta>}k{/Meta}');
+    await userEvent.type(screen.getByRole('combobox', { name: 'Search commands' }), 'stop with refund');
+    await screen.findByRole('option', { name: /Stop with savepoint: refund-matcher/ });
+    await userEvent.keyboard('{Enter}');
+    expect(await screen.findByRole('dialog', { name: 'Stopping refund-matcher' })).toBeInTheDocument();
+    expect(posts.filter((p) => p.endsWith('/stop'))).toHaveLength(1);
+  });
 });
 
 describe('APP-04 · Settings (boards D21)', () => {

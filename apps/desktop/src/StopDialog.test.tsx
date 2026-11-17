@@ -567,4 +567,25 @@ describe('the app keeps a sent stop (resume, onSent)', () => {
       });
       expect(await screen.findByDisplayValue('s3://sp')).toBeInTheDocument();
     }));
+
+  it('audit of ca74bd0 #2: Try again keeps a folder the user typed (a form keeps its content on error)', () =>
+    run(async () => {
+      const http: FlinkHttp = async (r) => {
+        if (r.path === '/jobmanager/config') return cfg('s3://sp');
+        if (r.method === 'POST') return ok(202, { 'request-id': 'r1' });
+        return failedSp;
+      };
+      render(<Harness http={http} />);
+      const d = await screen.findByRole('dialog');
+      const field = await within(d).findByDisplayValue('s3://sp');
+      await userEvent.clear(field);
+      await userEvent.type(field, 's3://sp-manual');
+      await userEvent.click(within(d).getByRole('button', { name: 'Stop with savepoint' }));
+      await vi.advanceTimersByTimeAsync(1_100);
+      await screen.findByRole('dialog', { name: 'Savepoint failed' });
+      await userEvent.click(screen.getByRole('button', { name: 'Try again' }), {
+        advanceTimers: vi.advanceTimersByTime,
+      });
+      expect(await screen.findByDisplayValue('s3://sp-manual')).toBeInTheDocument();
+    }));
 });

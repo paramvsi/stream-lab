@@ -448,11 +448,12 @@ export function JobOverview({
   // pick is not kept for then).
   if (act && (j || error)) {
     setAct(undefined);
-    // `stop`: a stop the app still follows (its dialog may not have said so yet on this first decision).
-    if (canStop && !sp.busy && !stopping && !stopRunning && !stop) {
-      if (act === 'stop') setStopping(true);
-      else setFire((f) => f + 1);
-    }
+    // Stop opens its dialog (never a POST without its confirm; a stop already running shows its progress).
+    // Trigger also waits for a stop that runs, or one the app still follows (`stop`: its dialog may not have said
+    // so yet on this first decision).
+    const free = canStop && !sp.busy && !stopping;
+    if (act === 'stop' && free) setStopping(true);
+    else if (act === 'savepoint' && free && !stopRunning && !stop) setFire((f) => f + 1);
   }
   const fired = useRef(0);
   useEffect(() => {

@@ -44,22 +44,38 @@ describe('ACT-01 / ACT-02 · job actions (FLINK_API "Savepoint", "Stop", "Cancel
     expect(seen[0]!.body).toEqual({ 'cancel-job': false });
   });
 
-  it('no 409 is invented for trigger/stop: Flink\'s "already in progress" text is API-409; its 400 for no folder is SP-DIR-MISSING', async () => {
+  it('a 400 for no folder is SP-DIR-MISSING, in the words Flink 1.20+ (and 1.18/1.19) send; other errors keep their code', async () => {
     const text = (status: number, msg: string) => async () => ({
       status,
       headers: {},
       url: '',
       body: JSON.stringify({ errors: [msg] }),
     });
+    // FLINK: SavepointHandlers.java, release-1.20: the key is CheckpointingOptions.SAVEPOINT_DIRECTORY.key().
     await expect(
-      stopWithSavepoint(
-        text(500, 'Internal server error. A savepoint is already in progress.'),
+      triggerSavepoint(
+        text(
+          400,
+          'Config key [execution.checkpointing.savepoint-dir] is not set. Property [target-directory] must be provided.',
+        ),
         'prod',
         'j',
         'refund-matcher',
-        { dir: 's3://sp', drain: false },
+        undefined,
       ),
-    ).rejects.toMatchObject({ code: 'API-409', params: { job: 'refund-matcher' } });
+    ).rejects.toMatchObject({ code: 'SP-DIR-MISSING' });
+    await expect(
+      stopWithSavepoint(
+        text(
+          400,
+          'Config key [execution.checkpointing.savepoint-dir] is not set. Property [targetDirectory] must be provided.',
+        ),
+        'prod',
+        'j',
+        'refund-matcher',
+        { dir: undefined, drain: false },
+      ),
+    ).rejects.toMatchObject({ code: 'SP-DIR-MISSING' });
     await expect(
       triggerSavepoint(
         text(
@@ -71,7 +87,7 @@ describe('ACT-01 / ACT-02 · job actions (FLINK_API "Savepoint", "Stop", "Cancel
         'refund-matcher',
         undefined,
       ),
-    ).rejects.toMatchObject({ code: 'SP-DIR-MISSING' });
+    ).rejects.toMatchObject({ code: 'SP-DIR-MISSING' }); // 1.18 / 1.19
     await expect(
       triggerSavepoint(text(500, 'Internal server error.'), 'prod', 'j', 'refund-matcher', 's3://sp'),
     ).rejects.toMatchObject({
@@ -155,25 +171,5 @@ describe('ACT-01 / ACT-02 · job actions (FLINK_API "Savepoint", "Stop", "Cancel
         'refund-matcher',
       ),
     ).rejects.toMatchObject({ code: 'API-409', params: { job: 'refund-matcher', state: 'finished' } });
-  });
-
-  it('a savepoint that failed because another was already in progress is API-409, not SP-FAILED', async () => {
-    const s = await savepointStatus(
-      async () =>
-        reply(200, {
-          status: { id: 'COMPLETED' },
-          operation: {
-            'failure-cause': {
-              class: 'x.CheckpointException',
-              'stack-trace': 'x.CheckpointException: A savepoint is already in progress.',
-            },
-          },
-        }),
-      'prod',
-      'j',
-      'r',
-      'refund-matcher',
-    );
-    expect(s).toMatchObject({ done: true, error: { code: 'API-409', params: { job: 'refund-matcher' } } });
   });
 });

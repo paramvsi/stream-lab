@@ -13,11 +13,13 @@ import {
  * ACT-01 / ACT-02 (FLINK_API "Savepoint", "Stop", "Cancel"). Each call is one request, never retried (CLAUDE.md:
  * no automatic retry of a POST; after a timeout the caller reads the job's state first). Trigger, stop and cancel
  * answer 202.
- * Conflicts (API-409, ERROR_CATALOG: "HTTP 409 or Flink 'already in progress' message"): the savepoint handlers
- * send no 409; a conflict comes as "already in progress" text (an error body, or the operation's failure cause).
- * Cancel's own 409 is "the job has already reached another terminal state (X)". A trigger or stop with no folder
- * and no state.savepoints.dir is a 400 naming that key: SP-DIR-MISSING (the dialog checks /jobmanager/config
- * first; this is the backstop).
+ * Errors as Flink 1.20 sends them (checked in source):
+ * - Cancel's 409: "the job has already reached another terminal state (X)" → API-409 with that state.
+ * - A trigger or stop with no folder and no cluster default: 400 "Config key [<key>] is not set. Property [...]
+ *   must be provided." (key execution.checkpointing.savepoint-dir from 1.20, state.savepoints.dir before) →
+ *   SP-DIR-MISSING (the dialog checks /jobmanager/config first; this is the backstop).
+ * - ponytail: the savepoint and stop handlers send no conflict signal (1.20 queues a second request; too many
+ *   queued fail as TOO_MANY_CHECKPOINT_REQUESTS, shown as SP-FAILED). ACT-05's API-409 there needs a ruling.
  * FLINK: https://github.com/apache/flink/blob/release-1.20/flink-runtime/src/main/java/org/apache/flink/runtime/rest/handler/job/savepoints/SavepointHandlers.java
  * FLINK: https://github.com/apache/flink/blob/release-1.20/flink-runtime/src/main/java/org/apache/flink/runtime/rest/handler/job/JobCancellationHandler.java
  * FLINK: https://github.com/apache/flink/blob/release-1.20/flink-runtime/src/main/java/org/apache/flink/runtime/rest/messages/job/savepoints/SavepointInfo.java
@@ -37,9 +39,7 @@ const Status = z.looseObject({
     .optional(),
 });
 
-const IN_PROGRESS = /already in progress/i;
-const busy = (job: string, cause: unknown) =>
-  new AppError('API-409', { job, state: 'busy with another savepoint or stop' }, cause);
+const NO_DIR = /Config key \[(execution\.checkpointing\.savepoint-dir|state\.savepoints\.dir)\] is not set/;
 
 /** One request; transport failures and HTTP errors in catalog words (as getJson), the body kept for its text. */
 async function send(
@@ -63,9 +63,7 @@ async function send(
 
 async function post(http: FlinkHttp, conn: string, job: string, req: FlinkRequest, verb: string) {
   const r = await send(http, conn, req, verb, (r) => {
-    if (IN_PROGRESS.test(r.body)) return busy(job, r.body);
-    if (r.status === 400 && r.body.includes('state.savepoints.dir'))
-      return new AppError('SP-DIR-MISSING', {}, r.body);
+    if (r.status === 400 && NO_DIR.test(r.body)) return new AppError('SP-DIR-MISSING', {}, r.body);
     return null;
   });
   let body: unknown;
@@ -135,7 +133,6 @@ export async function savepointStatus(
   conn: string,
   jid: string,
   rid: string,
-  job = jid,
 ): Promise<SavepointState> {
   const r = await send(
     http,
@@ -156,7 +153,6 @@ export async function savepointStatus(
   const op = s.operation;
   if (op?.location) return { done: true, location: op.location };
   const cause = op?.['failure-cause'] ?? {};
-  if (IN_PROGRESS.test(cause['stack-trace'] ?? '')) return { done: true, error: busy(job, cause) };
   return { done: true, error: new AppError('SP-FAILED', { reason: causeText(cause) }, cause) };
 }
 

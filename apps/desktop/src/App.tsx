@@ -262,6 +262,7 @@ export function App({
           connections={connections}
           transport={transport}
           onOpenJob={(id, jid) => setScreen({ name: 'job', id, jid })}
+          onFleet={home}
         />
       );
     if (screen.name === 'settings')

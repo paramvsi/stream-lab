@@ -19,11 +19,16 @@ const row = (jid: string, name: string, state: string) => ({
   'last-modification': 1,
 });
 const ok = (body: unknown) => ({ status: 200, headers: {}, url: '', body: JSON.stringify(body) });
-const show = (transport: (c: Connection) => FlinkHttp, onOpenJob = vi.fn()) => {
+const show = (transport: (c: Connection) => FlinkHttp, onOpenJob = vi.fn(), onFleet = vi.fn()) => {
   render(
     <TooltipProvider>
       <ToastProvider>
-        <AllJobs connections={[prod, staging]} transport={transport} onOpenJob={onOpenJob} />
+        <AllJobs
+          connections={[prod, staging]}
+          transport={transport}
+          onOpenJob={onOpenJob}
+          onFleet={onFleet}
+        />
       </ToastProvider>
     </TooltipProvider>,
   );
@@ -78,5 +83,36 @@ describe('JOB-11 · jobs across connections (board X18)', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Retry' }));
     await vi.waitFor(() => expect(screen.queryByText(/did not answer/)).toBeNull());
     expect(screen.getByText('All connections · 2 jobs')).toBeInTheDocument();
+  });
+
+  it('audit of 314460c #1–#3: Fleet goes back; Retry re-reads only who failed, keeps focus, and drops no answer in flight', async () => {
+    const asked = { p: 0, s: 0 };
+    let release = () => {};
+    const onFleet = vi.fn();
+    show(
+      (c) => async () => {
+        asked[c.id as 'p' | 's']++;
+        if (c.id === 's' && asked.s === 1) return { status: 503, headers: {}, url: '', body: '' };
+        if (c.id === 'p') await new Promise<void>((r) => (release = r)); // prod is slow
+        return ok({ jobs: [row(c.id + '1', `${c.id}-job`, 'RUNNING')] });
+      },
+      vi.fn(),
+      onFleet,
+    );
+    await screen.findByText(/did not answer/);
+    expect(screen.getByText('Reading the jobs of 1 connection…')).toBeInTheDocument(); // #4: not "0 jobs" silently
+    await userEvent.click(screen.getByRole('button', { name: 'Retry' }));
+    expect(screen.getByRole('heading', { level: 1, name: 'Jobs' })).toHaveFocus();
+    await vi.waitFor(() => expect(screen.getByText('s-job')).toBeInTheDocument());
+    release(); // prod's first read answers, after the Retry: kept
+    expect(await screen.findByText('p-job')).toBeInTheDocument();
+    expect(asked).toEqual({ p: 1, s: 2 });
+    await userEvent.click(screen.getByRole('button', { name: 'Fleet' }));
+    expect(onFleet).toHaveBeenCalled();
+  });
+
+  it('audit of 314460c #4: every connection answered with no jobs: an empty state, not a bare table', async () => {
+    show(() => async () => ok({ jobs: [] }));
+    expect(await screen.findByRole('heading', { name: 'No jobs on any connection yet' })).toBeInTheDocument();
   });
 });

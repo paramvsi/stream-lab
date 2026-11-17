@@ -35,7 +35,7 @@ describe('OPS-01 · logs (D18)', () => {
     expect(l.map((x) => x.name)).toEqual(['jobmanager.log', 'jobmanager.log.1']);
   });
 
-  it('getJmLog: the file as text (encoded name); a missing one is API-404-style catalog error, never raw', async () => {
+  it('getJmLog: the file as text (encoded name); a missing one is LOG-GONE, never raw', async () => {
     let path = '';
     expect(
       await getJmLog(async (r) => ((path = r.path), reply(200, 'a\nb\n')()), 'prod', 'job manager.log'),
@@ -44,7 +44,7 @@ describe('OPS-01 · logs (D18)', () => {
     await expect(
       getJmLog(reply(404, '{"errors":["This file does not exist in JobManager log dir."]}'), 'prod', 'x'),
     ).rejects.toMatchObject({
-      code: expect.stringMatching(/^API-/),
+      code: 'LOG-GONE', // a missing file says so (see the LOG-GONE test)
     });
   });
 
@@ -89,5 +89,30 @@ describe('OPS-01 · logs (D18)', () => {
       await getTmLog(async (r) => (paths.push(r.path), reply(200, 'x')()), 'prod', 'tm 1', 'taskmanager.log'),
     ).toBe('x');
     expect(paths).toEqual(['/taskmanagers/tm%201/logs', '/taskmanagers/tm%201/logs/taskmanager.log']);
+  });
+
+  it('a log file that is gone is LOG-GONE on both: JobManager 404, TaskManager 500 "does not exist on the TaskExecutor"', async () => {
+    await expect(
+      getJmLog(
+        reply(404, '{"errors":["This file does not exist in JobManager log dir."]}'),
+        'prod',
+        'jobmanager.log.3',
+      ),
+    ).rejects.toMatchObject({
+      code: 'LOG-GONE',
+      params: { file: 'jobmanager.log.3' },
+    });
+    const tm500 = JSON.stringify({
+      errors: [
+        'Internal server error.',
+        '<Exception on server side: java.io.FileNotFoundException: The file taskmanager.log.3 does not exist on the TaskExecutor.',
+      ],
+    });
+    await expect(getTmLog(reply(500, tm500), 'prod', 'tm1', 'taskmanager.log.3')).rejects.toMatchObject({
+      code: 'LOG-GONE',
+    });
+    await expect(
+      getTmLog(reply(500, '{"errors":["Internal server error."]}'), 'prod', 'tm1', 'x'),
+    ).rejects.toMatchObject({ code: 'API-5XX' });
   });
 });

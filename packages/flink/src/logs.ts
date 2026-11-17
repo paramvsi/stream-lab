@@ -1,7 +1,7 @@
 import { AppError } from '@sl/errors';
 import { z } from 'zod';
 import { getJson } from './fleet';
-import { fromTransport, httpStatusError, TransportError, type FlinkHttp } from './http';
+import { fromTransport, httpStatusError, TransportError, type FlinkHttp, type FlinkResponse } from './http';
 
 /**
  * OPS-01 / board D18: JobManager logs. GET /jobmanager/logs is LogListInfo {logs: [{name, size, mtime}]} (size and
@@ -11,7 +11,7 @@ import { fromTransport, httpStatusError, TransportError, type FlinkHttp } from '
  * FLINK: https://github.com/apache/flink/blob/release-1.20/flink-runtime/src/main/java/org/apache/flink/runtime/rest/messages/LogListInfo.java
  * FLINK: https://github.com/apache/flink/blob/release-1.20/flink-runtime/src/main/java/org/apache/flink/runtime/rest/handler/cluster/AbstractJobManagerFileHandler.java
  * TaskManager logs: /taskmanagers/:taskmanagerid/logs and /taskmanagers/:taskmanagerid/logs/:filename
- * (TaskManagerLogListHeaders, TaskManagerCustomLogHeaders, release-1.20).
+ * (TaskManagerLogsHeaders, TaskManagerCustomLogHeaders, release-1.20).
  */
 const LogList = z.looseObject({
   logs: z.array(z.looseObject({ name: z.string(), size: z.number(), mtime: z.number() })),
@@ -32,10 +32,25 @@ export async function listJmLogs(http: FlinkHttp, conn: string, timeoutMs = 10_0
 
 /** One JobManager log file's text (the whole file: Flink has no partial read). */
 export const getJmLog = (http: FlinkHttp, conn: string, name: string, timeoutMs = 30_000) =>
-  getText(http, conn, `/jobmanager/logs/${encodeURIComponent(name)}`, timeoutMs);
+  getText(
+    http,
+    conn,
+    `/jobmanager/logs/${encodeURIComponent(name)}`,
+    timeoutMs,
+    name,
+    (r) => r.status === 404,
+  );
 
 /** A plain-text GET in catalog words (transport and HTTP errors as getJson gives them). */
-async function getText(http: FlinkHttp, conn: string, path: string, timeoutMs: number): Promise<string> {
+async function getText(
+  http: FlinkHttp,
+  conn: string,
+  path: string,
+  timeoutMs: number,
+  file: string,
+  /** How this process says the file is not there (LOG-GONE): JobManager 404, TaskManager 500 with its text. */
+  gone: (r: FlinkResponse) => boolean,
+): Promise<string> {
   let r;
   try {
     r = await http({ method: 'GET', path, timeoutMs });
@@ -44,6 +59,7 @@ async function getText(http: FlinkHttp, conn: string, path: string, timeoutMs: n
     if (e instanceof AppError) throw e;
     throw new AppError('CONN-IO', { host: conn, reason: 'the request failed' }, e);
   }
+  if (r.status >= 400 && gone(r)) throw new AppError('LOG-GONE', { file }, r.body);
   if (r.status >= 400) throw httpStatusError(r, conn, 'reading a log');
   return r.body;
 }
@@ -66,8 +82,17 @@ export async function listTmLogs(
 }
 
 /** One TaskManager log file's text (/taskmanagers/:taskmanagerid/logs/:filename). */
+// FLINK: TaskExecutor throws FileNotFoundException "…does not exist on the TaskExecutor.", which the handler sends as
+// a 500 (AbstractTaskManagerFileHandler, release-1.20). An unknown TaskManager is a 404 (kept as API-4XX).
 export const getTmLog = (http: FlinkHttp, conn: string, tm: string, name: string, timeoutMs = 30_000) =>
-  getText(http, conn, `/taskmanagers/${encodeURIComponent(tm)}/logs/${encodeURIComponent(name)}`, timeoutMs);
+  getText(
+    http,
+    conn,
+    `/taskmanagers/${encodeURIComponent(tm)}/logs/${encodeURIComponent(name)}`,
+    timeoutMs,
+    name,
+    (r) => r.status >= 500 && r.body.includes('does not exist on the TaskExecutor'),
+  );
 
 /** LOG-TOO-LARGE: over 50 MB, only the last lines are shown. */
 export const LOG_TOO_LARGE_BYTES = 50 * 1024 * 1024;

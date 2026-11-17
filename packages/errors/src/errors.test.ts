@@ -16,8 +16,8 @@ const codes = Object.keys(CATALOG) as ErrorCode[];
 const sample = (code: ErrorCode) => Object.fromEntries(paramsOf(code).map((p) => [p, `<${p}>`]));
 
 describe('ERR · catalog', () => {
-  it('has 154 codes, each keyed by its own code', () => {
-    expect(codes).toHaveLength(154);
+  it('has 155 codes, each keyed by its own code', () => {
+    expect(codes).toHaveLength(155);
     for (const c of codes) expect(CATALOG[c].code).toBe(c);
   });
 

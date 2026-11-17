@@ -1256,6 +1256,50 @@ describe('JOB-02 · Job overview (board D08)', () => {
     },
   );
 
+  it(
+    'audit bp8: a read in flight across a restart, and the badges from before it, never show after it',
+    { timeout: 30_000 },
+    async () => {
+      vi.useFakeTimers({ shouldAdvanceTime: true });
+      try {
+        let state = 'RUNNING';
+        let after = false;
+        show(async (req) => {
+          if (req.path.endsWith('/backpressure')) {
+            const hot = !after; // decided when asked: a read sent before the restart answers HIGH after it
+            await new Promise((r) => setTimeout(r, 1_500));
+            return {
+              status: 200,
+              headers: {},
+              url: '',
+              body: JSON.stringify({
+                status: 'ok',
+                backpressureLevel: hot ? 'high' : 'ok',
+                subtasks: [{ ratio: hot ? 0.97 : 0 }],
+              }),
+            };
+          }
+          return answer(200, { ...detail, state })(req);
+        });
+        await screen.findByRole('list', { name: 'Job graph' });
+        for (let t = 0; t < 10 && !screen.queryAllByText('backpressured 97%').length; t++)
+          await act(async () => vi.advanceTimersByTimeAsync(1_000));
+        expect(screen.queryAllByText('backpressured 97%').length).toBeGreaterThan(0);
+        await act(async () => vi.advanceTimersByTimeAsync(5_500)); // the next round is now mid-read
+        state = 'RESTARTING';
+        await act(async () => vi.advanceTimersByTimeAsync(2_500));
+        after = true;
+        state = 'RUNNING';
+        for (let t = 0; t < 12; t++) {
+          await act(async () => vi.advanceTimersByTimeAsync(500));
+          expect(screen.queryAllByText('backpressured 97%')).toHaveLength(0);
+        }
+      } finally {
+        vi.useRealTimers();
+      }
+    },
+  );
+
   it('lists the operators with parallelism and status', async () => {
     show(answer(200, detail));
     const table = await screen.findByRole('table', { name: 'Operators' });

@@ -274,7 +274,7 @@ export function JobOverview({
           v,
           await getBackpressure(http, conn, jid, v, j.state, Math.min(t, 2_000)).then(
             (value) => {
-              // Stamped when it came, and never into a map a restart has cleared since.
+              // Stamped when it came, and never into a map a restart has cleared since (guard: bp8).
               if (bpGen.current === gen) bpRead.current.set(v, { value, at: Date.now() });
               return { status: 'fulfilled' as const, value };
             },
@@ -292,7 +292,7 @@ export function JobOverview({
           return [v, r && now - r.at <= BP_MAX_AGE ? r.value : null];
         }),
       );
-      if (bpGen.current === gen) setBpAged(aged);
+      setBpAged(aged);
       // §4: every vertex read failing is a failed read (the poll counts it: the stale note), not "all fine".
       const rs = [...got.values()];
       const failed = rs.find((r) => r.status === 'rejected');

@@ -2,7 +2,9 @@ import { AppError, ErrorBanner, present } from '@sl/errors';
 import type { FlinkCheckpoint, FlinkCheckpointStats } from '@sl/flink';
 import { StatusBadge, Table, type BadgeTone, type Column } from '@sl/ui';
 import { duration, size } from './format';
+import { Explain } from './Explain';
 import { Kpi } from './Kpi';
+import { useState } from 'react';
 
 const STATUS: Record<string, [BadgeTone, string]> = {
   COMPLETED: ['success', 'Completed'],
@@ -46,6 +48,9 @@ export function Checkpoints(
   props:
     { off: true } | { off?: false; stats: FlinkCheckpointStats; failedInRow: { n: number; more: boolean } },
 ) {
+  // JOB-10: once checkpoints have been failing, "Explain checkpoints" stays while this tab is open (a completed
+  // checkpoint must not take an open drawer, or focus, away).
+  const [explain, setExplain] = useState(false);
   if (props.off)
     return <p className="m-0 text-[14px] text-muted">{present(new AppError('JOB-CKPT-NONE')).message}</p>;
   const { stats, failedInRow: f } = props;
@@ -64,11 +69,17 @@ export function Checkpoints(
           ).replace(/\.$/, ''),
         })
       : null;
+  if (failing && !explain) setExplain(true);
   // Checkpoints only: savepoints have their own tab, and the KPI and banner leave them out too.
   const history = stats.history.filter((c) => !c.is_savepoint).sort((a, b) => b.id - a.id);
   return (
     <div className="flex flex-col gap-5">
       {failing && <ErrorBanner error={failing} handles={new Set()} />}
+      {explain && (
+        <div className="flex justify-end">
+          <Explain term="checkpoint" label="Explain checkpoints" />
+        </div>
+      )}
       <div className="grid grid-cols-[repeat(auto-fill,minmax(200px,1fr))] gap-4">
         <Kpi label="Completed" value={stats.counts.completed.toLocaleString('en-US')} />
         <Kpi

@@ -1,4 +1,7 @@
 import { render, screen, waitFor, within } from '@testing-library/react';
+import { termById } from '@sl/course';
+import { TooltipProvider } from '@sl/ui';
+import userEvent from '@testing-library/user-event';
 import { describe, expect, it } from 'vitest';
 import { Checkpoints } from './Checkpoints';
 
@@ -121,5 +124,34 @@ describe('JOB-12 · Checkpoints tab (boards D12, D12b)', () => {
       screen.getByText('Checkpointing is off for this job, so it cannot recover state after a failure.'),
     ).toBeInTheDocument();
     expect(screen.queryByRole('table', { name: 'Checkpoints' })).toBeNull();
+  });
+});
+
+describe('JOB-10 · Explain checkpoints (board D08f pattern)', () => {
+  const failing = stats(
+    [cp(4812, 'FAILED', { end_to_end_duration: 60_000, checkpointed_size: 0 }), cp(4809, 'COMPLETED')],
+    1,
+    { id: 4812, failure_message: 'Checkpoint expired before completing.' },
+  );
+  const healthy = stats([cp(4813, 'COMPLETED'), cp(4812, 'FAILED')], 1);
+  const view = (s: ReturnType<typeof stats>, n: number) => (
+    <TooltipProvider>
+      <Checkpoints stats={s} failedInRow={{ n, more: false }} />
+    </TooltipProvider>
+  );
+
+  it('with checkpoints failing, "Explain checkpoints" opens the course concept; it stays once they recover', async () => {
+    const { rerender } = render(view(failing, 1));
+    await userEvent.click(screen.getByRole('button', { name: 'Explain checkpoints' }));
+    const d = await screen.findByRole('dialog', { name: 'Checkpoint' });
+    expect(within(d).getByText(termById('checkpoint')!.body)).toBeInTheDocument();
+    rerender(view(healthy, 0)); // a checkpoint completed: the banner goes, the explanation stays
+    expect(screen.queryByText(/^Checkpoint 4812 failed/)).toBeNull();
+    expect(d.isConnected).toBe(true);
+  });
+
+  it('with no failure, there is nothing to explain', () => {
+    render(view(healthy, 0));
+    expect(screen.queryByRole('button', { name: 'Explain checkpoints' })).toBeNull();
   });
 });

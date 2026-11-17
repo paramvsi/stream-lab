@@ -2,8 +2,11 @@ import { AppError, ErrorBanner, present } from '@sl/errors';
 import {
   atLeast,
   getJmLog,
+  getTmLog,
   LOG_TAIL_LINES,
   listJmLogs,
+  listTaskManagers,
+  listTmLogs,
   parseLog,
   tail,
   tooLarge,
@@ -48,6 +51,13 @@ const columns: Column<Row>[] = [
   },
 ];
 
+/** Board D18's process tabs: null is the JobManager, else a TaskManager's id. */
+type Proc = string | null;
+const listFor = (http: FlinkHttp, conn: string, p: Proc) =>
+  p ? listTmLogs(http, conn, p) : listJmLogs(http, conn);
+const readFor = (http: FlinkHttp, conn: string, p: Proc, n: string) =>
+  p ? getTmLog(http, conn, p, n) : getJmLog(http, conn, n);
+
 /** D18 Follow: how often the shown file is read again. */
 export const FOLLOW_MS = 2_000;
 
@@ -55,12 +65,13 @@ const asAppError = (e: unknown, conn: string) =>
   e instanceof AppError ? e : new AppError('CONN-IO', { host: conn, reason: 'the request failed' }, e);
 
 /**
- * OPS-01 / boards D18, D18b: the JobManager's logs. The newest file (listJmLogs first: a file name is never read
+ * OPS-01 / boards D18, D18b: the JobManager's and TaskManagers' logs. The newest file (listJmLogs first: a file name is never read
  * without the list), its entries (parseLog: Flink's default layout; a stack trace stays with its entry), the level
  * filter (All / Warn / Error) and a plain-text search. Over 50 MB: LOG-TOO-LARGE and the last 5,000 lines. A file
  * gone between list and read: LOG-GONE.
  * Regex search goes through logFilter's bounded worker (LOG-REGEX on the field; LOG-FILTER-FAILED if it breaks).
- * Follow re-reads the shown file every 2 s. ponytail: TaskManager tabs and Download are next slices.
+ * Follow re-reads the shown file every 2 s. Tabs: the JobManager and each TaskManager (by its id).
+ * ponytail: Download is the next slice.
  */
 export function Logs({
   c,
@@ -108,17 +119,18 @@ export function Logs({
   const shownSize = useRef<number | undefined>(undefined);
   /** A load (open, pick, Reload) starts a new one; Follow's reads stay in it (the regex answer carries over). */
   const [gen, setGen] = useState(0);
+  const [proc, setProc] = useState<Proc>(null);
   const load = useCallback(
-    (want: string | null) => {
+    (want: string | null, p: Proc) => {
       const id = ++req.current;
-      listJmLogs(http, c.name)
+      listFor(http, c.name, p)
         .then((fs) => {
           if (id !== req.current) return;
           setFiles(fs);
           const n = want && fs.some((f) => f.name === want) ? want : (fs[0]?.name ?? null);
           setName(n);
           if (!n) return;
-          return getJmLog(http, c.name, n).then((t) => {
+          return readFor(http, c.name, p, n).then((t) => {
             if (id !== req.current) return;
             shownSize.current = fs.find((f) => f.name === n)?.size;
             setText(t);
@@ -128,20 +140,48 @@ export function Logs({
     },
     [http, c.name],
   );
+  // The tabs' TaskManagers: at open and on Reload. A failure is said; the JobManager's logs still work.
+  const [tms, setTms] = useState<string[]>([]);
+  const [tmError, setTmError] = useState<AppError | null>(null);
+  const tmReq = useRef(0);
+  const loadTms = useCallback(() => {
+    const id = ++tmReq.current;
+    listTaskManagers(http, c.name).then(
+      (ts) => {
+        if (id !== tmReq.current) return;
+        setTms(ts.map((t) => t.id));
+        setTmError(null);
+      },
+      (e: unknown) => id === tmReq.current && setTmError(asAppError(e, c.name)),
+    );
+  }, [http, c.name]);
   useEffect(() => {
-    load(null);
+    loadTms();
+    const r = tmReq;
+    return () => {
+      r.current++;
+    };
+  }, [loadTms]);
+  useEffect(() => {
+    load(null, null);
     const r = req;
     return () => {
       r.current++; // gone: drop what is in flight
     };
   }, [load]);
-  const again = (want: string | null) => {
+  const again = (want: string | null, p: Proc = proc) => {
     setGen((g) => g + 1);
     setText(null);
     setError(null);
     setName(want); // the pick holds at once (the picker does not snap back; a failed list keeps it for Reload)
-    load(want);
+    load(want, p);
   };
+  const pickProc = (p: Proc) => {
+    setProc(p);
+    setFiles(null);
+    again(null, p);
+  };
+  const procName = useId();
 
   const file = files?.find((f) => f.name === name) ?? null;
 
@@ -160,7 +200,7 @@ export function Logs({
       if (busy) return;
       busy = true;
       const id = req.current;
-      listJmLogs(http, c.name)
+      listFor(http, c.name, proc)
         .then((fs) => {
           if (id !== req.current) return;
           const f = fs.find((x) => x.name === name);
@@ -168,7 +208,7 @@ export function Logs({
           setFiles(fs); // the size and the 50 MB guard stay current (over it, Follow stops: `big`)
           // The error clears once the tick ended well (not before its read: no blink when that read fails too).
           if (tooLarge(f.size) || f.size === shownSize.current) return setError(null);
-          return getJmLog(http, c.name, name).then((t) => {
+          return readFor(http, c.name, proc, name).then((t) => {
             if (id !== req.current) return;
             shownSize.current = f.size;
             setText(t);
@@ -185,7 +225,7 @@ export function Logs({
         });
     }, FOLLOW_MS);
     return () => clearInterval(t);
-  }, [follow, name, big, ready, http, c.name]);
+  }, [follow, name, big, ready, proc, http, c.name]);
   const followWhy = useId();
   // Split and parsed once per file; filtered per level and search.
   const parsed = useMemo(() => {
@@ -237,7 +277,13 @@ export function Logs({
         </h1>
         <div className="flex flex-wrap gap-2">
           {/* Always there (also with no files): the list and the file again, e.g. after a rollover. */}
-          <Button icon={<RotateCw size={16} aria-hidden="true" />} onClick={() => again(name)}>
+          <Button
+            icon={<RotateCw size={16} aria-hidden="true" />}
+            onClick={() => {
+              loadTms();
+              again(name);
+            }}
+          >
             Reload
           </Button>
           {onCluster && (
@@ -248,11 +294,30 @@ export function Logs({
         </div>
       </div>
       {error && <ErrorBanner error={error} />}
+      {tmError && <ErrorBanner error={tmError} />}
+      <fieldset className="m-0 flex w-fit flex-wrap gap-1 rounded-md border border-line p-0.5">
+        <legend className="sr-only">Process</legend>
+        {[null, ...tms].map((p) => (
+          <label
+            key={p ?? ''}
+            className={`cursor-pointer rounded px-3 py-1.5 text-[13px] font-medium has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-rose-600 ${proc === p ? 'bg-subtle text-ink' : 'text-muted'}`}
+          >
+            <input
+              type="radio"
+              name={procName}
+              checked={proc === p}
+              onChange={() => pickProc(p)}
+              className="sr-only"
+            />
+            {p ?? 'JobManager'}
+          </label>
+        ))}
+      </fieldset>
       {file && tooLarge(file.size) && (
         <ErrorBanner error={new AppError('LOG-TOO-LARGE', { size: size(file.size) })} />
       )}
       {files && !files.length ? (
-        <p className="m-0 text-[14px] text-muted">No log files on the JobManager of {c.name}.</p>
+        <p className="m-0 text-[14px] text-muted">No log files on {proc ?? `the JobManager of ${c.name}`}.</p>
       ) : (
         <>
           {file && (

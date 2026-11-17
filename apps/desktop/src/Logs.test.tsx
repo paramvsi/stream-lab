@@ -32,11 +32,21 @@ const worker = (): FilterWorker => {
   };
   return w;
 };
+/** A cluster with no TaskManagers, for the tests about the JobManager's logs. */
+const noTms =
+  (http: FlinkHttp): FlinkHttp =>
+  async (r) =>
+    r.path === '/taskmanagers' ? ok(200, '{"taskmanagers":[]}') : http(r);
 const show = (http: FlinkHttp, onCluster?: () => void) =>
   render(
     <TooltipProvider>
       <ToastProvider>
-        <Logs c={conn} transport={() => http} makeWorker={worker} {...(onCluster ? { onCluster } : {})} />
+        <Logs
+          c={conn}
+          transport={() => noTms(http)}
+          makeWorker={worker}
+          {...(onCluster ? { onCluster } : {})}
+        />
       </ToastProvider>
     </TooltipProvider>,
   );
@@ -268,10 +278,12 @@ describe('OPS-01 · Logs (D18, D18b)', () => {
         <ToastProvider>
           <Logs
             c={conn}
-            transport={() => async (r) =>
-              r.path === '/jobmanager/logs'
-                ? list([{ name: 'jobmanager.log', size: 1, mtime: 1 }])
-                : ok(200, ++reads === 1 ? v1 : v2)
+            transport={() =>
+              noTms(async (r) =>
+                r.path === '/jobmanager/logs'
+                  ? list([{ name: 'jobmanager.log', size: 1, mtime: 1 }])
+                  : ok(200, ++reads === 1 ? v1 : v2),
+              )
             }
             makeWorker={slow}
           />
@@ -422,7 +434,7 @@ describe('OPS-01 · Logs (D18, D18b)', () => {
       render(
         <TooltipProvider>
           <ToastProvider>
-            <Logs c={conn} transport={() => http} makeWorker={slow} />
+            <Logs c={conn} transport={() => noTms(http)} makeWorker={slow} />
           </ToastProvider>
         </TooltipProvider>,
       );
@@ -456,5 +468,73 @@ describe('OPS-01 · Logs (D18, D18b)', () => {
     const sw = screen.getByRole('switch', { name: 'Follow' });
     expect(sw).toBeDisabled();
     expect(sw).toHaveAccessibleDescription(/over 50 MB/);
+  });
+
+  /** Board D18's process tabs: the JobManager and each TaskManager. */
+  const tmHttp =
+    (o: { tms?: () => ReturnType<typeof ok>; asked?: string[] } = {}): FlinkHttp =>
+    async (r) => {
+      o.asked?.push(r.path);
+      if (r.path === '/taskmanagers')
+        return (
+          o.tms?.() ??
+          ok(
+            200,
+            JSON.stringify({
+              taskmanagers: [1, 2].map((n) => ({
+                hardware: { cpuCores: 8, physicalMemory: 1, freeMemory: 0, managedMemory: 0 },
+                id: `tm${n}-6d1f0c`,
+                path: `pekko.tcp://flink@10.0.4.2${n}:6122/user/rpc/taskmanager_0`,
+                dataPort: 41_000,
+                timeSinceLastHeartbeat: 1,
+                slotsNumber: 4,
+                freeSlots: 1,
+              })),
+            }),
+          )
+        );
+      if (r.path === '/jobmanager/logs') return list([{ name: 'jobmanager.log', size: 1, mtime: 1 }]);
+      if (r.path === '/taskmanagers/tm1-6d1f0c/logs')
+        return list([{ name: 'taskmanager.log', size: 1, mtime: 1 }]);
+      if (r.path === '/taskmanagers/tm2-6d1f0c/logs') return list([]);
+      if (r.path === '/taskmanagers/tm1-6d1f0c/logs/taskmanager.log')
+        return ok(200, '2026-11-17 12:00:00,000 INFO  x [] - a TaskManager line');
+      return ok(200, text);
+    };
+  const showRaw = (http: FlinkHttp) =>
+    render(
+      <TooltipProvider>
+        <ToastProvider>
+          <Logs c={conn} transport={() => http} makeWorker={worker} />
+        </ToastProvider>
+      </TooltipProvider>,
+    );
+
+  it('D18 tabs: JobManager and each TaskManager; a TaskManager shows its own newest log, and Reload stays on it', async () => {
+    const asked: string[] = [];
+    showRaw(tmHttp({ asked }));
+    await screen.findByRole('table', { name: 'Log lines' });
+    const group = screen.getByRole('group', { name: 'Process' });
+    expect(within(group).getByRole('radio', { name: 'JobManager' })).toBeChecked();
+    await userEvent.click(within(group).getByRole('radio', { name: 'tm1-6d1f0c' }));
+    expect(await screen.findByText('a TaskManager line')).toBeInTheDocument();
+    expect(screen.getByText(/taskmanager\.log · /)).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: 'Reload' }));
+    await screen.findByText('a TaskManager line');
+    expect(asked.at(-1)).toBe('/taskmanagers/tm1-6d1f0c/logs/taskmanager.log');
+    await userEvent.click(within(group).getByRole('radio', { name: 'tm2-6d1f0c' }));
+    expect(await screen.findByText('No log files on tm2-6d1f0c.')).toBeInTheDocument();
+    await userEvent.click(within(group).getByRole('radio', { name: 'JobManager' }));
+    expect(
+      await screen.findByText('Buffer pool usage at 96% for Window aggregate (1/4)'),
+    ).toBeInTheDocument();
+  });
+
+  it('D18 tabs: a TaskManager list that fails is said (catalog), and the JobManager logs still show', async () => {
+    showRaw(tmHttp({ tms: () => ok(500, '{"errors":["Internal server error."]}') }));
+    expect(await screen.findByRole('table', { name: 'Log lines' })).toBeInTheDocument();
+    expect(
+      await screen.findByText(/had an internal error while reading the TaskManagers/),
+    ).toBeInTheDocument();
   });
 });

@@ -49,7 +49,8 @@ describe('JOB-01 · jobs list', () => {
       'c3',
       'b2',
     ]);
-    expect(queryJobs(rows, { sort: 'duration' }).map((r) => r.jid)).toEqual(['d4', 'a1', 'c3', 'b2']);
+    // Uptime: finished jobs (c3, d4) have none, so they group at one end, in list order.
+    expect(queryJobs(rows, { sort: 'duration' }).map((r) => r.jid)).toEqual(['c3', 'd4', 'a1', 'b2']);
     expect(rows.map((r) => r.jid)).toEqual(before);
   });
 

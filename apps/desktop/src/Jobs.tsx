@@ -4,6 +4,7 @@ import {
   jobBucket,
   limiter,
   listJobs,
+  nextDelay,
   poll,
   POLL,
   queryJobs,
@@ -24,16 +25,18 @@ import {
   Table,
   type BadgeTone,
   type Column,
+  useToast,
 } from '@sl/ui';
-import { Inbox, LayoutGrid } from 'lucide-react';
-import { useEffect, useMemo, useState } from 'react';
+import { Inbox, LayoutGrid, RotateCw } from 'lucide-react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { shortAddress } from './Connections';
 import { useScreenHeading } from './focus';
 
 const TONE: Record<string, BadgeTone> = {
   RUNNING: 'success',
-  RESTARTING: 'warning',
-  FAILING: 'warning',
+  // Board D07: the restarting pill is danger-50 / danger-600.
+  RESTARTING: 'error',
+  FAILING: 'error',
   FAILED: 'error',
 };
 /** Words with every colour (DoD): "RESTARTING" → "Restarting". */
@@ -41,7 +44,7 @@ const word = (state: string) => state.charAt(0) + state.slice(1).toLowerCase();
 /** Board D07 "Uptime": 12 min, 3 h, 6 d. */
 export const uptime = (ms: number) =>
   ms < 3_600_000
-    ? `${Math.max(1, Math.round(ms / 60_000))} min`
+    ? `${Math.max(1, Math.floor(ms / 60_000))} min`
     : ms < 86_400_000
       ? `${Math.floor(ms / 3_600_000)} h`
       : `${Math.floor(ms / 86_400_000)} d`;
@@ -73,9 +76,15 @@ export function Jobs({
   useEffect(() => {
     document.title = 'Jobs · Stream Lab';
   }, []);
+  const toast = useToast();
   const [rows, setRows] = useState<FlinkJobRow[] | null>(null);
   const [error, setError] = useState<AppError | null>(null);
+  /** Failures in a row, across Retries (a Retry starts a new poller, but the cluster may still be down). */
   const [failures, setFailures] = useState(0);
+  const fails = useRef(0);
+  /** When the last good answer came, and when the last answer of any kind came (for "data from N min ago"). */
+  const [at, setAt] = useState(0);
+  const [now, setNow] = useState(0);
   const [round, setRound] = useState(0);
   const [bucket, setBucket] = useState<JobBucket | undefined>();
   const [q, setQ] = useState('');
@@ -86,28 +95,32 @@ export function Jobs({
     return (req) => gate.run(() => t(req));
   }, [transport, c, gate]);
   useEffect(() => {
-    let n = 0;
     const p = poll(() => listJobs(http, c.name, c.timeoutMs), {
       everyMs: POLL.jobs.everyMs,
       visible: () => !document.hidden,
       onResult: (r) => {
         if (r.ok) {
-          n = 0;
+          // ERRORS_AND_ALERTS §4: recovering from the banner says so once.
+          if (fails.current >= POLL.jobs.bannerAfter)
+            toast({ severity: 'success', message: `Back in contact with ${c.name}.` });
+          fails.current = 0;
           setRows(r.value);
+          setAt(Date.now());
           setError(null);
         } else {
-          n = r.failures;
+          fails.current++;
           setError(
             r.error instanceof AppError
               ? r.error
               : new AppError('CONN-IO', { host: shortAddress(c.url), reason: 'the request failed' }, r.error),
           );
         }
-        setFailures(n);
+        setNow(Date.now());
+        setFailures(fails.current);
       },
     });
     return () => p.stop();
-  }, [http, round, c.name, c.timeoutMs, c.url]);
+  }, [http, round, c.name, c.timeoutMs, c.url, toast]);
 
   const counts = bucketCounts(rows ?? []);
   const shown = rows
@@ -145,11 +158,35 @@ export function Jobs({
       render: (r) => (jobBucket(r.state) === 'finished' ? '—' : uptime(r.duration)),
     },
   ];
-  const bannerShown = error && (!rows || failures >= POLL.jobs.bannerAfter);
+  const retry = () => setRound((n) => n + 1);
+  // With rows on screen, a lost cluster is CONN-LOST (or API-TIMEOUT) over the kept rows (§4); an API answer
+  // (401, 404, shape…) keeps its own code. Before any rows, the error itself, with a Retry of our own.
+  const s = Math.round(nextDelay(POLL.jobs.everyMs, failures) / 1000);
+  const since = `${Math.max(0, Math.floor((now - at) / 60_000))} min ago`;
+  const banner = !error
+    ? null
+    : !rows
+      ? error
+      : failures < POLL.jobs.bannerAfter
+        ? null
+        : error.code === 'CONN-TIMEOUT'
+          ? new AppError('API-TIMEOUT', { conn: c.name, s, n: Math.min(failures, 5) }, error)
+          : error.code.startsWith('CONN-')
+            ? new AppError('CONN-LOST', { conn: c.name, s, ago: since }, error)
+            : error;
+  const stale = !!rows && !!error && failures >= POLL.jobs.staleAfter;
+  const filtered = !!(bucket || q.trim());
   return (
     <main className="flex min-h-screen flex-col gap-5 bg-surface px-8 py-7">
-      {bannerShown && (
-        <ErrorBanner error={error} handles={new Set(['Retry'])} onAction={() => setRound((n) => n + 1)} />
+      {banner && (
+        <ErrorBanner error={banner} handles={new Set(rows ? ['Retry', 'Retry now'] : [])} onAction={retry} />
+      )}
+      {banner && !rows && (
+        <div>
+          <Button icon={<RotateCw size={16} aria-hidden="true" />} onClick={retry}>
+            Retry
+          </Button>
+        </div>
       )}
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div className="flex flex-col gap-1">
@@ -179,7 +216,7 @@ export function Jobs({
               aria-pressed={bucket === ch.bucket}
               onClick={() => setBucket(ch.bucket)}
             >
-              {`${ch.label} ${counts[ch.key]}`}
+              {rows ? `${ch.label} ${counts[ch.key]}` : ch.label}
             </Button>
           ))}
         </div>
@@ -197,7 +234,24 @@ export function Jobs({
           Submit a JAR, run SQL, or send a pipeline from the simulator.
         </EmptyState>
       ) : (
-        <Table label="Jobs" columns={columns} rows={shown} rowKey={(r) => r.jid} />
+        <>
+          {stale && <p className="m-0 text-[13px] text-muted">Not answering. Showing data from {since}.</p>}
+          <Table label="Jobs" columns={columns} rows={shown} rowKey={(r) => r.jid} />
+          {shown.length === 0 && filtered && (
+            <div role="status" className="flex items-center gap-3 text-[14px] text-muted">
+              No jobs match this search or filter.
+              <Button
+                size="sm"
+                onClick={() => {
+                  setQ('');
+                  setBucket(undefined);
+                }}
+              >
+                Clear search and filter
+              </Button>
+            </div>
+          )}
+        </>
       )}
     </main>
   );

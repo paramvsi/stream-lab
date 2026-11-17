@@ -38,7 +38,8 @@ const key: Record<JobSort, (r: FlinkJobRow) => string | number> = {
   name: (r) => r.name.toLowerCase(),
   state: (r) => r.state,
   start: (r) => r['start-time'],
-  duration: (r) => r.duration,
+  // Uptime: a finished job has none ("—"), so they group at one end.
+  duration: (r) => (jobBucket(r.state) === 'finished' ? -1 : r.duration),
 };
 
 /** Filter, search and sort the list (JOB-01). A new array; the rows are not changed. */

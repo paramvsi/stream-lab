@@ -41,7 +41,7 @@ export function limiter(max = MAX_IN_FLIGHT) {
 
 export const POLL = {
   fleet: { everyMs: 15_000, staleAfter: 2 },
-  jobs: { everyMs: 5_000, bannerAfter: 3 },
+  jobs: { everyMs: 5_000, staleAfter: 2, bannerAfter: 3 },
   job: { everyMs: 2_000 },
   checkpoints: { everyMs: 5_000 },
   logs: { everyMs: 2_000 },

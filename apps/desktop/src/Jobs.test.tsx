@@ -1,9 +1,9 @@
 import { TransportError, type Connection, type FlinkHttp } from '@sl/flink';
 import { ToastProvider, TooltipProvider } from '@sl/ui';
-import { render, screen, waitFor, within } from '@testing-library/react';
+import { act, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { describe, expect, it } from 'vitest';
-import { Jobs } from './Jobs';
+import { describe, expect, it, vi } from 'vitest';
+import { Jobs, uptime } from './Jobs';
 
 globalThis.requestAnimationFrame = (cb) => setTimeout(() => cb(performance.now()), 0) as unknown as number;
 globalThis.cancelAnimationFrame = (id) => clearTimeout(id);
@@ -121,5 +121,101 @@ describe('JOB-01 · Jobs list (boards D07, D07b, D07c, D07d)', () => {
       expect(alert).toHaveTextContent(/Nothing is listening on payments-prod\.example\.com/),
     );
     expect(alert).not.toHaveTextContent('transport: refused');
+  });
+});
+
+/** A cluster that answers, then stops answering (refused) while `down` is true. */
+function flaky() {
+  const st = { down: false };
+  const http: FlinkHttp = async () => {
+    if (st.down) throw new TransportError({ kind: 'refused', host: 'payments-prod.example.com', port: 8081 });
+    return { status: 200, headers: {}, body: JSON.stringify({ jobs: list }), url: '' };
+  };
+  return { st, http };
+}
+const tick = (ms: number) => act(async () => vi.advanceTimersByTime(ms));
+
+describe('audit of b5b249a: polling errors (ERRORS_AND_ALERTS §4)', () => {
+  it('#4 2 failures mark the rows stale; 3 show CONN-LOST with Retry now; recovery says so once', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      const f = flaky();
+      show(f.http);
+      await screen.findByRole('table', { name: 'Jobs' });
+      f.st.down = true;
+      await tick(5_000); // 1: silent
+      expect(screen.queryByText(/Not answering/)).toBeNull();
+      await tick(10_000); // 2: stale
+      expect(await screen.findByText(/Not answering\. Showing data from/)).toBeTruthy();
+      await tick(20_000); // 3: banner
+      expect(await screen.findByText(/Lost contact with payments-prod\. Retrying every \d+ s/)).toBeTruthy();
+      expect(screen.getByRole('button', { name: 'Retry now' })).toBeTruthy();
+      expect(screen.getByRole('table', { name: 'Jobs' })).toBeTruthy(); // the rows stay
+      f.st.down = false;
+      await tick(30_000);
+      expect(await screen.findByText('Back in contact with payments-prod.')).toBeTruthy();
+      expect(screen.queryByText(/Lost contact/)).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('#3 a Retry that fails again keeps the banner', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      const f = flaky();
+      show(f.http);
+      await screen.findByRole('table', { name: 'Jobs' });
+      f.st.down = true;
+      for (const ms of [5_000, 10_000, 20_000]) await tick(ms);
+      await screen.findByText(/Lost contact with payments-prod/);
+      await userEvent.click(screen.getByRole('button', { name: 'Retry now' }));
+      await tick(100);
+      expect(screen.getByText(/Lost contact with payments-prod/)).toBeTruthy();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('#4 a failed first load offers Retry whatever the code (DNS has only Copy details)', async () => {
+    let calls = 0;
+    show(async () => {
+      calls++;
+      throw new TransportError({ kind: 'dns', host: 'payments-prod.example.com' });
+    });
+    await userEvent.click(await screen.findByRole('button', { name: 'Retry' }));
+    await waitFor(() => expect(calls).toBe(2));
+  });
+});
+
+describe('audit of b5b249a: board and copy', () => {
+  it('#5 Restarting is a danger pill, as on D07', async () => {
+    show(answer(list));
+    const pill = await screen.findByText('Restarting');
+    expect(pill.closest('span')?.className).toMatch(/bg-danger-50/);
+  });
+
+  it('#6 chips show no counts before the list is read', () => {
+    show(async () => new Promise(() => {}));
+    expect(screen.getByRole('button', { name: 'All' })).toBeTruthy();
+    expect(screen.queryByRole('button', { name: /All 0/ })).toBeNull();
+  });
+
+  it('#7 a search that matches nothing says so and offers Clear', async () => {
+    show(answer(list));
+    await screen.findByRole('table', { name: 'Jobs' });
+    await userEvent.type(screen.getByRole('searchbox', { name: 'Search jobs' }), 'zzz');
+    expect(await screen.findByText('No jobs match this search or filter.')).toBeTruthy();
+    await userEvent.click(screen.getByRole('button', { name: 'Clear search and filter' }));
+    expect(names()).toHaveLength(3);
+  });
+
+  it('#8 uptime never reads "60 min"; sorting by uptime puts finished jobs ("—") at one end', async () => {
+    expect(uptime(3_599_999)).toBe('59 min');
+    expect(uptime(3_600_000)).toBe('1 h');
+    show(answer([...list, job('d4', 'old', 'CANCELED', 9 * 86_400_000)]));
+    await screen.findByRole('table', { name: 'Jobs' });
+    await userEvent.click(screen.getByRole('button', { name: /^Uptime/ }));
+    expect(names()).toEqual(['daily-totals', 'old', 'fraud-scoring', 'refund-matcher']);
   });
 });

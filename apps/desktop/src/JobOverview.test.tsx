@@ -2200,10 +2200,39 @@ describe('JOB-10 · Explain this (board D08f)', () => {
     expect(screen.getByRole('button', { name: 'Explain backpressure' })).toHaveFocus();
   });
 
-  it('with no operator backpressured, there is nothing to explain', async () => {
-    show(bp(false));
-    await screen.findAllByText(/backpressured 2%|Window aggregate/);
-    await new Promise((r) => setTimeout(r, 200));
+  it('with no operator backpressured (readings low), there is nothing to explain', async () => {
+    const read = new Set<string>();
+    const http = bp(false);
+    show(async (req) => {
+      const m = /\/vertices\/(v\d)\/backpressure$/.exec(req.path);
+      if (m) read.add(m[1]!);
+      return http(req);
+    });
+    await waitFor(() => expect(read).toEqual(new Set(['v1', 'v2', 'v3']))); // every operator has a reading
+    await new Promise((r) => setTimeout(r, 100));
     expect(screen.queryByRole('button', { name: 'Explain backpressure' })).toBeNull();
+  });
+
+  it('audit of f0fd0f0 #1: once shown, the button and an open drawer stay when the reading drops below HIGH', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      const u = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+      let rounds = 0;
+      const high = bp(true);
+      const low = bp(false);
+      show(async (req) => {
+        if (req.path.endsWith('/v2/backpressure')) rounds++;
+        return (rounds <= 1 ? high : low)(req);
+      });
+      await u.click(await screen.findByRole('button', { name: 'Explain backpressure' }));
+      const d = await screen.findByRole('dialog', { name: 'Backpressure' });
+      await vi.advanceTimersByTimeAsync(12_000); // two more rounds, both low
+      expect(rounds).toBeGreaterThan(1);
+      expect(d.isConnected).toBe(true);
+      await u.keyboard('{Escape}');
+      expect(screen.getByRole('button', { name: 'Explain backpressure' })).toHaveFocus();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

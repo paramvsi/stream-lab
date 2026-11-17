@@ -9,6 +9,8 @@ import { useState } from 'react';
  * docs page.
  * ponytail: D08f's bottleneck sentence and "What to try" list are Flink advice the handover does not supply
  * (MORNING); the chapter link opens nothing yet (the site's address is not decided): it names the chapter.
+ * ponytail: the docs link is target=_blank, which a browser opens; the Tauri WebView needs the shell plugin's open
+ * (an external link there is otherwise a dead click): wire it with the Tauri shell (MORNING).
  */
 export function Explain({ term: id, label }: { term: string; label: string }) {
   const [open, setOpen] = useState(false);

@@ -387,6 +387,10 @@ export function JobOverview({
     { quiet: true, restartOn: running ? vids : '' },
   );
   const bpShown = running ? bpAged : {};
+  // JOB-10: once an operator has read HIGH, "Explain backpressure" stays for this visit: a reading that dips, ages
+  // out or stops would otherwise take the button (and an open drawer, and focus) away under the user.
+  const [explainBp, setExplainBp] = useState(false);
+  if (!explainBp && Object.values(bpShown).some((b) => b?.level === 'high')) setExplainBp(true);
   // JOB-05: exceptions only while the job is in trouble (no extra call for a healthy job), on their own quiet poll.
   const troubled = !!j && TROUBLED.has(j.state);
   const [tab, setTab] = useState('overview');
@@ -646,8 +650,8 @@ export function JobOverview({
                         <Kpi label="Last checkpoint" value="None yet" />
                       )}
                     </div>
-                    {/* JOB-10 / D08f: the warning signal's explanation, while an operator is backpressured (HIGH). */}
-                    {Object.values(bpShown).some((b) => b?.level === 'high') && (
+                    {/* JOB-10 / D08f: the warning signal's explanation, once an operator has been backpressured (HIGH). */}
+                    {explainBp && (
                       <div className="flex justify-end">
                         <Explain term="backpressure" label="Explain backpressure" />
                       </div>

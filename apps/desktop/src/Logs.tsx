@@ -58,6 +58,21 @@ const listFor = (http: FlinkHttp, conn: string, p: Proc) =>
 const readFor = (http: FlinkHttp, conn: string, p: Proc, n: string) =>
   p ? getTmLog(http, conn, p, n) : getJmLog(http, conn, n);
 
+/**
+ * D18 Download's file name: the cluster and the process in it (every TaskManager serves taskmanager.log). The
+ * process id and the file name come from the cluster.
+ * ponytail: two names can still meet (prod + eu-x vs prod-eu + x); the browser then adds "(1)", nothing is lost.
+ */
+export const savedLogName = (cluster: string, proc: string | null, file: string) =>
+  [cluster, proc, file]
+    .filter(Boolean)
+    .join('-')
+    // What a file name can not hold on some system, plus every control and format character (\p{Cc}, \p{Cf}: a
+    // bidi override would show "job\u202egol.exe" as "jobexe.log"). Letters in any script, spaces and case stay.
+    .replace(/[/\\:*?"<>|\p{Cc}\p{Cf}]/gu, '_')
+    // Windows drops a trailing dot or space silently: the saved name would not be this one.
+    .replace(/[. ]+$/, '');
+
 /** D18 Follow: how often the shown file is read again. */
 export const FOLLOW_MS = 2_000;
 
@@ -260,15 +275,7 @@ export function Logs({
   const download = () => {
     if (text === null || !name) return;
     const url = URL.createObjectURL(new Blob([text], { type: 'text/plain' }));
-    // The cluster and the process in the name: every TaskManager serves taskmanager.log. Only the characters a file
-    // name can not hold on some system (/ \ : * ? " < > | and control characters) change; letters in any script,
-    // spaces and case stay.
-    // ponytail: two names can still meet (prod + eu-x vs prod-eu + x); the browser then adds "(1)", nothing is lost.
-    const saved = [c.name, proc, name]
-      .filter(Boolean)
-      .join('-')
-      // eslint-disable-next-line no-control-regex -- control characters are what this removes
-      .replace(/[/\\:*?"<>|\u0000-\u001f]/g, '_');
+    const saved = savedLogName(c.name, proc, name);
     Object.assign(document.createElement('a'), { href: url, download: saved }).click();
     // Revoked a moment later: some engines cancel a download whose URL is revoked straight after the click.
     setTimeout(() => URL.revokeObjectURL(url), 1000);

@@ -3,7 +3,7 @@ import { ToastProvider, TooltipProvider } from '@sl/ui';
 import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
-import { Logs } from './Logs';
+import { Logs, savedLogName } from './Logs';
 import { answerFilter, type FilterWorker } from './logFilter';
 
 const conn = {
@@ -773,5 +773,12 @@ describe('OPS-01 · Logs (D18, D18b)', () => {
       click.mockRestore();
       URL.createObjectURL = create;
     }
+  });
+
+  it('audit dl3: a name from the cluster can not disguise its extension, carry controls, or end in a dot or space', () => {
+    expect(savedLogName('prod', 'tm-1', 'job‮gol.exe')).toBe('prod-tm-1-job_gol.exe'); // RLO: no "…jobexe.log"
+    expect(savedLogName('prod', null, 'a\u007f\u0085‏b.log')).toBe('prod-a___b.log'); // DEL, NEL, RLM
+    expect(savedLogName('prod', null, 'x.log. ')).toBe('prod-x.log'); // Windows would drop them silently
+    expect(savedLogName('مدفوعات', null, 'jobmanager.log')).toBe('مدفوعات-jobmanager.log');
   });
 });

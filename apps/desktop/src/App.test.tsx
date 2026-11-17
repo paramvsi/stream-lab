@@ -587,4 +587,20 @@ describe('APP-01 · command palette (board G01)', () => {
       expect.stringContaining('Finished'),
     ]);
   });
+
+  it('audit of f673f5c: closing and reopening the palette never piles up reads; a screen can still get a slot', async () => {
+    let inFlight = 0;
+    let most = 0;
+    const http: FlinkHttp = () => {
+      most = Math.max(most, ++inFlight);
+      return new Promise(() => {}); // a cluster that never answers
+    };
+    await withOne(http);
+    for (let i = 0; i < 7; i++) {
+      await userEvent.keyboard('{Meta>}k{/Meta}');
+      await userEvent.keyboard('{Escape}');
+    }
+    // the fleet card's 3 (config, overview, jobs) and one palette read, reused across opens: 2 of 6 still free
+    expect(most).toBe(4);
+  });
 });

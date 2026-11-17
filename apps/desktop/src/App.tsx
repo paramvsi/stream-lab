@@ -117,25 +117,34 @@ export function App({
   }, [inSteps, transport, connections, cur]);
   // Board G01 "Jump to job": every connection's jobs, read when the palette opens (one GET each). A cluster that
   // can not be read is said in the palette; the rest still works.
+  const paletteReads = useRef(new Map<string, Promise<FlinkJobRow[]>>());
   const [paletteJobs, setPaletteJobs] = useState<Record<string, { jobs?: FlinkJobRow[]; error?: AppError }>>(
     {},
   );
   useEffect(() => {
     if (!palette || !transport) return;
     let live = true;
-    for (const c of connections)
-      // Through the connection's shared limiter (FLINK_API: at most 6 in flight), with its own timeout.
-      gateFor(transport, c.id)
-        .run(() => listJobs(transport(c), c.name, c.timeoutMs))
-        .then(
-          (jobs) => live && setPaletteJobs((p) => ({ ...p, [c.id]: { jobs } })),
-          (e: unknown) =>
-            live &&
-            setPaletteJobs((p) => ({
-              ...p,
-              [c.id]: { error: e instanceof AppError ? e : new AppError('API-SHAPE', {}, e) },
-            })),
-        );
+    for (const c of connections) {
+      // Through the connection's shared limiter (FLINK_API: at most 6 in flight), with its own timeout. At most one
+      // palette read per connection: a reopen attaches to the one in flight, so closing and reopening never piles up
+      // reads that hold the screens' slots.
+      let read = paletteReads.current.get(c.id);
+      if (!read) {
+        read = gateFor(transport, c.id)
+          .run(() => listJobs(transport(c), c.name, c.timeoutMs))
+          .finally(() => paletteReads.current.delete(c.id));
+        paletteReads.current.set(c.id, read);
+      }
+      read.then(
+        (jobs) => live && setPaletteJobs((p) => ({ ...p, [c.id]: { jobs } })),
+        (e: unknown) =>
+          live &&
+          setPaletteJobs((p) => ({
+            ...p,
+            [c.id]: { error: e instanceof AppError ? e : new AppError('API-SHAPE', {}, e) },
+          })),
+      );
+    }
     return () => {
       live = false;
     };

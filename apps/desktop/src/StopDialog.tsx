@@ -71,7 +71,7 @@ export function StopDialog({
   const openRef = useRef(open);
   // A stop whose status was lost may still be running on the cluster. Said on the next question (not a lock: a
   // lock could never clear while the job stays RUNNING, and would take away cancel when a stop is stuck); a new
-  // stop the cluster accepts clears it.
+  // stop that completes clears it.
   const [uncertain, setUncertain] = useState(false);
   const running = step.name === 'running';
   useEffect(() => {
@@ -152,6 +152,9 @@ export function StopDialog({
           fails = 0;
           if (!s.done) timer = setTimeout(ask, EVERY_MS);
           else if ('location' in s) {
+            // Only a stop that completed settles a lost one (Flink 1.20 accepts a second stop with 202 and fails
+            // it later: an accepted or failed one does not).
+            setUncertain(false);
             // D15c: the job page with a toast, as drawn; the dialog closes.
             setStep({ name: 'confirm' });
             closedByUs.current = true;
@@ -199,7 +202,6 @@ export function StopDialog({
     stopWithSavepoint(http, conn, jid, job, { dir: folder, drain }).then(
       (r) => {
         setSending(false);
-        setUncertain(false); // an accepted stop replaces the lost one (a refused one does not)
         setRid(r);
         setStep({ name: 'running' });
       },

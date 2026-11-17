@@ -304,4 +304,30 @@ describe('ACT-01 · stop with savepoint (D15, D15b, D15c, D15d)', () => {
       expect(await within(d).findByRole('alert')).toBeInTheDocument();
       expect(d).toHaveTextContent('A stop sent earlier may still be running on the cluster.');
     }));
+
+  it('audit cancel4: a second stop accepted (202) that then fails keeps the warning (only a completed stop settles the lost one)', () =>
+    run(async () => {
+      let posts = 0;
+      const http: FlinkHttp = async (r) => {
+        if (r.path === '/jobmanager/config') return cfg('s3://sp');
+        if (r.method === 'POST') return ok(202, { 'request-id': `r${++posts}` });
+        return r.path.endsWith('/r1') ? { status: 404, headers: {}, url: '', body: '' } : failedSp;
+      };
+      render(<Harness http={http} />);
+      let d = await screen.findByRole('dialog');
+      await within(d).findByDisplayValue('s3://sp');
+      await userEvent.click(within(d).getByRole('button', { name: 'Stop with savepoint' }));
+      await tick(30);
+      await userEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Close' }));
+      await userEvent.click(screen.getByRole('button', { name: 'Open stop' }));
+      d = await screen.findByRole('dialog', { name: 'Stop refund-matcher with a savepoint?' });
+      await within(d).findByDisplayValue('s3://sp');
+      await userEvent.click(within(d).getByRole('button', { name: 'Stop with savepoint' }));
+      await tick(3);
+      const f = await screen.findByRole('dialog', { name: 'Savepoint failed' });
+      await userEvent.click(within(f).getByRole('button', { name: 'Try again' }));
+      expect(
+        await screen.findByRole('dialog', { name: 'Stop refund-matcher with a savepoint?' }),
+      ).toHaveTextContent('A stop sent earlier may still be running on the cluster.');
+    }));
 });

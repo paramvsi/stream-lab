@@ -873,7 +873,7 @@ describe('JOB-02 · Job overview (board D08)', () => {
       if (m) return { status: 200, headers: {}, url: '', body: JSON.stringify(bp(m[1]!)) };
       return answer(200, detail)(req);
     });
-    expect(await screen.findByText('Backpressure 97%')).toBeInTheDocument();
+    expect(await screen.findByText('backpressured 97%')).toBeInTheDocument();
   });
 
   it('JOB-BACKPRESSURE: a job that is not running asks for no backpressure', async () => {
@@ -882,6 +882,67 @@ describe('JOB-02 · Job overview (board D08)', () => {
     await screen.findByRole('list', { name: 'Job graph' });
     await new Promise((r) => setTimeout(r, 100));
     expect(paths.some((p) => p.endsWith('/backpressure'))).toBe(false);
+  });
+
+  it(
+    'audit bp #1: all polls of one connection share at most 6 requests in flight (FLINK_API)',
+    { timeout: 15_000 },
+    async () => {
+      let inFlight = 0;
+      let most = 0;
+      const many = {
+        ...detail,
+        vertices: Array.from({ length: 30 }, (_, i) => ({ ...detail.vertices[0]!, id: `x${i}` })),
+      };
+      show(async (req) => {
+        inFlight++;
+        most = Math.max(most, inFlight);
+        // Slow backpressure (5 waves of 6 take ~5 s): the job poll's next 2 s tick lands among them.
+        await new Promise((r) => setTimeout(r, req.path.endsWith('/backpressure') ? 1000 : 50));
+        inFlight--;
+        return req.path.endsWith('/backpressure')
+          ? {
+              status: 200,
+              headers: {},
+              url: '',
+              body: JSON.stringify({ status: 'ok', backpressureLevel: 'ok', subtasks: [] }),
+            }
+          : answer(200, many)(req);
+      });
+      await screen.findByRole('list', { name: 'Job graph' }, { timeout: 3000 });
+      await new Promise((r) => setTimeout(r, 3500));
+      expect(most).toBeGreaterThan(1);
+      expect(most).toBeLessThanOrEqual(6);
+    },
+  );
+
+  it('audit bp #2: when every backpressure read fails, the badge stays (the data stays, §4), not "no backpressure"', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      let bad = false;
+      show(async (req) => {
+        if (req.path.endsWith('/backpressure'))
+          return bad
+            ? { status: 500, headers: {}, url: '', body: '' }
+            : {
+                status: 200,
+                headers: {},
+                url: '',
+                body: JSON.stringify({
+                  status: 'ok',
+                  backpressureLevel: 'high',
+                  subtasks: [{ ratio: 0.97 }],
+                }),
+              };
+        return answer(200, detail)(req);
+      });
+      await screen.findAllByText('backpressured 97%');
+      bad = true;
+      for (let t = 0; t < 12; t++) await act(async () => vi.advanceTimersByTimeAsync(1_000));
+      expect(screen.getAllByText('backpressured 97%').length).toBeGreaterThan(0);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('lists the operators with parallelism and status', async () => {

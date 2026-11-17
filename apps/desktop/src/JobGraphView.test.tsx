@@ -98,12 +98,12 @@ describe('JOB-02 · job graph view (board D08)', () => {
         />
       </TooltipProvider>,
     );
-    const badge = within(card('Window aggregate')).getByText('Backpressure 97%');
+    const badge = within(card('Window aggregate')).getByText('backpressured 97%');
     expect(badge.closest('[tabindex]')).toHaveAccessibleDescription(
       'Window aggregate is backpressured 97% of the time.',
     );
     // low and no reading: no badge (the catalog's trigger is HIGH, > 50 %)
-    expect(within(card('Source: payments')).queryByText(/Backpressure/)).toBeNull();
-    expect(within(card('Sink: alerts')).queryByText(/Backpressure/)).toBeNull();
+    expect(within(card('Source: payments')).queryByText(/backpressured/)).toBeNull();
+    expect(within(card('Sink: alerts')).queryByText(/backpressured/)).toBeNull();
   });
 });

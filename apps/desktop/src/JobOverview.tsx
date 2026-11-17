@@ -227,20 +227,32 @@ export function JobOverview({
   // JOB-BACKPRESSURE: each operator of a RUNNING job, on its own quiet 5 s poll (a sample per vertex). One
   // vertex that can not be read is no reading for it alone; Flink's values for a job not running are not read.
   const running = j?.state === 'RUNNING';
+  const bpLast = useRef<Record<string, Backpressure | null>>({});
   const vids = j ? j.vertices.map((v) => v.id).join(',') : '';
   const bp = usePolled(
     c,
     transport,
     async (http, conn, t) => {
-      if (!running || !vids) return {} as Record<string, Backpressure | null>;
+      if (!running || !vids || !j) return {} as Record<string, Backpressure | null>;
       const ids = vids.split(',');
-      const rs = await Promise.allSettled(ids.map((v) => getBackpressure(http, conn, jid, v, 'RUNNING', t)));
-      return Object.fromEntries(ids.map((v, i) => [v, rs[i]!.status === 'fulfilled' ? rs[i]!.value : null]));
+      const rs = await Promise.allSettled(ids.map((v) => getBackpressure(http, conn, jid, v, j.state, t)));
+      // §4: every vertex failing is a failed read (the poll keeps the last badges and counts it), not "nothing
+      // to show"; one vertex failing keeps that vertex's last reading (a single failure is silent).
+      const failed = rs.find((r) => r.status === 'rejected');
+      if (failed && rs.every((r) => r.status === 'rejected')) throw failed.reason;
+      const prev = bpLast.current;
+      return Object.fromEntries(
+        ids.map((v, i) => [v, rs[i]!.status === 'fulfilled' ? rs[i]!.value : (prev[v] ?? null)]),
+      );
     },
     h1,
     POLL.checkpoints.everyMs,
     { quiet: true, restartOn: running ? vids : '' },
   );
+  const bpShown = running ? (bp.value ?? {}) : {};
+  useEffect(() => {
+    bpLast.current = bpShown;
+  });
   // JOB-05: exceptions only while the job is in trouble (no extra call for a healthy job), on their own quiet poll.
   const troubled = !!j && TROUBLED.has(j.state);
   const [tab, setTab] = useState('overview');
@@ -390,7 +402,7 @@ export function JobOverview({
                         <Kpi label="Last checkpoint" value="None yet" />
                       )}
                     </div>
-                    <JobGraphView graph={jobGraph(j)} backpressure={running ? (bp.value ?? {}) : {}} />
+                    <JobGraphView graph={jobGraph(j)} backpressure={bpShown} />
                     <Table label="Operators" columns={columns} rows={j.vertices} rowKey={(v) => v.id} />
                   </div>
                 </ErrorBoundary>

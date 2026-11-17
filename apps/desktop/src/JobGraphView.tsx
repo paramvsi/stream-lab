@@ -65,7 +65,7 @@ export function JobGraphView({
                             ).message
                           }
                         >
-                          Backpressure {backpressure[id]!.pct}%
+                          backpressured {backpressure[id]!.pct}%
                         </StatusBadge>
                       )}
                       {n.status !== 'RUNNING' && (

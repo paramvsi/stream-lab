@@ -6,6 +6,21 @@ import { useEffect, useMemo, useRef, useState, type ReactNode, type RefObject } 
 import { shortAddress } from './Connections';
 
 /**
+ * One limiter per connection, shared by every poll on it (FLINK_API: at most 6 requests in flight per connection;
+ * polls share a scheduler). A screen with several polls (job, checkpoints, exceptions, backpressure) stays under it.
+ * ponytail: never dropped; one small object per connection ever opened.
+ */
+const gates = new WeakMap<object, Map<string, ReturnType<typeof limiter>>>();
+/** Per transport (the app passes one for every screen) and connection: one cluster, one budget. */
+const gateFor = (transport: object, id: string) => {
+  let byConn = gates.get(transport);
+  if (!byConn) gates.set(transport, (byConn = new Map()));
+  let g = byConn.get(id);
+  if (!g) byConn.set(id, (g = limiter()));
+  return g;
+};
+
+/**
  * One screen's polled read of a connection, with ERRORS_AND_ALERTS §4: 1 failure silent, 2 → stale (the data
  * stays), 3 → CONN-LOST / API-TIMEOUT over the kept data (an API answer keeps its own code), back-off, paused while
  * hidden, "Back in contact" once on recovery. Before any data, the error itself with a Retry of our own.
@@ -50,7 +65,7 @@ export function usePolled<T>(
   const [at, setAt] = useState(0);
   const [now, setNow] = useState(0);
   const [round, setRound] = useState(0);
-  const gate = useMemo(() => limiter(), []);
+  const gate = gateFor(transport, c.id);
   const http = useMemo<FlinkHttp>(() => {
     const t = transport(c);
     return (req) => gate.run(() => t(req));

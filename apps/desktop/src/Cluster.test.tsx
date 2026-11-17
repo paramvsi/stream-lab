@@ -101,7 +101,9 @@ describe('FLEET-02 · Cluster overview and TaskManagers (boards D05, D05b)', () 
       url: '',
       body: JSON.stringify(req.path === '/taskmanagers' ? { taskmanagers: [] } : answers[req.path]),
     }));
-    expect(await screen.findByRole('heading', { name: 'No TaskManagers registered' })).toBeInTheDocument();
+    expect(
+      await screen.findByRole('heading', { level: 3, name: 'No TaskManagers registered' }),
+    ).toBeInTheDocument();
     expect(screen.queryByRole('table', { name: 'TaskManagers' })).toBeNull();
   });
 

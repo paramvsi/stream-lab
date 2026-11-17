@@ -37,6 +37,10 @@ describe('FLEET-02 · TaskManagers (board D05b)', () => {
     );
     expect(tmAddress(tm('x', 'pekko://flink@tm-7.svc:6122/user/rpc/taskmanager_0', 4, 0))).toBe('tm-7.svc');
     expect(tmAddress(tm('10.0.4.9:1-z', 'odd', 4, 0))).toBe('10.0.4.9:1-z');
+    // IPv6: the bracketed host (audit of ae8f98a)
+    expect(tmAddress(tm('x', 'pekko.tcp://flink@[fd00::5]:6122/user/rpc/taskmanager_0', 4, 0))).toBe(
+      '[fd00::5]',
+    );
   });
 
   it('API-SHAPE when the list can not be read', async () => {

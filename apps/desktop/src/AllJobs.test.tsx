@@ -188,4 +188,36 @@ describe('JOB-11 · jobs across connections (board X18)', () => {
     release();
     expect(await screen.findByText('p-job')).toBeInTheDocument(); // the filter's match was on its way
   });
+
+  it('FLINK_API: polled every 5 s; after data, a connection keeps its rows and is named only after 3 failures (§4)', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      let n = 0;
+      let failing = false;
+      show((c) => async () => {
+        if (c.id === 'p') {
+          n++;
+          if (failing) return { status: 503, headers: {}, url: '', body: '' };
+        }
+        return ok({
+          jobs: [
+            row(c.id + '1', `${c.id}-job`, 'RUNNING'),
+            ...(c.id === 'p' && n > 1 ? [row('p2', 'new-job', 'RUNNING')] : []),
+          ],
+        });
+      });
+      await screen.findByText('p-job');
+      await vi.advanceTimersByTimeAsync(5_100); // the next round
+      expect(await screen.findByText('new-job')).toBeInTheDocument();
+      failing = true;
+      await vi.advanceTimersByTimeAsync(5_100); // failure 1: silent, rows kept
+      expect(screen.getByText('p-job')).toBeInTheDocument();
+      expect(screen.queryByText(/did not answer/)).toBeNull();
+      await vi.advanceTimersByTimeAsync(60_000); // failures 2, 3 (with back-off)
+      expect(await screen.findByText(/did not answer \(payments-prod\)/)).toBeInTheDocument();
+      expect(screen.getByText('p-job')).toBeInTheDocument(); // the last rows stay
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });

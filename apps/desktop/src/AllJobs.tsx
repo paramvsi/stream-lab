@@ -2,6 +2,9 @@ import { AppError, ErrorBanner } from '@sl/errors';
 import {
   bucketCounts,
   listJobs,
+  poll,
+  POLL,
+  type Poller,
   queryJobs,
   type Connection,
   type FlinkHttp,
@@ -22,7 +25,7 @@ type Row = FlinkJobRow & { conn: Connection };
  * read on its own, through its shared limiter: one that does not answer is named in FLEET-PARTIAL, and Retry
  * reads only those again (an answer still on its way is never dropped). Until every connection has answered,
  * the screen says how many it is still reading.
- * ponytail: read on open and on Retry, not polled yet; saved views (X18's chips, Save view) and Restarts (1 h)
+ * Polled (POLL.jobs) per connection. ponytail: saved views (X18's chips, Save view) and Restarts (1 h)
  * (per-job history reads) are next slices.
  */
 export function AllJobs({
@@ -37,34 +40,45 @@ export function AllJobs({
   onFleet?: () => void;
 }) {
   const h1 = useScreenHeading();
-  const [read, setRead] = useState<Record<string, { rows?: FlinkJobRow[]; error?: AppError }>>({});
-  // Per connection: which read is the current one (a Retry of one never drops another's answer).
-  const reqs = useRef(new Map<string, number>());
-  const live = useRef(true);
+  // Per connection: its last rows (kept through failures), its last error, and failures in a row.
+  const [read, setRead] = useState<
+    Record<string, { rows?: FlinkJobRow[]; error?: AppError; failures: number }>
+  >({});
+  // Per connection, a poller (FLINK_API: the job list every 5 s, back-off, paused while hidden). A Retry restarts
+  // that connection's only.
+  const pollers = useRef(new Map<string, Poller>());
   const readOne = useCallback(
     (c: Connection) => {
-      const id = (reqs.current.get(c.id) ?? 0) + 1;
-      reqs.current.set(c.id, id);
-      const mine = () => live.current && reqs.current.get(c.id) === id;
-      gateFor(transport, c.id)
-        .run(() => listJobs(transport(c), c.name, c.timeoutMs))
-        .then(
-          (rows) => mine() && setRead((r) => ({ ...r, [c.id]: { rows } })),
-          (e: unknown) =>
-            mine() &&
-            setRead((r) => ({
-              ...r,
-              [c.id]: { error: e instanceof AppError ? e : new AppError('API-SHAPE', {}, e) },
-            })),
-        );
+      pollers.current.get(c.id)?.stop();
+      const p = poll(() => gateFor(transport, c.id).run(() => listJobs(transport(c), c.name, c.timeoutMs)), {
+        everyMs: POLL.jobs.everyMs,
+        visible: () => !document.hidden,
+        onResult: (r) =>
+          setRead((was) => {
+            if (pollers.current.get(c.id) !== p) return was; // a restarted poller's late answer
+            const prev = was[c.id];
+            return {
+              ...was,
+              [c.id]: r.ok
+                ? { rows: r.value, failures: 0 }
+                : {
+                    ...(prev?.rows ? { rows: prev.rows } : {}),
+                    error: r.error instanceof AppError ? r.error : new AppError('API-SHAPE', {}, r.error),
+                    failures: (prev?.failures ?? 0) + 1,
+                  },
+            };
+          }),
+      });
+      pollers.current.set(c.id, p);
     },
     [transport],
   );
   useEffect(() => {
-    live.current = true;
+    const ps = pollers.current;
     for (const c of connections) readOne(c);
     return () => {
-      live.current = false;
+      for (const p of ps.values()) p.stop();
+      ps.clear();
     };
   }, [connections, readOne]);
 
@@ -75,14 +89,18 @@ export function AllJobs({
   const search = useRef<HTMLInputElement>(null);
   const counts = bucketCounts(all);
   const rows = queryJobs(all, { ...(bucket ? { bucket } : {}), q });
-  const down = connections.filter((c) => read[c.id]?.error);
+  // §4: before any data a failure is said at once; with rows, only after POLL.jobs.bannerAfter in a row.
+  const down = connections.filter((c) => {
+    const r = read[c.id];
+    return !!r?.error && (!r.rows || r.failures >= POLL.jobs.bannerAfter);
+  });
   const reading = connections.filter((c) => !read[c.id]).length;
   // The list is whole only when every connection has answered with its jobs: counts and "no match" wait for it (a
   // connection still reading, or down, may hold the very jobs they would say are not there).
-  const whole = !reading && !connections.some((c) => read[c.id]?.error);
+  const whole = !reading && !down.length;
   const retry = () => {
     h1.current?.focus(); // the banner and its Retry go: focus stays on the page
-    setRead((r) => Object.fromEntries(Object.entries(r).filter(([, v]) => !v.error)));
+    setRead((r) => Object.fromEntries(Object.entries(r).filter(([k]) => !down.some((c) => c.id === k))));
     for (const c of down) readOne(c);
   };
   const columns: Column<Row>[] = [

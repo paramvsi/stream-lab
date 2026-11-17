@@ -189,7 +189,7 @@ describe('JOB-11 · jobs across connections (board X18)', () => {
     expect(await screen.findByText('p-job')).toBeInTheDocument(); // the filter's match was on its way
   });
 
-  it('FLINK_API: polled every 5 s; after data, a connection keeps its rows and is named only after 3 failures (§4)', async () => {
+  it('FLINK_API + §4 per connection: polled every 5 s; failure 1 silent, 2 stale (data age), 3 CONN-LOST over the kept rows; Retry now keeps them; recovery says so once', async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     try {
       let n = 0;
@@ -210,12 +210,32 @@ describe('JOB-11 · jobs across connections (board X18)', () => {
       await vi.advanceTimersByTimeAsync(5_100); // the next round
       expect(await screen.findByText('new-job')).toBeInTheDocument();
       failing = true;
-      await vi.advanceTimersByTimeAsync(5_100); // failure 1: silent, rows kept
+      await vi.advanceTimersByTimeAsync(5_100); // failure 1: silent
+      expect(n).toBe(3);
+      expect(screen.queryByText(/not answering/)).toBeNull();
+      await vi.advanceTimersByTimeAsync(10_100); // failure 2: stale, with the data's age; no banner yet
+      expect(n).toBe(4);
+      expect(screen.getByText(/payments-prod is not answering\. Showing its data from/)).toBeInTheDocument();
+      expect(screen.queryByText(/Lost contact|did not answer/)).toBeNull();
+      expect(screen.getByRole('button', { name: 'Running' })).toBeInTheDocument(); // stale: no counts
+      await vi.advanceTimersByTimeAsync(20_100); // failure 3: lost contact, over the kept rows
+      expect(n).toBe(5);
+      expect(await screen.findByText(/^Lost contact with payments-prod\./)).toBeInTheDocument();
+      expect(screen.queryByText(/did not answer/)).toBeNull(); // its jobs are not missing: they are shown
       expect(screen.getByText('p-job')).toBeInTheDocument();
-      expect(screen.queryByText(/did not answer/)).toBeNull();
-      await vi.advanceTimersByTimeAsync(60_000); // failures 2, 3 (with back-off)
-      expect(await screen.findByText(/did not answer \(payments-prod\)/)).toBeInTheDocument();
-      expect(screen.getByText('p-job')).toBeInTheDocument(); // the last rows stay
+      await userEvent.click(screen.getByRole('button', { name: 'Retry now' }), {
+        advanceTimers: vi.advanceTimersByTime,
+      });
+      await vi.advanceTimersByTimeAsync(100); // its re-read fails again
+      expect(n).toBe(6);
+      expect(screen.getByText('p-job')).toBeInTheDocument(); // Retry keeps the rows
+      expect(screen.queryByText(/Reading the jobs/)).toBeNull();
+      failing = false;
+      // Retry restarted its poller, so its back-off starts again (as usePolled's Retry): the next poll is in 10 s.
+      await vi.advanceTimersByTimeAsync(10_100); // it answers
+      expect(n).toBe(7);
+      expect(await screen.findByText('Back in contact with payments-prod.')).toBeInTheDocument();
+      expect(screen.queryByText(/Lost contact/)).toBeNull();
     } finally {
       vi.useRealTimers();
     }

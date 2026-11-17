@@ -2,6 +2,7 @@ import { AppError, ErrorBanner } from '@sl/errors';
 import {
   bucketCounts,
   listJobs,
+  nextDelay,
   poll,
   POLL,
   type Poller,
@@ -11,7 +12,7 @@ import {
   type FlinkJobRow,
   type JobBucket,
 } from '@sl/flink';
-import { Button, EmptyState, Field, Input, StatusBadge, Table, type Column } from '@sl/ui';
+import { Button, EmptyState, Field, Input, StatusBadge, Table, useToast, type Column } from '@sl/ui';
 import { Inbox, LayoutGrid } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useScreenHeading } from './focus';
@@ -22,10 +23,10 @@ type Row = FlinkJobRow & { conn: Connection };
 
 /**
  * JOB-11 / board X18: the jobs of every connection in one list (Job · Connection · Status). Each connection is
- * read on its own, through its shared limiter: one that does not answer is named in FLEET-PARTIAL, and Retry
- * reads only those again (an answer still on its way is never dropped). Until every connection has answered,
- * the screen says how many it is still reading.
- * Polled (POLL.jobs) per connection. ponytail: saved views (X18's chips, Save view) and Restarts (1 h)
+ * polled on its own (POLL.jobs), through its shared limiter, with ERRORS_AND_ALERTS §4 per connection, as usePolled
+ * does for one: before any data a failure is named in FLEET-PARTIAL (Retry); with data, failure 1 is silent, 2
+ * marks its rows stale (with their age), 3 is CONN-LOST over the kept rows (Retry now keeps them), and coming back
+ * says "Back in contact" once. Until every connection has answered, the screen says how many it is still reading. ponytail: saved views (X18's chips, Save view) and Restarts (1 h)
  * (per-job history reads) are next slices.
  */
 export function AllJobs({
@@ -40,10 +41,18 @@ export function AllJobs({
   onFleet?: () => void;
 }) {
   const h1 = useScreenHeading();
-  // Per connection: its last rows (kept through failures), its last error, and failures in a row.
+  const toast = useToast();
+  // Per connection: its last rows (kept through failures) and when they came, its last error, failures in a row.
   const [read, setRead] = useState<
-    Record<string, { rows?: FlinkJobRow[]; error?: AppError; failures: number }>
+    Record<string, { rows?: FlinkJobRow[]; at?: number; error?: AppError; failures: number }>
   >({});
+  // The same per connection, for the poller's own decisions (kept across a Retry, as usePolled does): failures in
+  // a row, whether it ever answered, and whether CONN-LOST was shown (its recovery says so once).
+  const fails = useRef(new Map<string, number>());
+  const answered = useRef(new Set<string>());
+  const lost = useRef(new Set<string>());
+  // When the last answer of any kind came (for the data's age; never read during render).
+  const [now, setNow] = useState(0);
   // Per connection, a poller (FLINK_API: the job list every 5 s, back-off, paused while hidden). A Retry restarts
   // that connection's only.
   const pollers = useRef(new Map<string, Poller>());
@@ -53,25 +62,37 @@ export function AllJobs({
       const p = poll(() => gateFor(transport, c.id).run(() => listJobs(transport(c), c.name, c.timeoutMs)), {
         everyMs: POLL.jobs.everyMs,
         visible: () => !document.hidden,
-        onResult: (r) =>
+        onResult: (r) => {
+          if (pollers.current.get(c.id) !== p) return; // a restarted poller's late answer
+          setNow(Date.now());
+          if (r.ok) {
+            if (lost.current.delete(c.id))
+              toast({ severity: 'success', message: `Back in contact with ${c.name}.` });
+            fails.current.set(c.id, 0);
+            answered.current.add(c.id);
+            setRead((was) => ({ ...was, [c.id]: { rows: r.value, at: Date.now(), failures: 0 } }));
+            return;
+          }
+          const f = (fails.current.get(c.id) ?? 0) + 1;
+          fails.current.set(c.id, f);
+          if (answered.current.has(c.id) && f >= POLL.jobs.bannerAfter) lost.current.add(c.id);
+          const error = r.error instanceof AppError ? r.error : new AppError('API-SHAPE', {}, r.error);
           setRead((was) => {
-            if (pollers.current.get(c.id) !== p) return was; // a restarted poller's late answer
             const prev = was[c.id];
             return {
               ...was,
-              [c.id]: r.ok
-                ? { rows: r.value, failures: 0 }
-                : {
-                    ...(prev?.rows ? { rows: prev.rows } : {}),
-                    error: r.error instanceof AppError ? r.error : new AppError('API-SHAPE', {}, r.error),
-                    failures: (prev?.failures ?? 0) + 1,
-                  },
+              [c.id]: {
+                ...(prev?.rows ? { rows: prev.rows, ...(prev.at ? { at: prev.at } : {}) } : {}),
+                error,
+                failures: f,
+              },
             };
-          }),
+          });
+        },
       });
       pollers.current.set(c.id, p);
     },
-    [transport],
+    [transport, toast],
   );
   useEffect(() => {
     const ps = pollers.current;
@@ -89,19 +110,29 @@ export function AllJobs({
   const search = useRef<HTMLInputElement>(null);
   const counts = bucketCounts(all);
   const rows = queryJobs(all, { ...(bucket ? { bucket } : {}), q });
-  // §4: before any data a failure is said at once; with rows, only after POLL.jobs.bannerAfter in a row.
-  const down = connections.filter((c) => {
-    const r = read[c.id];
-    return !!r?.error && (!r.rows || r.failures >= POLL.jobs.bannerAfter);
-  });
+  // §4. No data and an error: its jobs are missing (FLEET-PARTIAL). With rows: stale from 2 failures, lost from 3.
+  const down = connections.filter((c) => !!read[c.id]?.error && !read[c.id]?.rows);
+  const stale = connections.filter(
+    (c) => !!read[c.id]?.rows && (read[c.id]?.failures ?? 0) >= POLL.jobs.staleAfter,
+  );
+  const lostNow = stale.filter((c) => (read[c.id]?.failures ?? 0) >= POLL.jobs.bannerAfter);
   const reading = connections.filter((c) => !read[c.id]).length;
-  // The list is whole only when every connection has answered with its jobs: counts and "no match" wait for it (a
-  // connection still reading, or down, may hold the very jobs they would say are not there).
-  const whole = !reading && !down.length;
-  const retry = () => {
-    h1.current?.focus(); // the banner and its Retry go: focus stays on the page
+  // The list is whole only when every connection has answered with fresh jobs: counts and "no match" wait for it
+  // (a connection still reading, down or stale may hold the very jobs they would say are not there).
+  const whole = !reading && !down.length && !stale.length;
+  const ago = (at?: number) => {
+    const m = at ? Math.floor((now - at) / 60_000) : 0;
+    return m < 1 ? 'less than a minute ago' : `${m} min ago`;
+  };
+  // The banners and their Retry go when they are answered: focus stays on the page.
+  const retryMissing = () => {
+    h1.current?.focus();
     setRead((r) => Object.fromEntries(Object.entries(r).filter(([k]) => !down.some((c) => c.id === k))));
     for (const c of down) readOne(c);
+  };
+  const retryNow = (c: Connection) => {
+    h1.current?.focus();
+    readOne(c); // its rows and its failures in a row stay (as usePolled's Retry)
   };
   const columns: Column<Row>[] = [
     {
@@ -145,9 +176,30 @@ export function AllJobs({
         <ErrorBanner
           error={new AppError('FLEET-PARTIAL', { n: down.length, names: down.map((c) => c.name).join(', ') })}
           handles={new Set(['Retry'])}
-          onAction={retry}
+          onAction={retryMissing}
         />
       )}
+      {lostNow.map((c) => (
+        <ErrorBanner
+          key={c.id}
+          error={
+            new AppError('CONN-LOST', {
+              conn: c.name,
+              s: Math.round(nextDelay(POLL.jobs.everyMs, read[c.id]?.failures ?? 0) / 1000),
+              ago: ago(read[c.id]?.at),
+            })
+          }
+          handles={new Set(['Retry now'])}
+          onAction={() => retryNow(c)}
+        />
+      ))}
+      {stale
+        .filter((c) => !lostNow.includes(c))
+        .map((c) => (
+          <p key={c.id} className="m-0 text-[13px] text-muted">
+            {c.name} is not answering. Showing its data from {ago(read[c.id]?.at)}.
+          </p>
+        ))}
       <div className="flex flex-wrap items-end gap-3">
         <Field label="Search jobs" className="w-[280px]">
           <Input

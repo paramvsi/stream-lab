@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { cancelJob, savepointStatus, stopWithSavepoint, triggerSavepoint } from './actions';
+import { cancelJob, getSavepointDir, savepointStatus, stopWithSavepoint, triggerSavepoint } from './actions';
 import { TransportError, type FlinkHttp, type FlinkRequest } from './http';
 
 const reply = (status: number, body: unknown = {}) => ({
@@ -171,5 +171,31 @@ describe('ACT-01 / ACT-02 · job actions (FLINK_API "Savepoint", "Stop", "Cancel
         'refund-matcher',
       ),
     ).rejects.toMatchObject({ code: 'API-409', params: { job: 'refund-matcher', state: 'finished' } });
+  });
+
+  it('getSavepointDir: the cluster default from /jobmanager/config, under its 1.20+ key or the older one; none is null', async () => {
+    const cfg = (rows: { key: string; value: string }[]) => async () => reply(200, rows);
+    expect(
+      await getSavepointDir(
+        cfg([{ key: 'execution.checkpointing.savepoint-dir', value: 's3://sp' }]),
+        'prod',
+      ),
+    ).toBe('s3://sp');
+    expect(await getSavepointDir(cfg([{ key: 'state.savepoints.dir', value: 'hdfs:///sp' }]), 'prod')).toBe(
+      'hdfs:///sp',
+    );
+    expect(
+      await getSavepointDir(
+        cfg([
+          { key: 'state.savepoints.dir', value: 'hdfs:///old' },
+          { key: 'execution.checkpointing.savepoint-dir', value: 's3://new' },
+        ]),
+        'prod',
+      ),
+    ).toBe('s3://new');
+    expect(
+      await getSavepointDir(cfg([{ key: 'execution.checkpointing.savepoint-dir', value: ' ' }]), 'prod'),
+    ).toBeNull();
+    expect(await getSavepointDir(cfg([]), 'prod')).toBeNull();
   });
 });

@@ -1,5 +1,7 @@
 import { AppError } from '@sl/errors';
 import { z } from 'zod';
+import { JobManagerConfigSchema } from './endpoints/jobs';
+import { getJson } from './fleet';
 import {
   fromTransport,
   httpStatusError,
@@ -170,4 +172,26 @@ export async function cancelJob(http: FlinkHttp, conn: string, jid: string, job:
       return new AppError('API-409', { job, state: state ? state.toLowerCase() : 'ended' }, r.body);
     },
   );
+}
+
+/**
+ * The cluster's default savepoint folder (the D15 dialog's prefill; none: the dialog requires one,
+ * SP-DIR-MISSING). The key is execution.checkpointing.savepoint-dir from 1.20, state.savepoints.dir before (still
+ * read by 1.20+ as a deprecated key); the new one wins. A blank value is none.
+ * FLINK: https://github.com/apache/flink/blob/release-1.20/flink-core/src/main/java/org/apache/flink/configuration/CheckpointingOptions.java
+ */
+export async function getSavepointDir(
+  http: FlinkHttp,
+  conn: string,
+  timeoutMs = 10_000,
+): Promise<string | null> {
+  const rows = await getJson(
+    http,
+    conn,
+    { method: 'GET', path: '/jobmanager/config', timeoutMs },
+    JobManagerConfigSchema,
+    'reading its configuration',
+  );
+  const get = (k: string) => rows.find((r) => r.key === k)?.value.trim() || null;
+  return get('execution.checkpointing.savepoint-dir') ?? get('state.savepoints.dir');
 }

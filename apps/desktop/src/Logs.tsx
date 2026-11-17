@@ -144,19 +144,25 @@ export function Logs({
   const [tms, setTms] = useState<string[]>([]);
   const [tmError, setTmError] = useState<AppError | null>(null);
   const tmReq = useRef(0);
-  const loadTms = useCallback(() => {
+  /** The TaskManagers' ids, or null when the list failed (said) or was overtaken by a later one. */
+  const loadTms = useCallback((): Promise<string[] | null> => {
     const id = ++tmReq.current;
-    listTaskManagers(http, c.name).then(
+    return listTaskManagers(http, c.name).then(
       (ts) => {
-        if (id !== tmReq.current) return;
-        setTms(ts.map((t) => t.id));
+        if (id !== tmReq.current) return null;
+        const ids = ts.map((t) => t.id);
+        setTms(ids);
         setTmError(null);
+        return ids;
       },
-      (e: unknown) => id === tmReq.current && setTmError(asAppError(e, c.name)),
+      (e: unknown) => {
+        if (id === tmReq.current) setTmError(asAppError(e, c.name));
+        return null;
+      },
     );
   }, [http, c.name]);
   useEffect(() => {
-    loadTms();
+    void loadTms();
     const r = tmReq;
     return () => {
       r.current++;
@@ -182,6 +188,17 @@ export function Logs({
     again(null, p);
   };
   const procName = useId();
+  // Reload: the TaskManagers first, then the chosen process again, or the JobManager if it has left the cluster
+  // (never a process with no tab). Dropped if the user picked something meanwhile (req moved).
+  const reload = () => {
+    const at = req.current;
+    const [p, n] = [proc, name];
+    void loadTms().then((ids) => {
+      if (req.current !== at) return;
+      if (p && ids && !ids.includes(p)) pickProc(null);
+      else again(n, p);
+    });
+  };
 
   const file = files?.find((f) => f.name === name) ?? null;
 
@@ -277,13 +294,7 @@ export function Logs({
         </h1>
         <div className="flex flex-wrap gap-2">
           {/* Always there (also with no files): the list and the file again, e.g. after a rollover. */}
-          <Button
-            icon={<RotateCw size={16} aria-hidden="true" />}
-            onClick={() => {
-              loadTms();
-              again(name);
-            }}
-          >
+          <Button icon={<RotateCw size={16} aria-hidden="true" />} onClick={reload}>
             Reload
           </Button>
           {onCluster && (

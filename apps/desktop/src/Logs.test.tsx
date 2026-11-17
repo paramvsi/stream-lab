@@ -537,4 +537,36 @@ describe('OPS-01 · Logs (D18, D18b)', () => {
       await screen.findByText(/had an internal error while reading the TaskManagers/),
     ).toBeInTheDocument();
   });
+
+  it('audit tabs #1: a chosen TaskManager gone on Reload falls back to the JobManager tab (never a tab-less process)', async () => {
+    const body = (ns: number[]) =>
+      ok(
+        200,
+        JSON.stringify({
+          taskmanagers: ns.map((n) => ({
+            hardware: { cpuCores: 8, physicalMemory: 1, freeMemory: 0, managedMemory: 0 },
+            id: `tm${n}-6d1f0c`,
+            path: `pekko.tcp://flink@10.0.4.2${n}:6122/user/rpc/taskmanager_0`,
+            dataPort: 41_000,
+            timeSinceLastHeartbeat: 1,
+            slotsNumber: 4,
+            freeSlots: 1,
+          })),
+        }),
+      );
+    let listings = 0;
+    const asked: string[] = [];
+    showRaw(tmHttp({ asked, tms: () => (++listings === 1 ? body([1, 2]) : body([2])) }));
+    await screen.findByRole('table', { name: 'Log lines' });
+    const group = screen.getByRole('group', { name: 'Process' });
+    await userEvent.click(within(group).getByRole('radio', { name: 'tm1-6d1f0c' }));
+    await screen.findByText('a TaskManager line');
+    await userEvent.click(screen.getByRole('button', { name: 'Reload' }));
+    expect(
+      await screen.findByText('Buffer pool usage at 96% for Window aggregate (1/4)'),
+    ).toBeInTheDocument();
+    expect(within(group).getByRole('radio', { name: 'JobManager' })).toBeChecked();
+    expect(within(group).queryByRole('radio', { name: 'tm1-6d1f0c' })).toBeNull();
+    expect(asked.filter((a) => a.startsWith('/taskmanagers/tm1')).length).toBe(2); // nothing asked of tm1 after Reload
+  });
 });

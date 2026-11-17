@@ -58,17 +58,32 @@ const ckpt = {
   },
   history: [],
 };
+const npe = (ts: number) => ({
+  exceptionName: 'java.lang.RuntimeException',
+  stacktrace: `java.lang.RuntimeException: wrapped\n\tat a\nCaused by: java.lang.NullPointerException: merchant_id is null\n\tat b`,
+  timestamp: ts,
+  taskName: 'Window aggregate (2/4)',
+});
+/** Four failures in the last 12 minutes, newest first (as Flink sends them). */
+const excs = {
+  exceptionHistory: {
+    entries: [0, 4, 8, 12].map((m) => npe(detail.now - m * 60_000)),
+    truncated: false,
+  },
+};
 /** The job answers `body`; its checkpoints answer `cp` (stats; or an Error, or a config body for /config). */
 const answer =
   (status: number, body: unknown, cp: unknown = ckpt, config: unknown = { interval: 10_000 }): FlinkHttp =>
   async (req) =>
-    req.path.endsWith('/checkpoints/config')
-      ? { status: 200, headers: {}, url: '', body: JSON.stringify(config) }
-      : req.path.endsWith('/checkpoints')
-        ? cp instanceof Error
-          ? { status: 404, headers: {}, url: '', body: JSON.stringify({ errors: [cp.message] }) }
-          : { status: 200, headers: {}, url: '', body: JSON.stringify(cp) }
-        : { status, headers: {}, url: '', body: JSON.stringify(body) };
+    req.path.endsWith('/exceptions')
+      ? { status: 200, headers: {}, url: '', body: JSON.stringify(excs) }
+      : req.path.endsWith('/checkpoints/config')
+        ? { status: 200, headers: {}, url: '', body: JSON.stringify(config) }
+        : req.path.endsWith('/checkpoints')
+          ? cp instanceof Error
+            ? { status: 404, headers: {}, url: '', body: JSON.stringify({ errors: [cp.message] }) }
+            : { status: 200, headers: {}, url: '', body: JSON.stringify(cp) }
+          : { status, headers: {}, url: '', body: JSON.stringify(body) };
 const show = (http: FlinkHttp, more: { onJobs?: () => void } = {}, c: Connection = conn) =>
   render(
     <TooltipProvider>
@@ -327,6 +342,32 @@ describe('JOB-02 · Job overview (board D08)', () => {
     show(answer(200, detail));
     await screen.findByRole('table', { name: 'Operators' });
     expect(screen.queryByText(/This connection is read-only/)).toBeNull();
+  });
+
+  it('JOB-05 / D08c: a restarting job says how often and why (JOB-RESTARTING, warning, root cause)', async () => {
+    show(answer(200, { ...detail, state: 'RESTARTING' }));
+    expect(
+      await screen.findByText(
+        'refund-matcher restarted 4 times in 12 min. Last cause: java.lang.NullPointerException: merchant_id is null.',
+      ),
+    ).toBeInTheDocument();
+  });
+
+  it('JOB-05 / D11: a failed job says so with its root cause (JOB-FAILED, error)', async () => {
+    show(answer(200, { ...detail, state: 'FAILED' }));
+    const t = await screen.findByText(
+      'refund-matcher failed: java.lang.NullPointerException: merchant_id is null.',
+    );
+    expect(t.closest('[role="alert"]')).not.toBeNull();
+  });
+
+  it('JOB-05: a running job neither asks for exceptions nor shows a status banner', async () => {
+    const paths: string[] = [];
+    show(async (req) => (paths.push(req.path), answer(200, detail)(req)));
+    await screen.findByRole('table', { name: 'Operators' });
+    await new Promise((r) => setTimeout(r, 50));
+    expect(paths.some((p) => p.endsWith('/exceptions'))).toBe(false);
+    expect(screen.queryByText(/restarted|failed:/)).toBeNull();
   });
 
   it('lists the operators with parallelism and status', async () => {

@@ -18,7 +18,7 @@ export function usePolled<T>(
   heading: RefObject<HTMLHeadingElement | null>,
   everyMs: number = POLL.jobs.everyMs,
   /** A second poll on one screen (its banner not shown): no "Back in contact" of its own, so the screen says it once. */
-  opts: { quiet?: boolean } = {},
+  opts: { quiet?: boolean; restartOn?: string | number | boolean } = {},
 ): { value: T | null; error: AppError | null; stale: boolean; since: string; banner: ReactNode } {
   const toast = useToast();
   const [value, setValue] = useState<T | null>(null);
@@ -80,7 +80,8 @@ export function usePolled<T>(
       },
     });
     return () => p.stop();
-  }, [http, round, c.name, c.timeoutMs, c.url, toast, everyMs, opts.quiet]);
+    // restartOn: a change starts a fresh poller, which asks at once (e.g. a job that just turned FAILED).
+  }, [http, round, c.name, c.timeoutMs, c.url, toast, everyMs, opts.quiet, opts.restartOn]);
 
   const retry = () => setRound((n) => n + 1);
   const s = Math.round(nextDelay(everyMs, pollFails) / 1000);

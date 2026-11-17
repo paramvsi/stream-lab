@@ -2,9 +2,13 @@ import { AppError, ErrorBanner, ErrorPage, present } from '@sl/errors';
 import {
   checkpointingOff,
   getCheckpoints,
+  getExceptions,
   getJob,
   lastCompleted,
   POLL,
+  recentFailures,
+  rootCauseLine,
+  type FlinkExceptions,
   type Connection,
   type FlinkCheckpoint,
   type FlinkHttp,
@@ -15,7 +19,7 @@ import { ListChecks, SearchX } from 'lucide-react';
 import { useEffect } from 'react';
 import { useScreenHeading } from './focus';
 import { Kpi } from './Kpi';
-import { TONE, word } from './Jobs';
+import { TONE, uptime, word } from './Jobs';
 import { usePolled } from './usePolled';
 
 const plural = (n: number, unit: string) => `${n} ${unit}${n === 1 ? '' : 's'}`;
@@ -57,6 +61,30 @@ const shortAgo = (ms: number) =>
     : ms < 86_400_000
       ? `${Math.floor(ms / 3_600_000)} h ago`
       : `${Math.floor(ms / 86_400_000)} d ago`;
+
+const TROUBLED = new Set(['RESTARTING', 'FAILING', 'FAILED']);
+const DAY = 86_400_000;
+/**
+ * JOB-05: the job's state as its catalog code (D08c, D11): FAILED is JOB-FAILED with the root cause; RESTARTING /
+ * FAILING is JOB-RESTARTING with the failures in the last 24 h (the D08 "Restarts · last 24 h" window) and the
+ * newest root cause. Nothing until the exceptions have been read (a banner without its cause would say less).
+ */
+function statusError(j: { name: string; state: string; now: number }, ex: FlinkExceptions | null) {
+  const newest = ex?.entries[0];
+  if (!newest) return null;
+  const cause = rootCauseLine(newest);
+  if (j.state === 'FAILED')
+    return new AppError('JOB-FAILED', { job: j.name, 'root cause first line': cause });
+  const recent = recentFailures(ex.entries, j.now, DAY);
+  if (!recent.length) return null;
+  const oldest = recent[recent.length - 1]!.timestamp;
+  return new AppError('JOB-RESTARTING', {
+    job: j.name,
+    n: recent.length,
+    period: uptime(j.now - oldest),
+    cause,
+  });
+}
 
 type Failures = { n: number; more: boolean };
 type Ckpt = { off: true } | { off: false; last: FlinkCheckpoint | null; failed: Failures };
@@ -143,6 +171,18 @@ export function JobOverview({
     { quiet: true },
   );
   const cp = ck.value;
+  // JOB-05: exceptions only while the job is in trouble (no extra call for a healthy job), on their own quiet poll.
+  const troubled = !!j && TROUBLED.has(j.state);
+  const ex = usePolled(
+    c,
+    transport,
+    (http, conn, t): Promise<FlinkExceptions | null> =>
+      troubled ? getExceptions(http, conn, jid, t) : Promise.resolve(null),
+    h1,
+    POLL.checkpoints.everyMs,
+    { quiet: true, restartOn: troubled },
+  );
+  const status = j && troubled ? statusError(j, ex.value) : null;
   // §4: a single 404 over a job on screen is a blip (HA failover); the page goes only once the banner would.
   const gone = error?.code === 'API-404-JOB' && (!j || !!banner) ? error : null;
   useEffect(() => {
@@ -157,6 +197,7 @@ export function JobOverview({
   return (
     <main className="flex min-h-screen flex-col gap-5 bg-surface px-8 py-7">
       {!gone && banner}
+      {status && !gone && <ErrorBanner error={status} handles={new Set()} />}
       {/* JOB-02 / D08e: a read-only connection hides actions, and says so. */}
       {c.readOnly && !gone && <ErrorBanner error={new AppError('JOB-READONLY')} />}
       <div className="flex flex-wrap items-start justify-between gap-4">

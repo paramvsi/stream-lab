@@ -152,4 +152,36 @@ describe('OPS-01 · Logs (D18, D18b)', () => {
     expect(await screen.findByRole('table', { name: 'Log lines' })).toBeInTheDocument();
     expect(screen.queryByText(/is no longer there/)).toBeNull();
   });
+
+  it('audit logs3: Reload keeps a picked older file; a list that fails on Reload keeps its banner (no read without a list)', async () => {
+    let listing = 0;
+    const asked: string[] = [];
+    show(async (r) => {
+      asked.push(r.path);
+      if (r.path === '/jobmanager/logs')
+        return ++listing === 3
+          ? ok(500, '{"errors":["Internal server error."]}')
+          : list([
+              { name: 'jobmanager.log', size: 1, mtime: 2 },
+              { name: 'jobmanager.log.1', size: 1, mtime: 1 },
+            ]);
+      return ok(200, r.path.endsWith('.1') ? 'old' : text);
+    });
+    await screen.findByRole('table', { name: 'Log lines' });
+    await userEvent.selectOptions(screen.getByRole('combobox', { name: 'Log file' }), 'jobmanager.log.1'); // list 2
+    await screen.findByText('old');
+    await userEvent.click(screen.getByRole('button', { name: 'Reload' })); // list 3 fails
+    expect(await screen.findByText(/had an internal error while listing its logs/)).toBeInTheDocument();
+    expect(asked.at(-1)).toBe('/jobmanager/logs'); // nothing read after a failed list
+    expect(screen.queryByRole('table', { name: 'Log lines' })).toBeNull(); // no stale rows under a stale header
+    await userEvent.click(screen.getByRole('button', { name: 'Reload' })); // list 4 ok: keeps .1
+    await screen.findByText('old');
+    expect(asked.at(-1)).toBe('/jobmanager/logs/jobmanager.log.1');
+  });
+
+  it('audit logs3: no log files still offers Reload', async () => {
+    show(async () => list([]));
+    await screen.findByText(/No log files/);
+    expect(screen.getByRole('button', { name: 'Reload' })).toBeInTheDocument();
+  });
 });

@@ -14,7 +14,7 @@ import {
 } from '@sl/flink';
 import { Button, Input, Loading, Skeleton, StatusBadge, Table, type Column } from '@sl/ui';
 import { RotateCw, Server } from 'lucide-react';
-import { useDeferredValue, useEffect, useId, useMemo, useState } from 'react';
+import { useCallback, useDeferredValue, useEffect, useId, useMemo, useRef, useState } from 'react';
 import { useScreenHeading } from './focus';
 import { size } from './format';
 
@@ -78,49 +78,41 @@ export function Logs({
   const [query, setQuery] = useState('');
   // Typing stays quick: the filter over up to 5,000 rows follows the typed text a beat behind.
   const q = useDeferredValue(query);
-  // Reload: the list again (a file may have rolled over) and the picked file read again.
-  const [round, setRound] = useState(0);
-  const reload = () => {
-    setText(null);
-    setError(null);
-    setRound((n) => n + 1);
-  };
   const levelName = useId();
   const fileId = useId();
 
-  // The list first (a name is never read without it); the newest file is picked.
+  // One load, in order: the list, then the file (the wanted one if still listed, else the newest). A file is never
+  // read without a fresh list, a list that fails is not overwritten by a read, and a later load drops an earlier
+  // one's answers (req). Used at open, on a pick and on Reload.
+  const req = useRef(0);
+  const load = useCallback(
+    (want: string | null) => {
+      const id = ++req.current;
+      listJmLogs(http, c.name)
+        .then((fs) => {
+          if (id !== req.current) return;
+          setFiles(fs);
+          const n = want && fs.some((f) => f.name === want) ? want : (fs[0]?.name ?? null);
+          setName(n);
+          if (!n) return;
+          return getJmLog(http, c.name, n).then((t) => id === req.current && setText(t));
+        })
+        .catch((e: unknown) => id === req.current && setError(asAppError(e, c.name)));
+    },
+    [http, c.name],
+  );
   useEffect(() => {
-    let live = true;
-    listJmLogs(http, c.name).then(
-      (fs) => {
-        if (!live) return;
-        setFiles(fs);
-        // Keep the picked file if it is still listed; otherwise the newest.
-        setName((n) => (n && fs.some((f) => f.name === n) ? n : (fs[0]?.name ?? null)));
-      },
-      (e: unknown) => live && setError(asAppError(e, c.name)),
-    );
+    load(null);
+    const r = req;
     return () => {
-      live = false;
+      r.current++; // gone: drop what is in flight
     };
-  }, [http, c.name, round]);
-
-  // The picked file (picked again from the list after LOG-GONE).
-  useEffect(() => {
-    if (!name) return;
-    let live = true;
-    getJmLog(http, c.name, name).then(
-      (t) => {
-        if (!live) return;
-        setText(t);
-        setError(null);
-      },
-      (e: unknown) => live && setError(asAppError(e, c.name)),
-    );
-    return () => {
-      live = false;
-    };
-  }, [http, c.name, name, round]);
+  }, [load]);
+  const again = (want: string | null) => {
+    setText(null);
+    setError(null);
+    load(want);
+  };
 
   const file = files?.find((f) => f.name === name) ?? null;
   // Split and parsed once per file; filtered per level and search.
@@ -143,11 +135,17 @@ export function Logs({
         <h1 ref={h1} tabIndex={-1} className="m-0 text-[26px] font-semibold outline-none">
           Logs
         </h1>
-        {onCluster && (
-          <Button icon={<Server size={16} aria-hidden="true" />} onClick={onCluster}>
-            Cluster
+        <div className="flex flex-wrap gap-2">
+          {/* Always there (also with no files): the list and the file again, e.g. after a rollover. */}
+          <Button icon={<RotateCw size={16} aria-hidden="true" />} onClick={() => again(name)}>
+            Reload
           </Button>
-        )}
+          {onCluster && (
+            <Button icon={<Server size={16} aria-hidden="true" />} onClick={onCluster}>
+              Cluster
+            </Button>
+          )}
+        </div>
       </div>
       {error && <ErrorBanner error={error} />}
       {file && tooLarge(file.size) && (
@@ -175,11 +173,7 @@ export function Logs({
                 <select
                   id={fileId}
                   value={name ?? ''}
-                  onChange={(e) => {
-                    setText(null);
-                    setError(null);
-                    setName(e.target.value);
-                  }}
+                  onChange={(e) => again(e.target.value)}
                   className="sl-focus h-9 rounded-md border border-line bg-surface px-2 text-[14px]"
                 >
                   {files.map((f) => (
@@ -190,9 +184,6 @@ export function Logs({
                 </select>
               </div>
             )}
-            <Button icon={<RotateCw size={16} aria-hidden="true" />} onClick={reload}>
-              Reload
-            </Button>
             <div className="w-72">
               <Input
                 type="search"

@@ -69,10 +69,11 @@ export function StopDialog({
   const drainId = useId();
   const toast = useToastOptional();
   const openRef = useRef(open);
-  // A stop whose status was lost may still be running on the cluster: for the rest of this page it counts as
-  // running for the page (no Trigger, no Cancel instead), as it can not be told apart from one that is.
+  // A stop whose status was lost may still be running on the cluster. Said on the next question (not a lock: a
+  // lock could never clear while the job stays RUNNING, and would take away cancel when a stop is stuck); a new
+  // stop sent clears it.
   const [uncertain, setUncertain] = useState(false);
-  const running = step.name === 'running' || uncertain;
+  const running = step.name === 'running';
   useEffect(() => {
     onRunningChange?.(running);
   }, [running, onRunningChange]);
@@ -194,6 +195,7 @@ export function StopDialog({
     if (!folder) return setFieldError(new AppError('SP-DIR-MISSING'));
     setFieldError(null);
     setSendError(null);
+    setUncertain(false);
     setSending(true);
     stopWithSavepoint(http, conn, jid, job, { dir: folder, drain }).then(
       (r) => {
@@ -266,7 +268,7 @@ export function StopDialog({
       title={`Stop ${job} with a savepoint?`}
       footer={
         <>
-          {onCancelInstead && !uncertain && (
+          {onCancelInstead && (
             <Button variant="ghost" disabled={sending} className="mr-auto" onClick={onCancelInstead}>
               Cancel without a savepoint instead
             </Button>
@@ -283,6 +285,9 @@ export function StopDialog({
       <p className="m-0 text-[14px]">
         Flink writes a savepoint, then stops the job. You can restart from it later without losing state.
       </p>
+      {uncertain && (
+        <p className="m-0 text-[13px] text-muted">A stop sent earlier may still be running on the cluster.</p>
+      )}
       {sendError && <ErrorBanner error={sendError} />}
       {dir === null ? (
         <Loading label="Reading the savepoint folder">

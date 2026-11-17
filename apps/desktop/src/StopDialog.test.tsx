@@ -234,7 +234,7 @@ describe('ACT-01 · stop with savepoint (D15, D15b, D15c, D15d)', () => {
       expect(at).toBe(3);
     }));
 
-  it('audit cancel #3: after a stop lost track of its status, a fresh opening offers no cancel (a stop may still be in flight)', () =>
+  it('audit cancel #3 + cancel2: after a stop lost track of its status, a fresh opening says a stop may still be in flight, and locks nothing', () =>
     run(async () => {
       const http: FlinkHttp = async (r) => {
         if (r.path === '/jobmanager/config') return cfg('s3://sp');
@@ -273,6 +273,10 @@ describe('ACT-01 · stop with savepoint (D15, D15b, D15c, D15d)', () => {
       await userEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Close' }));
       await userEvent.click(screen.getByRole('button', { name: 'Open stop' }));
       const again = await screen.findByRole('dialog', { name: 'Stop refund-matcher with a savepoint?' });
-      expect(within(again).queryByRole('button', { name: 'Cancel without a savepoint instead' })).toBeNull();
+      // audit cancel2: said, not locked (a lock would never clear while the job stays RUNNING).
+      expect(again).toHaveTextContent('A stop sent earlier may still be running on the cluster.');
+      expect(
+        within(again).getByRole('button', { name: 'Cancel without a savepoint instead' }),
+      ).toBeInTheDocument();
     }));
 });

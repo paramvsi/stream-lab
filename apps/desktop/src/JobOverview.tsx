@@ -12,6 +12,7 @@ import {
   type FlinkExceptions,
   type Connection,
   type FlinkCheckpoint,
+  type FlinkCheckpointStats,
   type FlinkHttp,
   type FlinkVertex,
 } from '@sl/flink';
@@ -19,50 +20,13 @@ import { Button, Loading, Skeleton, StatusBadge, Table, Tabs, type Column } from
 import { ListChecks, SearchX } from 'lucide-react';
 import { useEffect, useRef, useState, type RefObject } from 'react';
 import { useScreenHeading } from './focus';
+import { Checkpoints } from './Checkpoints';
 import { ExceptionGroups } from './ExceptionGroups';
+import { ago, duration, shortAgo, size } from './format';
+export { duration, size } from './format';
 import { Kpi } from './Kpi';
 import { TONE, uptime, word } from './Jobs';
 import { usePolled } from './usePolled';
-
-const plural = (n: number, unit: string) => `${n} ${unit}${n === 1 ? '' : 's'}`;
-/** Board D08 "started 6 days ago": whole minutes, hours or days, in words. */
-export const ago = (ms: number) =>
-  ms < 3_600_000
-    ? `${plural(Math.max(1, Math.floor(ms / 60_000)), 'minute')} ago`
-    : ms < 86_400_000
-      ? `${plural(Math.floor(ms / 3_600_000), 'hour')} ago`
-      : `${plural(Math.floor(ms / 86_400_000), 'day')} ago`;
-
-/** "820 ms", "3.4 s", "2 min 5 s": rounded first, so 59.95 s is "1 min 0 s", never "60.0 s" or "1 min 60 s". */
-export const duration = (ms: number) => {
-  if (ms < 999.5) return `${Math.round(ms)} ms`;
-  const tenths = Math.round(ms / 100) / 10;
-  if (tenths < 60) return `${tenths.toFixed(1)} s`;
-  const s = Math.round(ms / 1_000);
-  return `${Math.floor(s / 60)} min ${s % 60} s`;
-};
-/** "500 B", "220 MB", "1.4 GB" (binary units, as Flink's own UI); a size Flink did not send is "—", not 0. */
-export const size = (b: number | undefined) => {
-  if (b === undefined) return '—';
-  if (b < 1024) return `${Math.round(b)} B`;
-  const units = ['KB', 'MB', 'GB', 'TB'] as const;
-  // Shown as whole KB / MB, one decimal from GB: carry when the shown value would read 1024.
-  const shown = (v: number, i: number) => (i >= 2 ? Math.round(v * 10) / 10 : Math.round(v));
-  let v = b / 1024;
-  let i = 0;
-  while (i < units.length - 1 && shown(v, i) >= 1024) {
-    v /= 1024;
-    i++;
-  }
-  return i >= 2 ? `${v.toFixed(1)} ${units[i]}` : `${Math.round(v)} ${units[i]}`;
-};
-/** Board D08 KPI note "2 min ago": the short form. */
-const shortAgo = (ms: number) =>
-  ms < 3_600_000
-    ? `${Math.max(1, Math.floor(ms / 60_000))} min ago`
-    : ms < 86_400_000
-      ? `${Math.floor(ms / 3_600_000)} h ago`
-      : `${Math.floor(ms / 86_400_000)} d ago`;
 
 /**
  * The states with a JOB-05 banner. FAILING is a job that has failed for good and is still cancelling its tasks:
@@ -171,7 +135,8 @@ function ReadError({
 }
 
 type Failures = { n: number; more: boolean };
-type Ckpt = { off: true } | { off: false; last: FlinkCheckpoint | null; failed: Failures };
+type Ckpt =
+  { off: true } | { off: false; last: FlinkCheckpoint | null; failed: Failures; stats: FlinkCheckpointStats };
 /**
  * Board D08c "3 failures in a row": FAILED checkpoints since the last completed one, newest first. Savepoints
  * are left out (a failed stop-with-savepoint is not a checkpoint failure; latest.completed holds checkpoints
@@ -201,7 +166,7 @@ async function readCkpt(http: FlinkHttp, conn: string, jid: string, t: number): 
   try {
     const s = await getCheckpoints(http, conn, jid, t);
     if (s.counts.total === 0 && (await checkpointingOff(http, conn, jid, t))) return { off: true };
-    return { off: false, last: lastCompleted(s), failed: failedInRow(s.history, s.counts.total) };
+    return { off: false, last: lastCompleted(s), failed: failedInRow(s.history, s.counts.total), stats: s };
   } catch (e) {
     if (e instanceof AppError && e.code === 'JOB-CKPT-NONE') return { off: true };
     throw e;
@@ -419,6 +384,33 @@ export function JobOverview({
                       <ReadError error={readError} onRetry={ex.retry} heading={h1} />
                     ) : (
                       <Loading label="Loading exceptions">
+                        <Skeleton height={46} />
+                      </Loading>
+                    )}
+                  </div>
+                </ErrorBoundary>
+              ),
+            },
+            {
+              value: 'checkpoints',
+              label: 'Checkpoints',
+              content: (
+                <ErrorBoundary resetKey={jid}>
+                  <div className="pt-5">
+                    {cp ? (
+                      cp.off ? (
+                        <Checkpoints off />
+                      ) : (
+                        <Checkpoints stats={cp.stats} failedInRow={cp.failed} />
+                      )
+                    ) : ck.error ? (
+                      <ErrorBanner
+                        error={ck.error}
+                        handles={new Set(['Retry', 'Retry now'])}
+                        onAction={ck.retry}
+                      />
+                    ) : (
+                      <Loading label="Loading checkpoints">
                         <Skeleton height={46} />
                       </Loading>
                     )}

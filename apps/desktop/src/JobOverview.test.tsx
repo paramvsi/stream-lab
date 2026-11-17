@@ -769,6 +769,15 @@ describe('JOB-02 · Job overview (board D08)', () => {
     }
   });
 
+  it('JOB-12: a Checkpoints tab after Exceptions (D08 order) shows the checkpoint history', async () => {
+    show(answer(200, detail));
+    await screen.findByRole('table', { name: 'Operators' });
+    const tabs = screen.getAllByRole('tab').map((t) => t.textContent?.replace(/\d+\+?$/, '').trim());
+    expect(tabs).toEqual(['Overview', 'Exceptions', 'Checkpoints']);
+    await userEvent.click(screen.getByRole('tab', { name: 'Checkpoints' }));
+    expect(await screen.findByRole('group', { name: 'Completed' })).toHaveTextContent('9');
+  });
+
   it('lists the operators with parallelism and status', async () => {
     show(answer(200, detail));
     const table = await screen.findByRole('table', { name: 'Operators' });

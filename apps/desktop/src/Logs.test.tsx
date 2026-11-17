@@ -567,6 +567,61 @@ describe('OPS-01 · Logs (D18, D18b)', () => {
     ).toBeInTheDocument();
     expect(within(group).getByRole('radio', { name: 'JobManager' })).toBeChecked();
     expect(within(group).queryByRole('radio', { name: 'tm1-6d1f0c' })).toBeNull();
-    expect(asked.filter((a) => a.startsWith('/taskmanagers/tm1')).length).toBe(2); // nothing asked of tm1 after Reload
+    // Reload asks tm1 again alongside the TaskManager list (its answer dropped); once it has fallen back, never again.
+    const tm1 = asked.filter((x) => x.startsWith('/taskmanagers/tm1')).length;
+    expect(asked.at(-1)).toBe('/jobmanager/logs/jobmanager.log');
+    await new Promise((res) => setTimeout(res, 200));
+    expect(asked.filter((x) => x.startsWith('/taskmanagers/tm1')).length).toBe(tm1);
+  });
+
+  const tmsBody = (ns: number[]) =>
+    ok(
+      200,
+      JSON.stringify({
+        taskmanagers: ns.map((n) => ({
+          hardware: { cpuCores: 8, physicalMemory: 1, freeMemory: 0, managedMemory: 0 },
+          id: `tm${n}-6d1f0c`,
+          path: `pekko.tcp://flink@10.0.4.2${n}:6122/user/rpc/taskmanager_0`,
+          dataPort: 41_000,
+          timeSinceLastHeartbeat: 1,
+          slotsNumber: 4,
+          freeSlots: 1,
+        })),
+      }),
+    );
+
+  it('audit reload #1: a double Reload while the TaskManager list is slow still falls back from a gone TaskManager', async () => {
+    let listings = 0;
+    const base = tmHttp({ tms: () => (++listings === 1 ? tmsBody([1, 2]) : tmsBody([2])) });
+    let slow = 0;
+    const http: FlinkHttp = async (r) => {
+      if (r.path === '/taskmanagers' && ++slow > 1) await new Promise((res) => setTimeout(res, 150));
+      return base(r);
+    };
+    showRaw(http);
+    await screen.findByRole('table', { name: 'Log lines' });
+    const group = screen.getByRole('group', { name: 'Process' });
+    await userEvent.click(within(group).getByRole('radio', { name: 'tm1-6d1f0c' }));
+    await screen.findByText('a TaskManager line');
+    await userEvent.click(screen.getByRole('button', { name: 'Reload' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Reload' }));
+    expect(
+      await screen.findByText('Buffer pool usage at 96% for Window aggregate (1/4)'),
+    ).toBeInTheDocument();
+    await new Promise((res) => setTimeout(res, 400));
+    expect(within(group).getByRole('radio', { name: 'JobManager' })).toBeChecked();
+    expect(within(group).queryByRole('radio', { name: 'tm1-6d1f0c' })).toBeNull();
+  });
+
+  it('audit reload #2: on the JobManager tab, Reload does not wait for the TaskManager list', async () => {
+    const asked: string[] = [];
+    let listings = 0;
+    const base = tmHttp({ asked });
+    const http: FlinkHttp = (r) =>
+      r.path === '/taskmanagers' && ++listings > 1 ? new Promise(() => {}) : base(r); // the 2nd list never answers
+    showRaw(http);
+    await screen.findByRole('table', { name: 'Log lines' });
+    await userEvent.click(screen.getByRole('button', { name: 'Reload' }));
+    await vi.waitFor(() => expect(asked.filter((a) => a === '/jobmanager/logs')).toHaveLength(2));
   });
 });

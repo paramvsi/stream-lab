@@ -183,20 +183,21 @@ export function Logs({
     load(want, p);
   };
   const pickProc = (p: Proc) => {
+    procRef.current = p;
     setProc(p);
     setFiles(null);
     again(null, p);
   };
   const procName = useId();
-  // Reload: the TaskManagers first, then the chosen process again, or the JobManager if it has left the cluster
-  // (never a process with no tab). Dropped if the user picked something meanwhile (req moved).
+  // Reload: the chosen process again at once, and the TaskManagers alongside. When their list lands, a chosen
+  // TaskManager that has left the cluster falls back to the JobManager (never a process with no tab). A list
+  // overtaken by a later Reload, or one that failed (said), changes nothing. procRef is what is chosen by then.
+  const procRef = useRef<Proc>(null);
   const reload = () => {
-    const at = req.current;
-    const [p, n] = [proc, name];
+    again(name);
     void loadTms().then((ids) => {
-      if (req.current !== at) return;
-      if (p && ids && !ids.includes(p)) pickProc(null);
-      else again(n, p);
+      const p = procRef.current;
+      if (ids && p && !ids.includes(p)) pickProc(null);
     });
   };
 

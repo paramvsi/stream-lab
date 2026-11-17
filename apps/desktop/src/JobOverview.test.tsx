@@ -1762,6 +1762,17 @@ describe('JOB-02 · Job overview (board D08)', () => {
     },
   );
 
+  it('audit hist2: a store that cannot be read says HISTORY-IO on the History tab (not a blank tab)', async () => {
+    const history: HistoryStore = {
+      ...memoryHistory(),
+      events: async () => Promise.reject(new Error('disk I/O error')),
+    };
+    show(answer(200, detail), { history });
+    await screen.findByRole('table', { name: 'Operators' });
+    await userEvent.click(screen.getByRole('tab', { name: 'History' }));
+    expect(await screen.findByText(/local history could not be read: disk I\/O error/)).toBeInTheDocument();
+  });
+
   it('lists the operators with parallelism and status', async () => {
     show(answer(200, detail));
     const table = await screen.findByRole('table', { name: 'Operators' });

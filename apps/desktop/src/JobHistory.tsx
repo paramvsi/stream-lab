@@ -1,23 +1,29 @@
 import { AppError, cleanCause, present } from '@sl/errors';
 import { Table, type Column } from '@sl/ui';
 import { CircleAlert } from 'lucide-react';
-import { useEffect, useId, useState, type ReactNode } from 'react';
+import { useEffect, useId, useState } from 'react';
 import { clock } from './ExceptionGroups';
 import type { HistoryEvent, HistoryStore } from './history';
 
 const WORD: Record<HistoryEvent['kind'], string> = { restart: 'Restart', rescale: 'Rescaled' };
 
-/** Board D10's event pill: rose, a dot and the word (never colour alone). */
-const Pill = ({ children }: { children: ReactNode }) => (
-  <span className="inline-flex items-center gap-1.5 rounded-pill bg-rose-50 px-2.5 py-[3px] text-[12px] font-medium text-rose-700">
+/** Board D10's event pills: Restart in danger red, Rescaled in rose; a dot and the word (never colour alone). */
+const PILL: Record<HistoryEvent['kind'], string> = {
+  restart: 'bg-danger-50 text-danger-600',
+  rescale: 'bg-rose-50 text-rose-700',
+};
+const Pill = ({ kind }: { kind: HistoryEvent['kind'] }) => (
+  <span
+    className={`inline-flex items-center gap-1.5 rounded-pill px-2.5 py-[3px] text-[12px] font-medium ${PILL[kind]}`}
+  >
     <span aria-hidden="true" className="size-1.5 rounded-pill bg-current" />
-    {children}
+    {WORD[kind]}
   </span>
 );
 
 const columns: Column<HistoryEvent>[] = [
   { key: 'at', header: 'When', mono: true, render: (e) => clock(e.at) },
-  { key: 'kind', header: 'Event', render: (e) => <Pill>{WORD[e.kind]}</Pill> },
+  { key: 'kind', header: 'Event', render: (e) => <Pill kind={e.kind} /> },
   { key: 'detail', header: 'Detail', render: (e) => e.detail },
 ];
 

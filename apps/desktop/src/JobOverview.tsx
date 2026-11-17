@@ -243,7 +243,9 @@ export function JobOverview({
     if (!j || j === last.current || saving.current) return;
     const events = diffJob(last.current, j, Date.now());
     if (!events.length) {
+      // Nothing (left) to save: a change that reversed before its retry is no longer there to record.
       last.current = j;
+      setSaveError(null);
       return;
     }
     saving.current = true;

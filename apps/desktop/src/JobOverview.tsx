@@ -234,6 +234,8 @@ export function JobOverview({
   /** Each vertex's last good reading and when it came (cleared when the job or its vertices change). */
   const bpRead = useRef(new Map<string, { value: Backpressure | null; at: number }>());
   const bpNext = useRef(0);
+  /** What the graph shows: set by every round, the failed ones too, so an old reading ages out either way. */
+  const [bpAged, setBpAged] = useState<Record<string, Backpressure | null>>({});
   const vids = j ? j.vertices.map((v) => v.id).join(',') : '';
   // Bumped when the backpressure read's world changes (state, vertices, page): an older round stops at once.
   const bpGen = useRef(0);
@@ -249,7 +251,10 @@ export function JobOverview({
     c,
     transport,
     async (http, conn, t) => {
-      if (!running || !vids || !j) return {} as Record<string, Backpressure | null>;
+      if (!running || !vids || !j) {
+        setBpAged({});
+        return {} as Record<string, Backpressure | null>;
+      }
       const ids = vids.split(',');
       // One vertex at a time: one slot of the connection's 6, so the job poll never waits behind a burst, and a
       // screen left behind leaves at most one request queued.
@@ -268,33 +273,37 @@ export function JobOverview({
         got.set(
           v,
           await getBackpressure(http, conn, jid, v, j.state, Math.min(t, 2_000)).then(
-            (value) => ({ status: 'fulfilled' as const, value }),
+            (value) => {
+              // Stamped when it came, and never into a map a restart has cleared since.
+              if (bpGen.current === gen) bpRead.current.set(v, { value, at: Date.now() });
+              return { status: 'fulfilled' as const, value };
+            },
             (reason: unknown) => ({ status: 'rejected' as const, reason }),
           ),
         );
       }
       // A reading counts by its age, not by rounds: shown while under BP_MAX_AGE, whether the vertex was not
-      // reached, failed, or sat in a round that failed as a whole. Never an old reading that looks current.
+      // reached, failed, or sat in a round that failed as a whole (the badges are aged then too, not kept by
+      // the poll). Never an old reading that looks current.
       const now = Date.now();
-      for (const [v, r] of got)
-        if (r.status === 'fulfilled') bpRead.current.set(v, { value: r.value, at: now });
-      // §4: every vertex read failing is a failed read (the poll keeps the last badges and counts it: the stale
-      // note), not "nothing to show".
-      const rs = [...got.values()];
-      const failed = rs.find((r) => r.status === 'rejected');
-      if (failed && rs.every((r) => r.status === 'rejected')) throw failed.reason;
-      return Object.fromEntries(
+      const aged = Object.fromEntries(
         ids.map((v) => {
           const r = bpRead.current.get(v);
           return [v, r && now - r.at <= BP_MAX_AGE ? r.value : null];
         }),
       );
+      if (bpGen.current === gen) setBpAged(aged);
+      // §4: every vertex read failing is a failed read (the poll counts it: the stale note), not "all fine".
+      const rs = [...got.values()];
+      const failed = rs.find((r) => r.status === 'rejected');
+      if (failed && rs.every((r) => r.status === 'rejected')) throw failed.reason;
+      return aged;
     },
     h1,
     POLL.checkpoints.everyMs,
     { quiet: true, restartOn: running ? vids : '' },
   );
-  const bpShown = running ? (bp.value ?? {}) : {};
+  const bpShown = running ? bpAged : {};
   // JOB-05: exceptions only while the job is in trouble (no extra call for a healthy job), on their own quiet poll.
   const troubled = !!j && TROUBLED.has(j.state);
   const [tab, setTab] = useState('overview');
@@ -448,7 +457,9 @@ export function JobOverview({
                       graph={jobGraph(j)}
                       backpressure={bpShown}
                       {...(running && bp.stale
-                        ? { note: `Backpressure: not answering. Showing data from ${bp.since}.` }
+                        ? {
+                            note: 'Backpressure: not answering. Badges show readings less than a minute old.',
+                          }
                         : {})}
                     />
                     <Table label="Operators" columns={columns} rows={j.vertices} rowKey={(v) => v.id} />

@@ -1036,7 +1036,7 @@ describe('JOB-02 · Job overview (board D08)', () => {
         hang = true;
         for (let t = 0; t < 30; t++) await act(async () => vi.advanceTimersByTimeAsync(1_000));
         const g = screen.getByRole('region', { name: 'Job graph' }).parentElement!;
-        expect(within(g).getByText(/not answering\. Showing data from/i)).toBeInTheDocument();
+        expect(within(g).getByText(/Backpressure: not answering/)).toBeInTheDocument();
       } finally {
         vi.useRealTimers();
       }
@@ -1176,6 +1176,80 @@ describe('JOB-02 · Job overview (board D08)', () => {
         sick = true;
         for (let t = 0; t < 90; t++) await act(async () => vi.advanceTimersByTimeAsync(1_000));
         expect(screen.queryByText('backpressured 80%')).toBeNull();
+      } finally {
+        vi.useRealTimers();
+      }
+    },
+  );
+
+  it(
+    'audit bp7 #1: when every read fails, a badge still goes once its reading is over 60 s old; the note claims no age',
+    { timeout: 30_000 },
+    async () => {
+      vi.useFakeTimers({ shouldAdvanceTime: true });
+      try {
+        let down = false;
+        show(async (req) => {
+          if (req.path.endsWith('/backpressure'))
+            return down
+              ? { status: 500, headers: {}, url: '', body: '' }
+              : {
+                  status: 200,
+                  headers: {},
+                  url: '',
+                  body: JSON.stringify({
+                    status: 'ok',
+                    backpressureLevel: 'high',
+                    subtasks: [{ ratio: 0.97 }],
+                  }),
+                };
+          return answer(200, detail)(req);
+        });
+        await screen.findAllByText('backpressured 97%');
+        down = true;
+        for (let t = 0; t < 80; t++) await act(async () => vi.advanceTimersByTimeAsync(1_000));
+        expect(screen.queryByText('backpressured 97%')).toBeNull();
+        const g = screen.getByRole('region', { name: 'Job graph' }).parentElement!;
+        expect(within(g).getByText(/Backpressure: not answering/)).not.toHaveTextContent(/data from/);
+      } finally {
+        vi.useRealTimers();
+      }
+    },
+  );
+
+  it(
+    'audit bp7 #2: after a restart, a reading from before it never comes back as current',
+    { timeout: 30_000 },
+    async () => {
+      vi.useFakeTimers({ shouldAdvanceTime: true });
+      try {
+        let state = 'RUNNING';
+        let after = false;
+        show(async (req) => {
+          if (req.path.endsWith('/backpressure'))
+            return after && req.path.includes('/v2/') // after the restart: v2 fails, the others answer ok
+              ? { status: 500, headers: {}, url: '', body: '' }
+              : {
+                  status: 200,
+                  headers: {},
+                  url: '',
+                  body: JSON.stringify({
+                    status: 'ok',
+                    backpressureLevel: after ? 'ok' : 'high',
+                    subtasks: [{ ratio: after ? 0 : 0.97 }],
+                  }),
+                };
+          return answer(200, { ...detail, state })(req);
+        });
+        await screen.findAllByText('backpressured 97%');
+        state = 'RESTARTING';
+        after = true;
+        for (let t = 0; t < 4; t++) await act(async () => vi.advanceTimersByTimeAsync(1_000));
+        state = 'RUNNING';
+        for (let t = 0; t < 12; t++) {
+          await act(async () => vi.advanceTimersByTimeAsync(1_000));
+          expect(screen.queryByText('backpressured 97%')).toBeNull();
+        }
       } finally {
         vi.useRealTimers();
       }

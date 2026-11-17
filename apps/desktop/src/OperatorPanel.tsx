@@ -12,7 +12,8 @@ import {
 } from '@sl/flink';
 import { Loading, Skeleton, Table, Tabs, type Column } from '@sl/ui';
 import { CircleAlert } from 'lucide-react';
-import { useEffect, useId, useRef, type ReactNode, type RefObject } from 'react';
+import { useEffect, useId, useRef, useState, type ReactNode, type RefObject } from 'react';
+import { Explain } from './Explain';
 import { HOST_DOWN, usePolled } from './usePolled';
 
 const columns: Column<SubtaskLoad>[] = [
@@ -189,6 +190,8 @@ function Watermarks(p: Props) {
 
 // FLINK: https://github.com/apache/flink/blob/release-1.20/flink-runtime/src/main/java/org/apache/flink/streaming/runtime/tasks/SourceOperatorStreamTask.java
 function WatermarkTable({ c, transport, jid, vertex, heading, pageBanner, now, idleCanHold }: Props) {
+  // JOB-10: once a subtask has held the watermark back, "Explain watermarks" stays while this tab is open.
+  const [explain, setExplain] = useState(false);
   // The JobManager's time at the moment of each watermark read: the last job read's `now`, plus the time since it
   // came. Lag is fixed at the read, never against a later job read (it would swing with the two polls).
   const base = useRef({ jm: now, at: 0 });
@@ -219,6 +222,7 @@ function WatermarkTable({ c, transport, jid, vertex, heading, pageBanner, now, i
       </Loading>
     );
   const held = holdingBack(v);
+  if (held && !explain) setExplain(true);
   const cols: Column<SubtaskWatermark>[] = [
     { key: 'i', header: '#', mono: true, render: (w) => w.index },
     {
@@ -257,6 +261,11 @@ function WatermarkTable({ c, transport, jid, vertex, heading, pageBanner, now, i
             ? 'Its source partition may be idle: consider an idleness timeout.'
             : 'Check whether it is busy or gets more records than the others (Subtasks).'}
         </p>
+      )}
+      {explain && (
+        <div className="flex">
+          <Explain term="watermark" label="Explain watermarks" />
+        </div>
       )}
     </div>
   );

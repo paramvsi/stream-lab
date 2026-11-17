@@ -2236,3 +2236,53 @@ describe('JOB-10 · Explain this (board D08f)', () => {
     }
   });
 });
+
+describe('JOB-10 · Explain watermarks (board D08f pattern)', () => {
+  const marks = (held: boolean) =>
+    JSON.stringify(
+      [0, 1, 2, 3].map((i) => ({
+        id: `${i}.currentInputWatermark`,
+        value: String(detail.now - (held && i === 0 ? 41_000 : 1_000)),
+      })),
+    );
+  const open = async (http: FlinkHttp) => {
+    show(http);
+    const ops = await screen.findByRole('table', { name: 'Operators' });
+    await userEvent.click(within(ops).getAllByRole('row')[2]!);
+    const p = await screen.findByRole('region', { name: 'Window aggregate' });
+    await userEvent.click(within(p).getByRole('tab', { name: 'Watermarks' }));
+    await within(p).findByRole('table', { name: 'Watermarks' });
+    return p;
+  };
+  const cluster =
+    (held: () => boolean): FlinkHttp =>
+    async (req) => {
+      if (req.path.endsWith('/vertices/v2/watermarks'))
+        return { status: 200, headers: {}, url: '', body: marks(held()) };
+      if (req.path.includes('/subtasks/')) return { status: 200, headers: {}, url: '', body: '[]' };
+      return answer(200, { ...detail, plan: hashPlan })(req);
+    };
+
+  it('a subtask holding the watermark back offers "Explain watermarks" (course text); it stays when the lag clears', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      const u = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+      let reads = 0;
+      const p = await open(cluster(() => ++reads <= 1));
+      await u.click(within(p).getByRole('button', { name: 'Explain watermarks' }));
+      const d = await screen.findByRole('dialog', { name: 'Watermark' });
+      expect(within(d).getByText(termById('watermark')!.body)).toBeInTheDocument();
+      await vi.advanceTimersByTimeAsync(11_000); // the lag clears
+      expect(reads).toBeGreaterThan(1);
+      expect(within(p).queryByText(/behind the others/)).toBeNull();
+      expect(d.isConnected).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('no subtask holding back: nothing to explain', async () => {
+    const p = await open(cluster(() => false));
+    expect(within(p).queryByRole('button', { name: 'Explain watermarks' })).toBeNull();
+  });
+});

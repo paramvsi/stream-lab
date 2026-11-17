@@ -357,7 +357,7 @@ describe('SP-TIMEOUT (catalog: still IN_PROGRESS after 10 min, board D15b)', () 
       await vi.advanceTimersByTimeAsync(11_000);
       await vi.waitFor(() =>
         expect(screen.getByRole('dialog', { name: 'Stopping refund-matcher' })).toHaveTextContent(
-          /The savepoint is taking longer than usual \(10 min \d+ s\)\. You can keep waiting or close this; it continues on the cluster\./,
+          /The savepoint is taking longer than usual \(10 min\)\. You can keep waiting or close this; it continues on the cluster\./,
         ),
       );
       await userEvent.click(screen.getByRole('button', { name: 'Keep waiting' }), {
@@ -392,7 +392,7 @@ describe('SP-TIMEOUT (catalog: still IN_PROGRESS after 10 min, board D15b)', () 
       });
       await vi.waitFor(() =>
         expect(screen.getByRole('dialog', { name: 'Stopping refund-matcher' })).toHaveTextContent(
-          /taking longer than usual \(25 min \d+ s\)/,
+          /taking longer than usual \(25 min\)/,
         ),
       );
       const keep = screen.getByRole('button', { name: 'Keep waiting' });
@@ -400,5 +400,17 @@ describe('SP-TIMEOUT (catalog: still IN_PROGRESS after 10 min, board D15b)', () 
       await userEvent.keyboard('{Enter}', { advanceTimers: vi.advanceTimersByTime });
       expect(screen.queryByText(/taking longer than usual/)).toBeNull();
       expect(screen.getByText(/You can close this; the stop goes on/)).toHaveFocus();
+    }));
+
+  it('audit of 779aa1d: the warning does not change every second (a live region would be read again each time)', () =>
+    run(async () => {
+      render(<Harness http={slow([])} />);
+      await start();
+      await vi.advanceTimersByTimeAsync(601_000);
+      const d = () => screen.getByRole('dialog', { name: 'Stopping refund-matcher' }).textContent;
+      await vi.waitFor(() => expect(d()).toMatch(/taking longer than usual/));
+      const first = d();
+      await vi.advanceTimersByTimeAsync(30_000);
+      expect(d()).toBe(first);
     }));
 });

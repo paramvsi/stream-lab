@@ -2,7 +2,6 @@ import { AppError, ErrorBanner, present } from '@sl/errors';
 import { getSavepointDir, savepointStatus, stopWithSavepoint, type FlinkHttp } from '@sl/flink';
 import { Button, Dialog, Field, Input, Loading, Skeleton, useToastOptional } from '@sl/ui';
 import { useEffect, useId, useRef, useState, type RefObject } from 'react';
-import { duration } from './format';
 
 type Step =
   | { name: 'confirm' }
@@ -146,7 +145,8 @@ export function StopDialog({
   // closes the dialog: the stop goes on and its result comes as a toast, as any running stop closed).
   const [started, setStarted] = useState<number | null>(null);
   const [slow, setSlow] = useState<'shown' | 'dismissed' | null>(null);
-  // The time it has run, kept current while the warning shows (closed and reopened, it is still the real one).
+  // The time it has run, kept current while the warning shows (closed and reopened, it is still the real one), in
+  // whole minutes: the warning is a polite live region, read again whenever its text changes.
   const [now, setNow] = useState(0);
   const note = useRef<HTMLParagraphElement>(null);
   useEffect(() => {
@@ -162,7 +162,7 @@ export function StopDialog({
   }, [step.name, started, slow]);
   useEffect(() => {
     if (step.name !== 'running' || slow !== 'shown') return;
-    const t = setInterval(() => setNow(Date.now()), 1_000);
+    const t = setInterval(() => setNow(Date.now()), 60_000);
     return () => clearInterval(t);
   }, [step.name, slow]);
 
@@ -259,7 +259,7 @@ export function StopDialog({
       <Dialog {...shared} title={`Stopping ${job}`}>
         {slow === 'shown' && started !== null && (
           <ErrorBanner
-            error={new AppError('SP-TIMEOUT', { dur: duration(now - started) })}
+            error={new AppError('SP-TIMEOUT', { dur: `${Math.floor((now - started) / 60_000)} min` })}
             handles={new Set(['Keep waiting', 'Close'])}
             onAction={(a) => {
               if (a !== 'Keep waiting') return close();

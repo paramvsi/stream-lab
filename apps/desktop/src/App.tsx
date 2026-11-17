@@ -9,7 +9,7 @@ import {
 } from '@sl/flink';
 import { Fleet, type CardState } from './Fleet';
 import { useToast } from '@sl/ui';
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { ConnectionForm } from './ConnectionForm';
 import { Connections } from './Connections';
 import { ImportDialog } from './ImportDialog';
@@ -60,6 +60,13 @@ export function App({
   // APP-04: what a new connection's refresh starts at (in memory until the Tauri store lands).
   const [defaultPollMs, setDefaultPollMs] = useState(5000);
   const add = () => setScreen({ name: 'kind', kind: null });
+  // A palette pick lives in the job screen only until the page has taken it: nothing that restores or remounts
+  // the screen can run it again (a second POST).
+  const dropStart = useCallback(
+    (n: number) =>
+      setScreen((s) => (s.name === 'job' && s.start?.n === n ? { name: 'job', id: s.id, jid: s.jid } : s)),
+    [],
+  );
   // Settings remembers where it was opened from: Back returns there (from Settings itself, the same place). A job
   // screen is remembered without its palette pick (start): a remount on Back would run it again (a second POST).
   const openSettings = () =>
@@ -291,6 +298,7 @@ export function App({
           c={open}
           jid={screen.jid}
           {...(screen.start ? { start: screen.start } : {})}
+          onStartTaken={dropStart}
           transport={transport}
           history={history}
           onJobs={() => setScreen({ name: 'jobs', id: open.id })}

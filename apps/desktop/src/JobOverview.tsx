@@ -220,6 +220,7 @@ export function JobOverview({
   onJobs,
   history,
   start,
+  onStartTaken,
 }: {
   c: Connection;
   jid: string;
@@ -227,6 +228,8 @@ export function JobOverview({
   onJobs?: () => void;
   /** APP-01: a palette pick for this page (n: which pick, so a page already open notices a new one). */
   start?: { act: 'stop' | 'savepoint'; n: number };
+  /** Told as soon as the pick is taken, so the app drops it (a remount must never run it again). */
+  onStartTaken?: (n: number) => void;
   /** JOB-06: where this page records what changes (the app's store; one of its own when none is given). */
   history?: HistoryStore;
 }) {
@@ -423,6 +426,9 @@ export function JobOverview({
     setSeen(start.n);
     setAct(start.act);
   }
+  useEffect(() => {
+    if (start) onStartTaken?.(start.n);
+  }, [start, onStartTaken]);
   const [fire, setFire] = useState(0);
   // The first answer decides: the job, or an error before any job (the cluster may answer minutes later: the
   // pick is not kept for then).

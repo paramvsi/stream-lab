@@ -76,8 +76,10 @@ export function diffJob(prev: JobShape | null, next: JobShape, at: number): Hist
   const r0 = prev.timestamps?.RESTARTING ?? 0;
   const r1 = next.timestamps?.RESTARTING ?? 0;
   if (r1 > r0) return [{ at: r1, kind: 'restart', detail: 'Job restarted' }];
-  // No timestamps from this Flink: entering RESTARTING between two reads is the only sign.
-  if (!next.timestamps && next.state === 'RESTARTING' && prev.state !== 'RESTARTING')
+  // The adaptive scheduler's Restarting only reports RESTARTING (it cancels the graph; the timestamp stays 0), and
+  // an old Flink may send no timestamps: entering RESTARTING between two reads is then the sign.
+  // FLINK: https://github.com/apache/flink/blob/release-1.20/flink-runtime/src/main/java/org/apache/flink/runtime/scheduler/adaptive/Restarting.java
+  if (next.state === 'RESTARTING' && prev.state !== 'RESTARTING')
     return [{ at, kind: 'restart', detail: 'Job restarted' }];
   return [];
 }

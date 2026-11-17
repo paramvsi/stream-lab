@@ -25,6 +25,14 @@ describe('JOB-06 · local history (D10)', () => {
     expect(diffJob(null, a, 13)).toEqual([]); // the first read is a baseline, not an event
   });
 
+  it('audit h2: the adaptive scheduler never moves timestamps.RESTARTING: a read in RESTARTING is still a Restart', () => {
+    // FLINK: Restarting cancels the graph and only reports RESTARTING; the timestamp stays 0 (Restarting.java).
+    expect(diffJob(job('RUNNING', { v1: 4 }), job('RESTARTING', { v1: 4 }, 0), 40)).toEqual([
+      { at: 40, kind: 'restart', detail: 'Job restarted' },
+    ]);
+    expect(diffJob(job('RESTARTING', { v1: 4 }, 0), job('RESTARTING', { v1: 4 }, 0), 41)).toEqual([]);
+  });
+
   it('audit h #2: a restart that changed parallelism is one Rescaled, not a Restart as well', () => {
     expect(diffJob(job('RUNNING', { v1: 4 }), job('RESTARTING', { v1: 8 }, 30), 31)).toEqual([
       { at: 31, kind: 'rescale', detail: 'op v1: parallelism 4 → 8' },

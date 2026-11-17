@@ -81,13 +81,12 @@ const asAppError = (e: unknown, conn: string) =>
   e instanceof AppError ? e : new AppError('CONN-IO', { host: conn, reason: 'the request failed' }, e);
 
 /**
- * OPS-01 / boards D18, D18b: the JobManager's and TaskManagers' logs. The newest file (listJmLogs first: a file name is never read
- * without the list), its entries (parseLog: Flink's default layout; a stack trace stays with its entry), the level
- * filter (All / Warn / Error) and a plain-text search. Over 50 MB: LOG-TOO-LARGE and the last 5,000 lines. A file
- * gone between list and read: LOG-GONE.
- * Regex search goes through logFilter's bounded worker (LOG-REGEX on the field; LOG-FILTER-FAILED if it breaks).
- * Follow re-reads the shown file every 2 s. Tabs: the JobManager and each TaskManager (by its id).
- * Download saves the whole file as served.
+ * OPS-01 / boards D18, D18b: the JobManager's and TaskManagers' logs (a tab each, a TaskManager by its id). The
+ * newest file (the process's list first: a file name is never read without it), its entries (parseLog: Flink's
+ * default layout; a stack trace stays with its entry), the level filter (All / Warn / Error) and a search. Over
+ * 50 MB: LOG-TOO-LARGE and the last 5,000 lines. A file gone between list and read: LOG-GONE.
+ * A regex search goes through logFilter's bounded worker (LOG-REGEX on the field; LOG-FILTER-FAILED if it breaks).
+ * Follow lists again every 2 s and reads the file again when its size changed. Download saves the whole file.
  */
 export function Logs({
   c,
@@ -114,11 +113,10 @@ export function Logs({
   const q = useDeferredValue(query);
   const levelName = useId();
   const fileId = useId();
-  // D18b regex search: through the bounded worker (a catastrophic pattern can not block the UI). Its answer is
-  // kept with the search it answers, and used only while that search and that file are still the ones shown.
+  // D18b regex search: through the bounded worker (a catastrophic pattern can not block the UI).
   const [regex, setRegex] = useState(false);
-  // An answer belongs to the parsed content it was computed on (by identity: a Reload with the same name and
-  // count is new content) and to its pattern.
+  // An answer: the parsed content it was computed on (by identity), its load (gen) and its pattern. It is the
+  // answer for that content; while a newer one runs, it stands in only for a Follow read of the same load (carry).
   const [found, setFound] = useState<{
     src: object;
     gen: number;
@@ -133,7 +131,7 @@ export function Logs({
   const req = useRef(0);
   /** The size of the file when its shown text was read (Follow reads again only when it changed). */
   const shownSize = useRef<number | undefined>(undefined);
-  /** A load (open, pick, Reload) starts a new one; Follow's reads stay in it (the regex answer carries over). */
+  /** A load (open, file or tab pick, Reload) starts a new one; Follow's reads stay in it (the regex answer carries). */
   const [gen, setGen] = useState(0);
   const [proc, setProc] = useState<Proc>(null);
   const load = useCallback(
@@ -208,7 +206,8 @@ export function Logs({
   // Reload. The JobManager: again at once (the TaskManagers listed alongside). A TaskManager: the loading state at
   // once, then the TaskManagers first. If it has left the cluster, the JobManager (never a process with no tab, and
   // no flash of a gone TaskManager's error); else it again. An overtaken list (a 2nd Reload) does nothing; a failed
-  // one (said) still reloads; a pick meanwhile wins (it moves req).
+  // one (said) still reloads; a tab pick meanwhile wins (it moves req). There is no file picker meanwhile (files go):
+  // a file pick would reload the gone TaskManager without the check.
   const reload = () => {
     if (!proc) {
       again(name);
@@ -217,6 +216,7 @@ export function Logs({
     }
     const [p, n] = [proc, name];
     setGen((g) => g + 1);
+    setFiles(null);
     setText(null);
     setError(null);
     const at = ++req.current; // drops in-flight loads and Follow ticks
@@ -232,10 +232,12 @@ export function Logs({
   // D18 Follow, every 2 s, "incremental by size" (FLINK_API): the list again (small), and the file read again only
   // when its size changed (Flink serves a log whole: no partial read). Only while a file is shown (never during a
   // load), one tick at a time, an answer dropped if a load started meanwhile (req). A good tick clears the error; a
-  // failed one is said (catalog) and Follow turns off. Off over 50 MB, also when the file grows past it.
+  // failed one is said (catalog) and Follow turns off. Over 50 MB it turns off (also when the file grows past it),
+  // and stays off when the file is small again: the user turns it on.
   // ponytail: no auto-scroll to the newest line yet; no §4 "1 failure silent" (it stops at once).
   const [follow, setFollow] = useState(false);
   const big = !!file && tooLarge(file.size);
+  if (big && follow) setFollow(false); // adjusted during render: off, not only shown off
   const ready = text !== null;
   useEffect(() => {
     if (!follow || !name || big || !ready) return;
@@ -272,7 +274,8 @@ export function Logs({
   }, [follow, name, big, ready, proc, http, c.name]);
   const followWhy = useId();
   // D18 Download: the whole file as served (also over 50 MB, where 5,000 lines show).
-  // ponytail: an <a download> on a blob URL, as Export does; the Tauri build saves with the dialog and fs plugins.
+  // ponytail: an <a download> on a blob URL, as Export does; a native Save as… (Tauri dialog and fs plugins) is
+  // for when the Tauri shell exists (MORNING).
   const download = () => {
     if (text === null || !name) return;
     const url = URL.createObjectURL(new Blob([text], { type: 'text/plain' }));
@@ -296,7 +299,16 @@ export function Logs({
       (lines) => live && setFound({ src, gen, q, hits: new Set(lines), error: null }),
       (e: unknown) =>
         live &&
-        setFound({ src, gen, q, hits: null, error: e instanceof AppError ? e : asAppError(e, c.name) }),
+        setFound({
+          src,
+          gen,
+          q,
+          hits: null,
+          error:
+            e instanceof AppError
+              ? e
+              : new AppError('LOG-FILTER-FAILED', { reason: e instanceof Error ? e.message : String(e) }, e),
+        }),
     );
     return () => {
       live = false;

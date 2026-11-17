@@ -787,4 +787,39 @@ describe('OPS-01 · Logs (D18, D18b)', () => {
     expect(savedLogName('👨‍👩‍👧', null, 'j.log')).toBe('👨‍👩‍👧-j.log');
     expect(savedLogName('p', null, 'a⁦b‪c.log')).toBe('p-a_b_c.log');
   });
+
+  it('audit whole M1: Follow stopped by a file past 50 MB stays off when the file is small again (no silent resume)', async () => {
+    try {
+      const u = fake();
+      const { st, http } = growing({ size: (n) => (n < 3 ? 10 : n === 3 ? 60_000_000 : 20) });
+      show(http);
+      await screen.findByText('line 1');
+      await u.click(screen.getByRole('switch', { name: 'Follow' }));
+      await vi.advanceTimersByTimeAsync(4_000); // list 2 same, list 3: 60 MB
+      await screen.findByText(/This log is .*Showing the last 5,000 lines/);
+      await u.click(screen.getByRole('button', { name: 'Reload' })); // list 4: 20 B, small again
+      await vi.waitFor(() => expect(st.lists).toBe(4));
+      await screen.findByRole('table', { name: 'Log lines' });
+      expect(screen.getByRole('switch', { name: 'Follow' })).not.toBeChecked();
+      await vi.advanceTimersByTimeAsync(6_000);
+      expect(st.lists).toBe(4);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('audit whole M2: while a TaskManager Reload waits for the TaskManagers, there is no file picker to race it', async () => {
+    let listings = 0;
+    const base = tmHttp({ tms: () => (++listings === 1 ? tmsBody([1, 2]) : tmsBody([2])) });
+    const http: FlinkHttp = (r) =>
+      r.path === '/taskmanagers' && listings >= 1 ? new Promise(() => {}) : base(r);
+    showRaw(http);
+    await screen.findByRole('table', { name: 'Log lines' });
+    const group = screen.getByRole('group', { name: 'Process' });
+    await userEvent.click(within(group).getByRole('radio', { name: 'tm1-6d1f0c' }));
+    await screen.findByText('a TaskManager line');
+    expect(screen.getByRole('combobox', { name: 'Log file' })).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: 'Reload' }));
+    expect(screen.queryByRole('combobox', { name: 'Log file' })).toBeNull();
+  });
 });

@@ -4,7 +4,7 @@ import { getJson } from './fleet';
 import { fromTransport, httpStatusError, TransportError, type FlinkHttp, type FlinkResponse } from './http';
 
 /**
- * OPS-01 / board D18: JobManager logs. GET /jobmanager/logs is LogListInfo {logs: [{name, size, mtime}]} (size and
+ * OPS-01 / board D18: JobManager and TaskManager logs. GET /jobmanager/logs is LogListInfo {logs: [{name, size, mtime}]} (size and
  * mtime from java.io.File: bytes, epoch ms; regular files only). GET /jobmanager/logs/:name serves the whole file
  * as text/plain (no Range, no offset: "follow" reads the file again; FLINK_API polls it every 2 s); a name that
  * is not there is 404.
@@ -109,8 +109,8 @@ export function tail(text: string, n: number): { lines: string[]; cut: number } 
 
 /**
  * D18 filter: plain text matches case-insensitively; as a regex, an invalid pattern is LOG-REGEX (field).
- * ponytail: synchronous, so a user regex with catastrophic backtracking ("(a+)+$") can block for seconds per line.
- * The D18 screen must run it in a Worker with a time limit (not on the UI thread); recorded for that slice.
+ * Synchronous: a user regex with catastrophic backtracking ("(a+)+$") can block for seconds per line, so the D18
+ * screen runs a regex in a worker with a time limit (apps/desktop/src/logFilter.ts).
  */
 export function filterLines(lines: readonly string[], pattern: string, regex: boolean): string[] {
   if (!pattern) return [...lines];

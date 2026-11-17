@@ -16,7 +16,7 @@ import {
 } from '@sl/flink';
 import { Button, Loading, Skeleton, StatusBadge, Table, type Column } from '@sl/ui';
 import { ListChecks, SearchX } from 'lucide-react';
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import { useScreenHeading } from './focus';
 import { Kpi } from './Kpi';
 import { TONE, uptime, word } from './Jobs';
@@ -251,12 +251,17 @@ export function JobOverview({
     !!exErr &&
     !HOST_DOWN.has(exErr.code) &&
     ex.failures >= POLL.jobs.bannerAfter;
-  // When the failed-read banner goes, or the code it shows changes (its buttons differ: Retry or not), the
-  // focused button may go with it: focus goes to the heading. Keyed on what is shown, not on every read, and only
-  // from <body>: focus in any other control stays.
+  // When the failed-read banner goes, or the code it shows changes (its buttons differ: Retry or not), and focus
+  // was in it, the focused button may have gone with it: focus goes to the heading. Only then (as usePolled's own
+  // banner): a banner arriving, or one the user never entered, moves nothing.
   const shownCode = failedRead ? (exErr?.code ?? null) : null;
+  const focusInFailedRead = useRef(false);
   useEffect(() => {
-    if (document.activeElement === document.body || !document.activeElement) h1.current?.focus();
+    if (!focusInFailedRead.current) return;
+    if (document.activeElement === document.body || !document.activeElement) {
+      focusInFailedRead.current = false;
+      h1.current?.focus();
+    }
   }, [shownCode, h1]);
   return (
     <main className="flex min-h-screen flex-col gap-5 bg-surface px-8 py-7">
@@ -293,7 +298,15 @@ export function JobOverview({
       {!gone && status && <ErrorBanner error={status} handles={new Set()} />}
       {/* One element whatever the code, so a change of error never drops focus. */}
       {failedRead && exErr && (
-        <ErrorBanner error={exErr} handles={new Set(['Retry', 'Retry now'])} onAction={ex.retry} />
+        <div
+          onFocus={() => (focusInFailedRead.current = true)}
+          onBlur={(e) => {
+            // A blur React sees is the user leaving (none for its own removal), unless the window lost focus.
+            if (!e.currentTarget.contains(document.activeElement)) focusInFailedRead.current = false;
+          }}
+        >
+          <ErrorBanner error={exErr} handles={new Set(['Retry', 'Retry now'])} onAction={ex.retry} />
+        </div>
       )}
       {gone ? (
         <ErrorPage error={gone} icon={SearchX} {...(onJobs ? { onAction: () => onJobs() } : {})} />

@@ -537,6 +537,28 @@ describe('JOB-02 · Job overview (board D08)', () => {
     }
   });
 
+  it('audit 8: the failed-read banner arriving while the user reads the table (focus on <body>) moves nothing', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      let headingFocus = 0;
+      show(async (req) =>
+        req.path.endsWith('/exceptions')
+          ? { status: 500, headers: {}, url: '', body: '' }
+          : answer(200, { ...detail, state: 'FAILED' })(req),
+      );
+      const h = await screen.findByRole('heading', { level: 1 });
+      h.addEventListener('focus', () => headingFocus++);
+      for (let t = 0; t < 40; t++) {
+        (document.activeElement as HTMLElement | null)?.blur();
+        await act(async () => vi.advanceTimersByTimeAsync(1_000));
+      }
+      await screen.findByText(/internal error while reading the exceptions/);
+      expect(headingFocus).toBe(0);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('audit 2 #4: a 404 on the exceptions read is not a "no longer exists" banner over a job on screen', async () => {
     let asked = 0;
     show(async (req) =>

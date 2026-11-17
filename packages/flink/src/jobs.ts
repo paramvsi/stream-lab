@@ -25,7 +25,10 @@ export type JobSort = 'name' | 'state' | 'start' | 'duration';
 export interface JobQuery {
   /** A chip; none = All. */
   bucket?: JobBucket;
-  /** Search by name or job ID (board D07 "Name or ID"). */
+  /**
+   * Search by name or job ID (board D07 "Name or ID"); also the state and its chip word, as board D07b shows
+   * "fail" finding a restarting job.
+   */
   q?: string;
   sort?: JobSort;
   desc?: boolean;
@@ -44,7 +47,7 @@ export function queryJobs(rows: readonly FlinkJobRow[], q: JobQuery): FlinkJobRo
   const out = rows.filter(
     (r) =>
       (!q.bucket || jobBucket(r.state) === q.bucket) &&
-      (!needle || r.name.toLowerCase().includes(needle) || r.jid.toLowerCase().includes(needle)),
+      (!needle || [r.name, r.jid, r.state, jobBucket(r.state)].some((t) => t.toLowerCase().includes(needle))),
   );
   if (q.sort) {
     const k = key[q.sort];

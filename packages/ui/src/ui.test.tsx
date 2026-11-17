@@ -245,6 +245,22 @@ describe('UI · Table', () => {
     await userEvent.keyboard('{Enter}');
     expect(onSelect).toHaveBeenCalledWith({ id: 'j1', name: 'fraud-scoring' });
   });
+
+  it('a sorted column says so on its header (aria-sort); others say nothing', () => {
+    render(
+      <Table
+        label="Jobs"
+        rows={[{ id: 'j1', name: 'fraud-scoring' }]}
+        rowKey={(r) => r.id}
+        columns={[
+          { key: 'n', header: 'Job', sort: 'ascending', render: (r) => r.name },
+          { key: 's', header: 'Status', render: () => 'Running' },
+        ]}
+      />,
+    );
+    expect(screen.getByRole('columnheader', { name: 'Job' })).toHaveAttribute('aria-sort', 'ascending');
+    expect(screen.getByRole('columnheader', { name: 'Status' })).not.toHaveAttribute('aria-sort');
+  });
 });
 
 function ToastHarness({ n }: { n: number }) {

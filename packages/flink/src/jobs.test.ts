@@ -35,6 +35,11 @@ describe('JOB-01 · jobs list', () => {
     expect(queryJobs(rows, { q: 'd4' }).map((r) => r.jid)).toEqual(['d4']);
   });
 
+  it('search also matches the state and its chip word (board D07b: "fail" finds the restarting job)', () => {
+    expect(queryJobs(rows, { q: 'fail', bucket: 'failing' }).map((r) => r.jid)).toEqual(['b2']);
+    expect(queryJobs(rows, { q: 'canceled' }).map((r) => r.jid)).toEqual(['d4']);
+  });
+
   it('sorts by name, start time or duration, both ways, and does not change the input', () => {
     const before = rows.map((r) => r.jid);
     expect(queryJobs(rows, { sort: 'name' }).map((r) => r.jid)).toEqual(['d4', 'b2', 'c3', 'a1']);

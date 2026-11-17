@@ -6,6 +6,8 @@ export interface Column<T> {
   /** JetBrains Mono, tabular numbers (ids, numbers). */
   mono?: boolean;
   align?: 'left' | 'right';
+  /** This column orders the rows: said on its header (aria-sort). */
+  sort?: 'ascending' | 'descending';
   render: (row: T) => ReactNode;
 }
 
@@ -52,6 +54,7 @@ export function Table<T>({
               <th
                 key={c.key}
                 scope="col"
+                aria-sort={c.sort}
                 className={`sticky top-0 border-b border-line bg-subtle px-3.5 py-2.5 text-[12px] font-medium whitespace-nowrap text-muted ${c.align === 'right' ? 'text-right' : 'text-left'}`}
               >
                 {c.header}

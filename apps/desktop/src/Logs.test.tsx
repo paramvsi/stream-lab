@@ -567,11 +567,7 @@ describe('OPS-01 · Logs (D18, D18b)', () => {
     ).toBeInTheDocument();
     expect(within(group).getByRole('radio', { name: 'JobManager' })).toBeChecked();
     expect(within(group).queryByRole('radio', { name: 'tm1-6d1f0c' })).toBeNull();
-    // Reload asks tm1 again alongside the TaskManager list (its answer dropped); once it has fallen back, never again.
-    const tm1 = asked.filter((x) => x.startsWith('/taskmanagers/tm1')).length;
-    expect(asked.at(-1)).toBe('/jobmanager/logs/jobmanager.log');
-    await new Promise((res) => setTimeout(res, 200));
-    expect(asked.filter((x) => x.startsWith('/taskmanagers/tm1')).length).toBe(tm1);
+    expect(asked.filter((x) => x.startsWith('/taskmanagers/tm1')).length).toBe(2); // nothing asked of tm1 after Reload
   });
 
   const tmsBody = (ns: number[]) =>
@@ -592,7 +588,8 @@ describe('OPS-01 · Logs (D18, D18b)', () => {
 
   it('audit reload #1: a double Reload while the TaskManager list is slow still falls back from a gone TaskManager', async () => {
     let listings = 0;
-    const base = tmHttp({ tms: () => (++listings === 1 ? tmsBody([1, 2]) : tmsBody([2])) });
+    const asked: string[] = [];
+    const base = tmHttp({ asked, tms: () => (++listings === 1 ? tmsBody([1, 2]) : tmsBody([2])) });
     let slow = 0;
     const http: FlinkHttp = async (r) => {
       if (r.path === '/taskmanagers' && ++slow > 1) await new Promise((res) => setTimeout(res, 150));
@@ -603,11 +600,16 @@ describe('OPS-01 · Logs (D18, D18b)', () => {
     const group = screen.getByRole('group', { name: 'Process' });
     await userEvent.click(within(group).getByRole('radio', { name: 'tm1-6d1f0c' }));
     await screen.findByText('a TaskManager line');
+    const before = asked.length;
     await userEvent.click(screen.getByRole('button', { name: 'Reload' }));
+    expect(screen.queryByRole('table', { name: 'Log lines' })).toBeNull(); // the loading state at once, not a dead button
     await userEvent.click(screen.getByRole('button', { name: 'Reload' }));
     expect(
       await screen.findByText('Buffer pool usage at 96% for Window aggregate (1/4)'),
     ).toBeInTheDocument();
+    // a gone TaskManager is never asked (no flash of its error or its text before the fall-back)
+    expect(asked.slice(before).filter((x) => x.startsWith('/taskmanagers/tm1'))).toEqual([]);
+    expect(screen.queryByRole('alert')).toBeNull();
     await new Promise((res) => setTimeout(res, 400));
     expect(within(group).getByRole('radio', { name: 'JobManager' })).toBeChecked();
     expect(within(group).queryByRole('radio', { name: 'tm1-6d1f0c' })).toBeNull();
@@ -623,5 +625,27 @@ describe('OPS-01 · Logs (D18, D18b)', () => {
     await screen.findByRole('table', { name: 'Log lines' });
     await userEvent.click(screen.getByRole('button', { name: 'Reload' }));
     await vi.waitFor(() => expect(asked.filter((a) => a === '/jobmanager/logs')).toHaveLength(2));
+  });
+
+  it('audit reload #3: a pick made while a Reload waits for the TaskManagers wins (no pull back to the JobManager)', async () => {
+    let listings = 0;
+    const base = tmHttp({ tms: () => (++listings === 1 ? tmsBody([1, 2]) : tmsBody([2])) });
+    let release = () => {};
+    const http: FlinkHttp = async (r) => {
+      if (r.path === '/taskmanagers' && listings >= 1) await new Promise<void>((res) => (release = res));
+      return base(r);
+    };
+    showRaw(http);
+    await screen.findByRole('table', { name: 'Log lines' });
+    const group = screen.getByRole('group', { name: 'Process' });
+    await userEvent.click(within(group).getByRole('radio', { name: 'tm1-6d1f0c' }));
+    await screen.findByText('a TaskManager line');
+    await userEvent.click(screen.getByRole('button', { name: 'Reload' })); // the list is held
+    await userEvent.click(within(group).getByRole('radio', { name: 'tm2-6d1f0c' })); // moved on meanwhile
+    await screen.findByText('No log files on tm2-6d1f0c.');
+    release(); // the list lands: tm1 gone, tm2 there
+    await new Promise((res) => setTimeout(res, 100));
+    expect(within(group).getByRole('radio', { name: 'tm2-6d1f0c' })).toBeChecked();
+    expect(screen.getByText('No log files on tm2-6d1f0c.')).toBeInTheDocument();
   });
 });

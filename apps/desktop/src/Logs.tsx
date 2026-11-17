@@ -144,19 +144,20 @@ export function Logs({
   const [tms, setTms] = useState<string[]>([]);
   const [tmError, setTmError] = useState<AppError | null>(null);
   const tmReq = useRef(0);
-  /** The TaskManagers' ids, or null when the list failed (said) or was overtaken by a later one. */
-  const loadTms = useCallback((): Promise<string[] | null> => {
+  /** The TaskManagers' ids; null when the list failed (said); 'overtaken' when a later list replaced it. */
+  const loadTms = useCallback((): Promise<string[] | null | 'overtaken'> => {
     const id = ++tmReq.current;
     return listTaskManagers(http, c.name).then(
       (ts) => {
-        if (id !== tmReq.current) return null;
+        if (id !== tmReq.current) return 'overtaken';
         const ids = ts.map((t) => t.id);
         setTms(ids);
         setTmError(null);
         return ids;
       },
       (e: unknown) => {
-        if (id === tmReq.current) setTmError(asAppError(e, c.name));
+        if (id !== tmReq.current) return 'overtaken';
+        setTmError(asAppError(e, c.name));
         return null;
       },
     );
@@ -183,21 +184,30 @@ export function Logs({
     load(want, p);
   };
   const pickProc = (p: Proc) => {
-    procRef.current = p;
     setProc(p);
     setFiles(null);
     again(null, p);
   };
   const procName = useId();
-  // Reload: the chosen process again at once, and the TaskManagers alongside. When their list lands, a chosen
-  // TaskManager that has left the cluster falls back to the JobManager (never a process with no tab). A list
-  // overtaken by a later Reload, or one that failed (said), changes nothing. procRef is what is chosen by then.
-  const procRef = useRef<Proc>(null);
+  // Reload. The JobManager: again at once (the TaskManagers listed alongside). A TaskManager: the loading state at
+  // once, then the TaskManagers first. If it has left the cluster, the JobManager (never a process with no tab, and
+  // no flash of a gone TaskManager's error); else it again. An overtaken list (a 2nd Reload) does nothing; a failed
+  // one (said) still reloads; a pick meanwhile wins (it moves req).
   const reload = () => {
-    again(name);
+    if (!proc) {
+      again(name);
+      void loadTms();
+      return;
+    }
+    const [p, n] = [proc, name];
+    setGen((g) => g + 1);
+    setText(null);
+    setError(null);
+    const at = ++req.current; // drops in-flight loads and Follow ticks
     void loadTms().then((ids) => {
-      const p = procRef.current;
-      if (ids && p && !ids.includes(p)) pickProc(null);
+      if (ids === 'overtaken' || req.current !== at) return;
+      if (ids && !ids.includes(p)) pickProc(null);
+      else again(n, p);
     });
   };
 

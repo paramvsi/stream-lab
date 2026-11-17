@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { getCheckpoints, lastCompleted } from './checkpoints';
+import { checkpointingOff, getCheckpoints, lastCompleted } from './checkpoints';
 import type { FlinkHttp } from './http';
 
 const cp = (id: number, status: string, at: number, extra: Record<string, unknown> = {}) => ({
@@ -54,6 +54,36 @@ describe('JOB-04 · checkpoints (GET /jobs/:jid/checkpoints)', () => {
       'x',
     );
     expect(lastCompleted(s)).toBeNull();
+  });
+
+  it('a job with no checkpoint settings: Flink\'s 404 "Checkpointing has not been enabled." is JOB-CKPT-NONE', async () => {
+    await expect(
+      getCheckpoints(answer({ errors: ['Checkpointing has not been enabled.'] }, 404), 'prod', 'x'),
+    ).rejects.toMatchObject({ code: 'JOB-CKPT-NONE' });
+  });
+
+  it('any other 404 is the job gone (API-404-JOB), not a generic HTTP error', async () => {
+    await expect(
+      getCheckpoints(answer({ errors: ['Job not found'] }, 404), 'prod', 'x'),
+    ).rejects.toMatchObject({
+      code: 'API-404-JOB',
+      params: { thing: 'job', conn: 'prod' },
+    });
+  });
+
+  it('checkpointing off on a streaming job: the config interval is Long.MAX_VALUE (counts alone look like "none yet")', async () => {
+    let path = '';
+    const off = await checkpointingOff(
+      async (r) => (
+        (path = r.path),
+        { status: 200, headers: {}, url: '', body: '{"interval":9223372036854775807,"timeout":600000}' }
+      ),
+      'prod',
+      'a/b',
+    );
+    expect(path).toBe('/jobs/a%2Fb/checkpoints/config');
+    expect(off).toBe(true);
+    expect(await checkpointingOff(answer({ interval: 10_000, timeout: 600_000 }), 'prod', 'x')).toBe(false);
   });
 
   it('API-SHAPE when the stats can not be read', async () => {

@@ -256,12 +256,14 @@ export function JobOverview({
   // banner): a banner arriving, or one the user never entered, moves nothing.
   const shownCode = failedRead ? (exErr?.code ?? null) : null;
   const focusInFailedRead = useRef(false);
+  const failedReadBox = useRef<HTMLDivElement>(null);
   useEffect(() => {
-    if (!focusInFailedRead.current) return;
-    if (document.activeElement === document.body || !document.activeElement) {
-      focusInFailedRead.current = false;
-      h1.current?.focus();
-    }
+    // Cleared on every change (as usePolled): another effect (the 404 page) may already have moved focus, and a
+    // flag left set would pull focus on a later change the user never entered.
+    const was = focusInFailedRead.current;
+    // Still in it (a change that kept the focused button): keep tracking; otherwise cleared.
+    focusInFailedRead.current = !!failedReadBox.current?.contains(document.activeElement);
+    if (was && (document.activeElement === document.body || !document.activeElement)) h1.current?.focus();
   }, [shownCode, h1]);
   return (
     <main className="flex min-h-screen flex-col gap-5 bg-surface px-8 py-7">
@@ -299,6 +301,7 @@ export function JobOverview({
       {/* One element whatever the code, so a change of error never drops focus. */}
       {failedRead && exErr && (
         <div
+          ref={failedReadBox}
           onFocus={() => (focusInFailedRead.current = true)}
           onBlur={(e) => {
             // A blur React sees is the user leaving (none for its own removal), unless the window lost focus.

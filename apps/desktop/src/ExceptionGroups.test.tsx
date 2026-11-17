@@ -48,13 +48,15 @@ describe('JOB-08 · grouped exceptions (board X20)', () => {
     expect(show).toHaveAttribute('aria-expanded', 'false');
     await userEvent.click(show);
     expect(show).toHaveAttribute('aria-expanded', 'true');
-    const list = screen.getByRole('list', { name: 'TimeoutException occurrences' });
+    const list = screen.getByRole('list', { name: 'TimeoutException · Kafka describeTopics occurrences' });
     const items = within(list).getAllByRole('listitem');
     expect(items).toHaveLength(3);
     expect(items[0]).toHaveTextContent(clock(T + 3 * 60_000));
     expect(items[0]).toHaveTextContent('Window aggregate (2/4)');
     await userEvent.click(show);
-    expect(screen.queryByRole('list', { name: 'TimeoutException occurrences' })).toBeNull();
+    expect(
+      screen.queryByRole('list', { name: 'TimeoutException · Kafka describeTopics occurrences' }),
+    ).toBeNull();
   });
 
   it('audit #1: an open group stays open when a poll re-sorts the groups (keyed by group, not row)', async () => {
@@ -63,8 +65,12 @@ describe('JOB-08 · grouped exceptions (board X20)', () => {
     const { rerender } = render(<ExceptionGroups entries={first} />);
     await userEvent.click(screen.getByRole('button', { name: 'Show 2' })); // NPE, second row
     rerender(<ExceptionGroups entries={[npe(T + 4 * 60_000), ...first]} />); // NPE 3, newer: now first
-    expect(screen.getByRole('list', { name: 'NullPointerException occurrences' })).toBeInTheDocument();
-    expect(screen.queryByRole('list', { name: 'TimeoutException occurrences' })).toBeNull();
+    expect(
+      screen.getByRole('list', { name: 'NullPointerException · ScoreFunction.map occurrences' }),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole('list', { name: 'TimeoutException · Kafka describeTopics occurrences' }),
+    ).toBeNull();
   });
 
   it('audit #5: when Flink may have dropped older failures, the occurrences say "at least" (N+)', () => {
@@ -95,9 +101,11 @@ describe('JOB-08 · grouped exceptions (board X20)', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Show 3' }));
     await userEvent.click(screen.getByRole('button', { name: 'Show 1' }));
     // Two groups open: each trace, list and Copy is named for its group.
-    const trace = screen.getByRole('list', { name: 'TimeoutException stack trace (newest)' });
+    const trace = screen.getByRole('list', {
+      name: 'TimeoutException · Kafka describeTopics stack trace (newest)',
+    });
     expect(
-      screen.getByRole('list', { name: 'NullPointerException stack trace (newest)' }),
+      screen.getByRole('list', { name: 'NullPointerException · ScoreFunction.map stack trace (newest)' }),
     ).toBeInTheDocument();
     const items = within(trace).getAllByRole('listitem');
     expect(items.map((l) => l.textContent)).toEqual([
@@ -112,10 +120,40 @@ describe('JOB-08 · grouped exceptions (board X20)', () => {
     // Nesting kept: the Suppressed block's own cause sits deeper than the real one.
     const depth = (li: HTMLElement) => Number(li.dataset.depth);
     expect(depth(items[4]!)).toBeGreaterThan(depth(items[5]!));
-    await userEvent.click(screen.getByRole('button', { name: 'Copy TimeoutException stack trace' }));
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Copy stack trace (TimeoutException · Kafka describeTopics)' }),
+    );
     expect(writeText).toHaveBeenCalledWith(newest.stacktrace);
     expect(await screen.findByText('Stack trace copied')).toBeInTheDocument();
-    await userEvent.click(screen.getByRole('button', { name: 'Copy TimeoutException stack trace' }));
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Copy stack trace (TimeoutException · Kafka describeTopics)' }),
+    );
     expect(await screen.findByText(/Could not copy to the clipboard/)).toBeInTheDocument();
+  });
+
+  it('audit d11b #2: two groups of one exception type, both open, are still told apart by name', async () => {
+    render(
+      <ExceptionGroups
+        entries={[
+          ex(T + 60_000, 'java.util.concurrent.TimeoutException: Kafka describeTopics'),
+          ex(T, 'java.util.concurrent.TimeoutException: Heartbeat of TaskManager timed out'),
+        ]}
+      />,
+    );
+    for (const b of screen.getAllByRole('button', { name: 'Show 1' })) await userEvent.click(b);
+    expect(
+      screen.getByRole('button', { name: 'Copy stack trace (TimeoutException · Kafka describeTopics)' }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole('button', { name: /^Copy stack trace \(TimeoutException · Heartbeat/ }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getAllByRole('region', { name: /stack trace$/ }).map((r) => r.getAttribute('aria-label')),
+    ).toHaveLength(2);
+    expect(
+      new Set(
+        screen.getAllByRole('region', { name: /stack trace$/ }).map((r) => r.getAttribute('aria-label')),
+      ).size,
+    ).toBe(2);
   });
 });

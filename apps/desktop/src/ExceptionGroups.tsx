@@ -74,6 +74,8 @@ export function ExceptionGroups({
             {groups.map((g, i) => {
               const id = `${base}-${i}`;
               const label = g.name || 'Exception';
+              // Names say the message too: two groups of one exception type stay apart (a11y names).
+              const title = g.message ? `${label} · ${g.message}` : label;
               return (
                 <Fragment key={g.key}>
                   <tr>
@@ -100,7 +102,7 @@ export function ExceptionGroups({
                     <tr id={id}>
                       <td colSpan={5} className="border-b border-line bg-subtle px-3.5 py-3">
                         <ul
-                          aria-label={`${label} occurrences`}
+                          aria-label={`${title} occurrences`}
                           className="m-0 flex list-none flex-col gap-2 p-0"
                         >
                           {g.entries.map((e, k) => (
@@ -111,7 +113,7 @@ export function ExceptionGroups({
                             </li>
                           ))}
                         </ul>
-                        <Trace e={g.entries[0]!} label={label} />
+                        <Trace e={g.entries[0]!} label={title} />
                       </td>
                     </tr>
                   )}
@@ -142,9 +144,15 @@ function Trace({ e, label }: { e: FlinkException; label: string }) {
   return (
     <div className="mt-3 flex flex-col gap-2">
       <div>
-        <Button size="sm" variant="secondary" icon={<Copy size={14} aria-hidden="true" />} onClick={copy}>
-          <span aria-hidden="true">Copy stack trace</span>
-          <span className="sr-only">Copy {label} stack trace</span>
+        {/* The name starts with the visible label (WCAG 2.5.3), then says which group. */}
+        <Button
+          size="sm"
+          variant="secondary"
+          icon={<Copy size={14} aria-hidden="true" />}
+          aria-label={`Copy stack trace (${label})`}
+          onClick={copy}
+        >
+          Copy stack trace
         </Button>
       </div>
       {/* A scroller the keyboard can reach (as Table does). */}

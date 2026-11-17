@@ -109,26 +109,30 @@ describe('JOB-08 · grouped exceptions (board X20)', () => {
 
   it('splits a cause line into its simple class name and message', () => {
     expect(splitCause('java.util.concurrent.TimeoutException: Kafka describeTopics')).toEqual({
+      type: 'java.util.concurrent.TimeoutException',
       name: 'TimeoutException',
       message: 'Kafka describeTopics',
     });
-    expect(splitCause('java.lang.NullPointerException')).toEqual({
+    expect(splitCause('java.lang.NullPointerException')).toMatchObject({
       name: 'NullPointerException',
       message: '',
     });
-    expect(splitCause('com.acme.ZahlungsFehlerÄ: kaputt')).toEqual({
+    expect(splitCause('com.acme.ZahlungsFehlerÄ: kaputt')).toMatchObject({
       name: 'ZahlungsFehlerÄ',
       message: 'kaputt',
     });
-    expect(splitCause('plain text, no class')).toEqual({ name: '', message: 'plain text, no class' });
+    expect(splitCause('plain text, no class')).toMatchObject({ name: '', message: 'plain text, no class' });
+    // audit #4: plain text is kept as it is (causeText's words before the refactor), trailing period included.
+    expect(splitCause('No route to host.')).toMatchObject({ name: '', message: 'No route to host.' });
   });
 
   it('groups by root cause type and message, most frequent first, with count and first/last seen', () => {
+    // audit #5: mixed order in, so the newest-first sort is really tested.
     const gs = groupExceptions([
-      ex(300, 'java.util.concurrent.TimeoutException: Kafka describeTopics'),
-      ex(250, 'java.lang.NullPointerException: ScoreFunction.map'),
       ex(200, 'java.util.concurrent.TimeoutException: Kafka describeTopics'),
       ex(100, 'java.util.concurrent.TimeoutException: Kafka describeTopics'),
+      ex(250, 'java.lang.NullPointerException: ScoreFunction.map'),
+      ex(300, 'java.util.concurrent.TimeoutException: Kafka describeTopics'),
     ]);
     expect(gs.map((g) => [g.name, g.message, g.count, g.first, g.last])).toEqual([
       ['TimeoutException', 'Kafka describeTopics', 3, 100, 300],
@@ -140,12 +144,12 @@ describe('JOB-08 · grouped exceptions (board X20)', () => {
   it('numbers and ids in the message do not split a group (checkpoint 41 vs 42 expired)', () => {
     const gs = groupExceptions([
       ex(
-        2,
-        'org.apache.flink.runtime.checkpoint.CheckpointException: Checkpoint 42 expired before completing.',
-      ),
-      ex(
         1,
         'org.apache.flink.runtime.checkpoint.CheckpointException: Checkpoint 41 expired before completing.',
+      ),
+      ex(
+        2,
+        'org.apache.flink.runtime.checkpoint.CheckpointException: Checkpoint 42 expired before completing.',
       ),
     ]);
     expect(gs).toHaveLength(1);
@@ -154,7 +158,31 @@ describe('JOB-08 · grouped exceptions (board X20)', () => {
   });
 
   it('a tie in count puts the most recent group first', () => {
-    const gs = groupExceptions([ex(9, 'a.B: x'), ex(5, 'c.D: y')]);
+    const gs = groupExceptions([ex(5, 'c.D: y'), ex(9, 'a.B: x')]);
     expect(gs.map((g) => g.name)).toEqual(['B', 'D']);
+  });
+
+  it('audit #1: same simple name, different classes, stay apart (java.util vs kafka TimeoutException)', () => {
+    const gs = groupExceptions([
+      ex(2, 'java.util.concurrent.TimeoutException: Kafka describeTopics'),
+      ex(1, 'org.apache.kafka.common.errors.TimeoutException: Kafka describeTopics'),
+    ]);
+    expect(gs).toHaveLength(2);
+  });
+
+  it('audit #2: a UUID does not split a group', () => {
+    const gs = groupExceptions([
+      ex(2, 'a.E: task 12345678-beef-4abc-9def-0123456789ab failed'),
+      ex(1, 'a.E: task 12345678-cafe-4abc-9def-0123456789ab failed'),
+    ]);
+    expect(gs).toHaveLength(1);
+  });
+
+  it('audit #3: different numbers that mean different problems stay apart (HTTP 401 vs 503)', () => {
+    const gs = groupExceptions([
+      ex(2, 'a.E: Request failed with status 401'),
+      ex(1, 'a.E: Request failed with status 503'),
+    ]);
+    expect(gs).toHaveLength(2);
   });
 });

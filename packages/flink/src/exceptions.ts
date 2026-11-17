@@ -82,12 +82,25 @@ export const recentFailures = <T extends { timestamp: number }>(
  * → TimeoutException + "Kafka describeTopics". Java identifiers may be any letter (\p{L}). Plain text that is not
  * "pkg.Class[: message]" is all message.
  */
-export function splitCause(line: string): { name: string; message: string } {
+export function splitCause(line: string): { type: string; name: string; message: string } {
   const t = line.trim();
-  const m = /^(?:[\p{L}\p{N}_$]+\.)*([\p{L}\p{N}_$]+)(?:\s*:\s*(.*))?$/u.exec(t);
-  if (!m) return { name: '', message: t.replace(/\.$/, '') };
-  return { name: m[1]!, message: (m[2] ?? '').replace(/\.$/, '').trim() };
+  const m = /^((?:[\p{L}\p{N}_$]+\.)*([\p{L}\p{N}_$]+))(?:\s*:\s*(.*))?$/u.exec(t);
+  // Plain text is kept as it is (the trailing period too): it is not "Class: message".
+  if (!m) return { type: '', name: '', message: t };
+  return { type: m[1]!, name: m[2]!, message: (m[3] ?? '').replace(/\.$/, '').trim() };
 }
+
+/**
+ * The grouping form of a message: ids that differ per occurrence become "#" (UUIDs, long hex, and the number
+ * after an id word: "Checkpoint 41", "attempt #3", "subtask 2"). Other numbers stay: "status 401" and "status
+ * 503" are different problems.
+ * ponytail: a fixed list of id words; extend it when a real message splits a group.
+ */
+const sameProblem = (message: string) =>
+  message
+    .replace(/\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b/gi, '#')
+    .replace(/\b[0-9a-f]{16,}\b/gi, '#')
+    .replace(/\b(checkpoint|savepoint|attempt|subtask|task|partition|id|job)(\s*#?\s*)\d+/gi, '$1$2#');
 
 export interface ExceptionGroup {
   name: string;
@@ -102,14 +115,15 @@ export interface ExceptionGroup {
 
 /**
  * JOB-08 / board X20: failures collapsed by root cause type and message, most frequent first (ties: most recent
- * first). Numbers and hex ids in the message do not split a group ("Checkpoint 41 / 42 expired").
+ * first). Per-occurrence ids do not split a group ("Checkpoint 41 / 42 expired"); see sameProblem.
  * ponytail: the 16–20 entries Flink keeps (web.exception-history-size), not all time; JOB-06 history widens it.
  */
 export function groupExceptions(entries: readonly FlinkException[]): ExceptionGroup[] {
   const groups = new Map<string, ExceptionGroup>();
   for (const e of [...entries].sort((a, b) => b.timestamp - a.timestamp)) {
-    const { name, message } = splitCause(rootCauseLine(e));
-    const key = `${name}\u0000${message.replace(/\b[0-9a-f]{8,}\b|\d+/gi, '#')}`;
+    const { type, name, message } = splitCause(rootCauseLine(e));
+    // By the full class: two TimeoutExceptions from different packages are different problems.
+    const key = `${type}\u0000${sameProblem(message)}`;
     const g = groups.get(key);
     if (g) {
       g.count++;

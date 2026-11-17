@@ -1,7 +1,7 @@
 import { fireEvent, render, screen, within } from '@testing-library/react';
 import { exportConnections, type FlinkHttp } from '@sl/flink';
 import userEvent from '@testing-library/user-event';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { ToastProvider, TooltipProvider } from '@sl/ui';
 import { App } from './App';
 
@@ -602,5 +602,49 @@ describe('APP-01 · command palette (board G01)', () => {
     }
     // the fleet card's 3 (config, overview, jobs) and one palette read, reused across opens: 2 of 6 still free
     expect(most).toBe(4);
+  });
+
+  it('audit of f4ccb1a: after Import → Replace (same id, another cluster), the palette reads the new cluster', async () => {
+    const byConn =
+      (c: { url: string }): FlinkHttp =>
+      (r) =>
+        c.url.includes('localhost')
+          ? new Promise(() => {}) // the old cluster: its palette read stays in flight
+          : r.path === '/jobs/overview'
+            ? Promise.resolve(ok({ jobs: [row('y1', 'chargeback-router', 'RUNNING')] }))
+            : Promise.resolve({ status: 503, headers: {}, body: '', url: '' });
+    await withOne(undefined, byConn);
+    await userEvent.keyboard('{Meta>}k{/Meta}');
+    await userEvent.keyboard('{Escape}');
+    await userEvent.click(screen.getByRole('button', { name: 'Connections' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Import' }));
+    const file = exportConnections([
+      {
+        id: 'x',
+        name: 'local-docker',
+        url: 'https://other.example.com:8081',
+        kind: 'standalone',
+        env: 'dev',
+        readOnly: false,
+        basePath: '',
+        auth: { type: 'none' },
+        headers: [],
+        transport: { type: 'direct' },
+        timeoutMs: 10000,
+        pollMs: 5000,
+      },
+    ]);
+    const dialog = screen.getByRole('dialog', { name: 'Import connections' });
+    await userEvent.upload(
+      dialog.querySelector('input[type="file"]') as HTMLInputElement,
+      new File([file], 'c.json'),
+    );
+    await userEvent.selectOptions(within(dialog).getByLabelText('local-docker already exists'), 'replace');
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Import 1' }));
+    await vi.waitFor(() => expect(screen.queryByRole('dialog', { name: 'Import connections' })).toBeNull());
+    (document.activeElement as HTMLElement).blur();
+    await userEvent.keyboard('{Meta>}k{/Meta}');
+    const palette = screen.getByRole('dialog', { name: 'Commands' });
+    expect(await within(palette).findByRole('option', { name: /chargeback-router/ })).toBeInTheDocument();
   });
 });

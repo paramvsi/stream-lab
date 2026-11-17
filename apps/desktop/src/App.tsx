@@ -117,7 +117,9 @@ export function App({
   }, [inSteps, transport, connections, cur]);
   // Board G01 "Jump to job": every connection's jobs, read when the palette opens (one GET each). A cluster that
   // can not be read is said in the palette; the rest still works.
-  const paletteReads = useRef(new Map<string, Promise<FlinkJobRow[]>>());
+  // Keyed by the connection object, not its id: Import → Replace keeps the id but not the cluster (a new object),
+  // so it reads the new cluster. Weak: a removed or replaced connection's entry goes with it.
+  const paletteReads = useRef(new WeakMap<Connection, Promise<FlinkJobRow[]>>());
   const [paletteJobs, setPaletteJobs] = useState<Record<string, { jobs?: FlinkJobRow[]; error?: AppError }>>(
     {},
   );
@@ -128,12 +130,12 @@ export function App({
       // Through the connection's shared limiter (FLINK_API: at most 6 in flight), with its own timeout. At most one
       // palette read per connection: a reopen attaches to the one in flight, so closing and reopening never piles up
       // reads that hold the screens' slots.
-      let read = paletteReads.current.get(c.id);
+      let read = paletteReads.current.get(c);
       if (!read) {
         read = gateFor(transport, c.id)
           .run(() => listJobs(transport(c), c.name, c.timeoutMs))
-          .finally(() => paletteReads.current.delete(c.id));
-        paletteReads.current.set(c.id, read);
+          .finally(() => paletteReads.current.delete(c));
+        paletteReads.current.set(c, read);
       }
       read.then(
         (jobs) => live && setPaletteJobs((p) => ({ ...p, [c.id]: { jobs } })),

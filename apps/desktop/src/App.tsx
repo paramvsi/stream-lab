@@ -5,6 +5,7 @@ import { useState } from 'react';
 import { ConnectionForm } from './ConnectionForm';
 import { Connections } from './Connections';
 import { ImportDialog } from './ImportDialog';
+import { Cluster } from './Cluster';
 import { Jobs } from './Jobs';
 import { KindPicker } from './KindPicker';
 import { Welcome } from './Welcome';
@@ -19,6 +20,7 @@ import { Welcome } from './Welcome';
 type Screen =
   | { name: 'home' }
   | { name: 'list' }
+  | { name: 'cluster'; id: string }
   | { name: 'jobs'; id: string }
   | { name: 'kind'; kind: KindChoice | null }
   | { name: 'form'; kind: Connection['kind'] };
@@ -63,9 +65,31 @@ export function App({
     );
   // Home: Welcome (D01) with no connections yet, else the connection list (D03).
   const add = () => setScreen({ name: 'kind', kind: null });
-  const open = screen.name === 'jobs' ? connections.find((c) => c.id === screen.id) : undefined;
+  const open =
+    screen.name === 'jobs' || screen.name === 'cluster'
+      ? connections.find((c) => c.id === screen.id)
+      : undefined;
+  const home = () => setScreen({ name: 'home' });
+  if (transport && open && screen.name === 'cluster')
+    return (
+      <Cluster
+        key={open.id}
+        c={open}
+        transport={transport}
+        onFleet={home}
+        onJobs={() => setScreen({ name: 'jobs', id: open.id })}
+      />
+    );
   if (transport && open)
-    return <Jobs key={open.id} c={open} transport={transport} onFleet={() => setScreen({ name: 'home' })} />;
+    return (
+      <Jobs
+        key={open.id}
+        c={open}
+        transport={transport}
+        onFleet={home}
+        onCluster={() => setScreen({ name: 'cluster', id: open.id })}
+      />
+    );
   const importDialog = (
     <ImportDialog
       open={importing}
@@ -90,7 +114,7 @@ export function App({
           onAdd={add}
           onManage={() => setScreen({ name: 'list' })}
           cache={fleetCache}
-          onOpen={(c) => setScreen({ name: 'jobs', id: c.id })}
+          onOpen={(c) => setScreen({ name: 'cluster', id: c.id })}
         />
         {importDialog}
       </>

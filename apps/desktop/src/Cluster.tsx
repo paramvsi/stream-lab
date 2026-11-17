@@ -1,0 +1,139 @@
+import {
+  fleetStatus,
+  listTaskManagers,
+  tmAddress,
+  type Connection,
+  type FlinkHttp,
+  type FlinkTaskManager,
+  type FleetStatus,
+} from '@sl/flink';
+import { Button, Loading, Skeleton, StatusBadge, Table, type Column } from '@sl/ui';
+import { LayoutGrid, ListChecks } from 'lucide-react';
+import { useEffect, type ReactNode } from 'react';
+import { ENV } from './Connections';
+import { useScreenHeading } from './focus';
+import { usePolled } from './usePolled';
+
+type Up = Extract<FleetStatus, { state: 'up' }>;
+
+/** One read of the cluster page: the fleet's summary (three calls) and the TaskManagers. */
+async function readCluster(http: FlinkHttp, conn: string, timeoutMs: number) {
+  const [s, tms] = await Promise.all([
+    fleetStatus(http, conn, timeoutMs),
+    listTaskManagers(http, conn, timeoutMs),
+  ]);
+  if (s.state === 'down') throw s.error;
+  return { s, tms };
+}
+
+function Kpi({ label, value, note }: { label: string; value: ReactNode; note?: ReactNode }) {
+  return (
+    <div
+      role="group"
+      aria-label={label}
+      className="flex flex-col gap-1 rounded-lg border border-line bg-surface p-4"
+    >
+      <span className="text-[13px] text-muted">{label}</span>
+      <span className="text-[22px] font-semibold">{value}</span>
+      {note && <span className="text-[13px] text-muted">{note}</span>}
+    </div>
+  );
+}
+
+const columns: Column<FlinkTaskManager>[] = [
+  { key: 'id', header: 'TaskManager', mono: true, render: (t) => t.id },
+  { key: 'addr', header: 'Address', mono: true, render: (t) => tmAddress(t) },
+  {
+    key: 'slots',
+    header: 'Slots',
+    mono: true,
+    render: (t) => `${t.slotsNumber - t.freeSlots}/${t.slotsNumber}`,
+  },
+  {
+    key: 'status',
+    header: 'Status',
+    render: (t) =>
+      t.blocked ? (
+        <StatusBadge tone="warning">Blocked</StatusBadge>
+      ) : (
+        <StatusBadge tone="success">OK</StatusBadge>
+      ),
+  },
+];
+
+/**
+ * FLEET-02 / boards D05 (cluster overview KPIs) and D05b (TaskManagers): one connection, polled every 5 s with
+ * the §4 error handling of usePolled. Opened from a fleet card; Jobs goes to the list (D07).
+ * ponytail: JVM heap (JM), per-TaskManager Heap and Version, the slots chart, recent events, the JobManager and
+ * Configuration tabs and the TaskManager detail (D05c) need metrics, history (JOB-06) and those calls: next slices.
+ */
+export function Cluster({
+  c,
+  transport,
+  onFleet,
+  onJobs,
+}: {
+  c: Connection;
+  transport: (c: Connection) => FlinkHttp;
+  onFleet?: () => void;
+  onJobs?: () => void;
+}) {
+  const h1 = useScreenHeading();
+  useEffect(() => {
+    document.title = `${c.name} · Stream Lab`;
+  }, [c.name]);
+  const { value, stale, since, banner } = usePolled(c, transport, readCluster, h1);
+  const s: Up | undefined = value?.s;
+  const used = s ? s.slotsTotal - s.slotsFree : 0;
+  return (
+    <main className="flex min-h-screen flex-col gap-5 bg-surface px-8 py-7">
+      {banner}
+      <div className="flex flex-wrap items-start justify-between gap-4">
+        <div className="flex flex-col gap-1">
+          <h1 ref={h1} tabIndex={-1} className="m-0 text-[26px] font-semibold outline-none">
+            {c.name}
+          </h1>
+          <p className="m-0 text-[14px] text-muted">
+            {ENV[c.env]}
+            {s ? ` · Flink ${s.version}` : ''}
+          </p>
+        </div>
+        <div className="flex gap-3">
+          {onFleet && (
+            <Button icon={<LayoutGrid size={16} aria-hidden="true" />} onClick={onFleet}>
+              Fleet
+            </Button>
+          )}
+          {onJobs && (
+            <Button icon={<ListChecks size={16} aria-hidden="true" />} onClick={onJobs}>
+              Jobs
+            </Button>
+          )}
+        </div>
+      </div>
+      {!value ? (
+        !banner && (
+          <Loading label={`Loading ${c.name}`}>
+            <Skeleton height={96} />
+            <Skeleton height={240} />
+          </Loading>
+        )
+      ) : (
+        <>
+          {stale && <p className="m-0 text-[13px] text-muted">Not answering. Showing data from {since}.</p>}
+          <div className="grid grid-cols-[repeat(auto-fill,minmax(200px,1fr))] gap-4">
+            <Kpi label="Task slots" value={`${used} / ${s!.slotsTotal} used`} note={`${s!.slotsFree} free`} />
+            <Kpi label="TaskManagers" value={s!.taskmanagers} />
+            <Kpi
+              label="Running jobs"
+              value={s!.jobs}
+              {...(s!.failing ? { note: `${s!.failing} failing` } : {})}
+            />
+          </div>
+          <h2 className="m-0 text-[18px] font-semibold">TaskManagers</h2>
+          <Table label="TaskManagers" columns={columns} rows={value.tms} rowKey={(t) => t.id} />
+        </>
+      )}
+    </main>
+  );
+}

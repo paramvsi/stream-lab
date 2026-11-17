@@ -270,7 +270,7 @@ function FleetCard({
  * message with Retry (and "Back in contact" once it answers again). Offline, cards keep their data under
  * CONN-OFFLINE and ask nothing.
  * ponytail: no "Needs attention" table yet (it needs each job's restarts and backpressure: M7), Open goes to the
- * jobs list (the cluster overview, D05, is still to come), and API-401's Reconnect / Disconnect wait for the keychain (Retry for now).
+ * cluster page (D05), and API-401's Reconnect / Disconnect wait for the keychain (Retry for now).
  */
 export function Fleet({
   connections,

@@ -21,7 +21,7 @@ import {
   type BadgeTone,
   type Column,
 } from '@sl/ui';
-import { Inbox, LayoutGrid } from 'lucide-react';
+import { Inbox, LayoutGrid, Server } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { useScreenHeading } from './focus';
 import { usePolled } from './usePolled';
@@ -61,10 +61,12 @@ export function Jobs({
   c,
   transport,
   onFleet,
+  onCluster,
 }: {
   c: Connection;
   transport: (c: Connection) => FlinkHttp;
   onFleet?: () => void;
+  onCluster?: () => void;
 }) {
   const h1 = useScreenHeading();
   useEffect(() => {
@@ -124,11 +126,18 @@ export function Jobs({
             {rows ? `${rows.length} job${rows.length === 1 ? '' : 's'} on ${c.name}` : c.name}
           </p>
         </div>
-        {onFleet && (
-          <Button icon={<LayoutGrid size={16} aria-hidden="true" />} onClick={onFleet}>
-            Fleet
-          </Button>
-        )}
+        <div className="flex gap-3">
+          {onFleet && (
+            <Button icon={<LayoutGrid size={16} aria-hidden="true" />} onClick={onFleet}>
+              Fleet
+            </Button>
+          )}
+          {onCluster && (
+            <Button icon={<Server size={16} aria-hidden="true" />} onClick={onCluster}>
+              Cluster
+            </Button>
+          )}
+        </div>
       </div>
       <div className="flex flex-wrap items-end gap-3">
         <Field label="Search jobs" className="w-[280px]">

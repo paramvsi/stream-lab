@@ -436,3 +436,38 @@ describe('SP-TIMEOUT (catalog: still IN_PROGRESS after 10 min, board D15b)', () 
       ).not.toHaveLength(0);
     }));
 });
+
+describe('the app keeps a sent stop (resume, onSent)', () => {
+  it('audit of b389793: a stop whose status is lost is handed back too (it is not followed on at every visit)', () =>
+    run(async () => {
+      const sent = vi.fn();
+      const http: FlinkHttp = async (r) => {
+        if (r.path === '/jobmanager/config') return cfg('s3://sp');
+        if (r.method === 'POST') return ok(202, { 'request-id': 'r1' });
+        return ok(503, {}); // every status read fails
+      };
+      render(
+        <TooltipProvider>
+          <ToastProvider>
+            <StopDialog
+              open
+              onOpenChange={() => {}}
+              http={http}
+              conn="prod"
+              jid="j1"
+              job="refund-matcher"
+              onSent={sent}
+            />
+          </ToastProvider>
+        </TooltipProvider>,
+      );
+      const d = await screen.findByRole('dialog');
+      await within(d).findByDisplayValue('s3://sp');
+      await userEvent.click(within(d).getByRole('button', { name: 'Stop with savepoint' }), {
+        advanceTimers: vi.advanceTimersByTime,
+      });
+      await vi.waitFor(() => expect(sent).toHaveBeenCalledWith(expect.objectContaining({ rid: 'r1' })));
+      await vi.advanceTimersByTimeAsync(15_000); // three failed reads: lost
+      await vi.waitFor(() => expect(sent).toHaveBeenLastCalledWith(null));
+    }));
+});

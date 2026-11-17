@@ -214,6 +214,9 @@ export function StopDialog({
           if (++fails < MAX_READ_FAILS) return void (timer = setTimeout(ask, AFTER_FAIL_MS));
           const error = asAppError(e, conn);
           setUncertain(true);
+          // Handed back too: a rid Flink no longer knows would fail again at every visit, with a false warning.
+          // "May still be running" is said on the next question (uncertain).
+          onSent?.(null);
           if (openRef.current) return setStep({ name: 'lost', error });
           setStep({ name: 'confirm' });
           toast?.({ severity: 'warning', message: `${present(error).message} ${LOST}` });

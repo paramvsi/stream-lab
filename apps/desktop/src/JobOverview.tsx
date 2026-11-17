@@ -252,16 +252,12 @@ export function JobOverview({
       // where the last one stopped, so on a job too big for one round every vertex is still read in turn.
       const gen = bpGen.current;
       const until = Date.now() + POLL.checkpoints.everyMs;
-      const late = { status: 'rejected' as const, reason: new Error('not read this round') };
       const start = bpNext.current % ids.length;
       const order = [...ids.slice(start), ...ids.slice(0, start)];
       const got = new Map<string, PromiseSettledResult<Backpressure | null>>();
       for (const v of order) {
         if (bpGen.current !== gen) throw new Error('stopped');
-        if (Date.now() > until) {
-          got.set(v, late);
-          continue;
-        }
+        if (Date.now() > until) break; // the rest wait for the next round (not a miss: not asked)
         bpNext.current = (ids.indexOf(v) + 1) % ids.length;
         got.set(
           v,
@@ -271,7 +267,7 @@ export function JobOverview({
           ),
         );
       }
-      const rs = ids.map((v) => got.get(v)!);
+      const rs = [...got.values()];
       // §4: every vertex failing is a failed read (the poll keeps the last badges and counts it), not "nothing
       // to show". One vertex failing keeps its last reading for at most 2 misses in a row, then has none: never
       // an old reading that looks current.
@@ -280,8 +276,10 @@ export function JobOverview({
       const prev = bpLast.current;
       const misses = bpMisses.current;
       return Object.fromEntries(
-        ids.map((v, i) => {
-          const r = rs[i]!;
+        ids.map((v) => {
+          const r = got.get(v);
+          // Not reached this round: its last reading stands, and its miss count with it.
+          if (!r) return [v, prev[v] ?? null];
           if (r.status === 'fulfilled') {
             misses.delete(v);
             return [v, r.value];

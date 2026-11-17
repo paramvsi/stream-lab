@@ -1080,6 +1080,54 @@ describe('JOB-02 · Job overview (board D08)', () => {
     },
   );
 
+  it(
+    'audit bp5: on a big slow job a badge, once read, never blinks to "no reading" in rounds that did not reach it',
+    { timeout: 30_000 },
+    async () => {
+      vi.useFakeTimers({ shouldAdvanceTime: true });
+      try {
+        const many = {
+          ...detail,
+          vertices: Array.from({ length: 24 }, (_, i) => ({
+            ...detail.vertices[0]!,
+            id: `x${i}`,
+            name: `op ${i}`,
+          })),
+        };
+        show(async (req) => {
+          const m = /\/vertices\/(x\d+)\/backpressure$/.exec(req.path);
+          if (m) {
+            await new Promise((r) => setTimeout(r, 1_000)); // ~6 of 24 per round
+            const hot = m[1] === 'x0';
+            return {
+              status: 200,
+              headers: {},
+              url: '',
+              body: JSON.stringify({
+                status: 'ok',
+                backpressureLevel: hot ? 'high' : 'ok',
+                subtasks: [{ ratio: hot ? 0.9 : 0 }],
+              }),
+            };
+          }
+          return answer(200, many)(req);
+        });
+        await screen.findByRole('list', { name: 'Job graph' });
+        for (let t = 0; t < 10 && !screen.queryByText('backpressured 90%'); t++)
+          await act(async () => vi.advanceTimersByTimeAsync(1_000));
+        expect(screen.getByText('backpressured 90%')).toBeInTheDocument();
+        let blinks = 0;
+        for (let t = 0; t < 40; t++) {
+          await act(async () => vi.advanceTimersByTimeAsync(1_000));
+          if (!screen.queryByText('backpressured 90%')) blinks++;
+        }
+        expect(blinks).toBe(0);
+      } finally {
+        vi.useRealTimers();
+      }
+    },
+  );
+
   it('lists the operators with parallelism and status', async () => {
     show(answer(200, detail));
     const table = await screen.findByRole('table', { name: 'Operators' });

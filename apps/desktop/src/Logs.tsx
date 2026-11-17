@@ -16,7 +16,7 @@ import {
   type LogFile,
 } from '@sl/flink';
 import { Button, Field, Input, Loading, Skeleton, StatusBadge, Table, type Column } from '@sl/ui';
-import { RotateCw, Server } from 'lucide-react';
+import { Download as DownloadIcon, RotateCw, Server } from 'lucide-react';
 import { useCallback, useDeferredValue, useEffect, useId, useMemo, useRef, useState } from 'react';
 import { useScreenHeading } from './focus';
 import { size } from './format';
@@ -71,7 +71,7 @@ const asAppError = (e: unknown, conn: string) =>
  * gone between list and read: LOG-GONE.
  * Regex search goes through logFilter's bounded worker (LOG-REGEX on the field; LOG-FILTER-FAILED if it breaks).
  * Follow re-reads the shown file every 2 s. Tabs: the JobManager and each TaskManager (by its id).
- * ponytail: Download is the next slice.
+ * Download saves the whole file as served.
  */
 export function Logs({
   c,
@@ -255,6 +255,15 @@ export function Logs({
     return () => clearInterval(t);
   }, [follow, name, big, ready, proc, http, c.name]);
   const followWhy = useId();
+  // D18 Download: the whole file as served (also over 50 MB, where 5,000 lines show), under its own name.
+  // ponytail: an <a download> on a blob URL, as Export does; the Tauri build saves with the dialog and fs plugins.
+  const download = () => {
+    if (text === null || !name) return;
+    const url = URL.createObjectURL(new Blob([text], { type: 'text/plain' }));
+    Object.assign(document.createElement('a'), { href: url, download: name }).click();
+    // Revoked a moment later: some engines cancel a download whose URL is revoked straight after the click.
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  };
   // Split and parsed once per file; filtered per level and search.
   const parsed = useMemo(() => {
     if (text === null) return null;
@@ -408,6 +417,13 @@ export function Logs({
                 Off over 50 MB: each read is the whole file
               </span>
             )}
+            <Button
+              icon={<DownloadIcon size={16} aria-hidden="true" />}
+              onClick={download}
+              {...(text === null || !name ? { disabledReason: 'The log is not read yet' } : {})}
+            >
+              Download
+            </Button>
             <fieldset className="m-0 flex gap-1 rounded-md border border-line p-0.5">
               <legend className="sr-only">Level</legend>
               {LEVELS.map((l) => (

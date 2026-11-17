@@ -648,4 +648,45 @@ describe('OPS-01 · Logs (D18, D18b)', () => {
     expect(within(group).getByRole('radio', { name: 'tm2-6d1f0c' })).toBeChecked();
     expect(screen.getByText('No log files on tm2-6d1f0c.')).toBeInTheDocument();
   });
+
+  it('D18 Download: saves the whole file as served (not the shown 5,000 lines), under its name; off until it is read', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    const blobs: Blob[] = [];
+    const names: string[] = [];
+    const create = URL.createObjectURL;
+    const revoke = URL.revokeObjectURL;
+    URL.createObjectURL = vi.fn((b: Blob) => (blobs.push(b), 'blob:log'));
+    URL.revokeObjectURL = vi.fn();
+    const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(function (
+      this: HTMLAnchorElement,
+    ) {
+      names.push(this.download);
+    });
+    try {
+      let answer = (_: string) => {};
+      show(async (r) =>
+        r.path === '/jobmanager/logs'
+          ? list([{ name: 'jobmanager.log', size: 1, mtime: 1 }])
+          : new Promise((res) => (answer = (b) => res(ok(200, b)))),
+      );
+      const dl = await screen.findByRole('button', { name: 'Download' });
+      expect(dl).toHaveAttribute('aria-disabled', 'true'); // not read yet
+      await userEvent.click(dl);
+      expect(names).toEqual([]);
+      const whole = `${text}\n\tat x.y(Z.java:1)\nnot a log line at all`;
+      answer(whole);
+      await screen.findByRole('table', { name: 'Log lines' });
+      expect(dl).not.toHaveAttribute('aria-disabled');
+      await userEvent.click(dl);
+      expect(names).toEqual(['jobmanager.log']);
+      expect(await blobs[0]!.text()).toBe(whole);
+      vi.advanceTimersByTime(1000);
+      expect(URL.revokeObjectURL).toHaveBeenCalledWith('blob:log');
+    } finally {
+      click.mockRestore();
+      URL.createObjectURL = create;
+      URL.revokeObjectURL = revoke;
+      vi.useRealTimers();
+    }
+  });
 });

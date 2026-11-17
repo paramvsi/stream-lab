@@ -105,6 +105,10 @@ export function Logs({
   useEffect(() => {
     document.title = `Logs · ${c.name} · Stream Lab`;
   }, [c.name]);
+  // Outside the connection's shared limiter, on purpose: a read can not be cancelled (no abort in FlinkHttp), and
+  // an abandoned one (a new pick, Reload, leaving) would hold a shared slot for up to its 30 s timeout, starving
+  // other screens' polls. Logs keeps at most 3 requests in flight itself (list, read, TaskManagers), under the 6.
+  // ponytail: gate it once requests can be cancelled (the Rust transport).
   const http = useMemo(() => transport(c), [transport, c]);
   const [files, setFiles] = useState<LogFile[] | null>(null);
   const [name, setName] = useState<string | null>(null);

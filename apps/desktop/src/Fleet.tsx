@@ -79,8 +79,9 @@ function FleetCard({
   const heading = useRef<HTMLHeadingElement>(null);
   /** Retry was pressed and focus was on it: once the card answers, focus goes to its heading. */
   const retryFocused = useRef(false);
-  // At most 6 requests in flight per connection (FLINK_API "Concurrency"), across Retries too, shared with every
-  // other read of this connection (the palette's, the screens' polls): one budget per cluster.
+  // At most 6 requests in flight per connection (FLINK_API "Concurrency"), across Retries too, shared with the
+  // other polls of this connection (the palette's, the screens' usePolled). Not shared: Logs' reads and the action
+  // POSTs (they can not be cancelled, so an abandoned one must not hold a shared slot; each stays under the 6).
   const gate = useMemo(() => gateFor(transport, c.id), [transport, c.id]);
   const http = useMemo<FlinkHttp>(() => {
     let t: FlinkHttp;

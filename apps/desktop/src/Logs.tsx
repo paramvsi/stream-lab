@@ -67,9 +67,10 @@ export const savedLogName = (cluster: string, proc: string | null, file: string)
   [cluster, proc, file]
     .filter(Boolean)
     .join('-')
-    // What a file name can not hold on some system, plus every control and format character (\p{Cc}, \p{Cf}: a
-    // bidi override would show "job\u202egol.exe" as "jobexe.log"). Letters in any script, spaces and case stay.
-    .replace(/[/\\:*?"<>|\p{Cc}\p{Cf}]/gu, '_')
+    // What a file name can not hold on some system, control characters (\p{Cc}), and the bidi controls (a right-to-
+    // left override would show "job\u202egol.exe" as "jobexe.log"). Not all of \p{Cf}: ZWNJ/ZWJ are part of Persian
+    // words and emoji. Letters in any script, spaces and case stay.
+    .replace(/[/\\:*?"<>|\p{Cc}\u061c\u200e\u200f\u202a-\u202e\u2066-\u2069]/gu, '_')
     // Windows drops a trailing dot or space silently: the saved name would not be this one.
     .replace(/[. ]+$/, '');
 

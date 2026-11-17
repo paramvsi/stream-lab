@@ -781,4 +781,10 @@ describe('OPS-01 · Logs (D18, D18b)', () => {
     expect(savedLogName('prod', null, 'x.log. ')).toBe('prod-x.log'); // Windows would drop them silently
     expect(savedLogName('مدفوعات', null, 'jobmanager.log')).toBe('مدفوعات-jobmanager.log');
   });
+
+  it('audit dl4: joiners that scripts and emoji need stay (Persian ZWNJ, a family emoji); bidi controls still go', () => {
+    expect(savedLogName('می‌خواهم', null, 'jobmanager.log')).toBe('می‌خواهم-jobmanager.log');
+    expect(savedLogName('👨‍👩‍👧', null, 'j.log')).toBe('👨‍👩‍👧-j.log');
+    expect(savedLogName('p', null, 'a⁦b‪c.log')).toBe('p-a_b_c.log');
+  });
 });

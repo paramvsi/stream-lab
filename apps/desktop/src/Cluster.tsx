@@ -118,7 +118,7 @@ export function Cluster({
               label="Running jobs"
               // Not done and not failing, as on the fleet card (D05: "13 · 1 failing" of 14 jobs).
               value={s!.running}
-              {...(s!.failing ? { note: `${s!.failing} failing` } : {})}
+              {...(s!.failing ? { note: `${s!.failing} failing`, tone: 'error' as const } : {})}
             />
           </div>
           <h2 className="m-0 text-[18px] font-semibold">TaskManagers</h2>

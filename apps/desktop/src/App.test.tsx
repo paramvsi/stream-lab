@@ -418,9 +418,15 @@ describe('APP-01 · command palette (board G01)', () => {
     (document.activeElement as HTMLElement).blur();
     fireEvent.keyDown(document.body, { key: 't', code: 'KeyK', metaKey: true }); // Dvorak ⌘T
     expect(screen.queryByRole('dialog', { name: 'Commands' })).toBeNull();
-    fireEvent.keyDown(document.body, { key: 'i', code: 'KeyG' }); // Dvorak i, then h
+    // On a cluster (G J needs an open connection), Dvorak's i then h is not G J.
+    fireEvent.keyDown(document.body, { key: '1', code: 'Digit1', metaKey: true });
+    await screen.findByRole('heading', { level: 1, name: 'local-docker' });
+    (document.activeElement as HTMLElement).blur();
+    fireEvent.keyDown(document.body, { key: 'i', code: 'KeyG' });
     fireEvent.keyDown(document.body, { key: 'h', code: 'KeyJ' });
-    expect(screen.getByRole('heading', { level: 1, name: 'Fleet' })).toBeTruthy();
+    await new Promise((r) => setTimeout(r, 50));
+    expect(screen.getByRole('heading', { level: 1, name: 'local-docker' })).toBeTruthy();
+    expect(screen.queryByRole('heading', { level: 1, name: 'Jobs' })).toBeNull();
     fireEvent.keyDown(document.body, { key: 'k', code: 'KeyV', metaKey: true }); // Dvorak's labelled K
     expect(screen.getByRole('dialog', { name: 'Commands' })).toBeInTheDocument();
   });

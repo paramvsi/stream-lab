@@ -111,6 +111,7 @@ export function Logs({
   const again = (want: string | null) => {
     setText(null);
     setError(null);
+    setName(want); // the pick holds at once (the picker does not snap back; a failed list keeps it for Reload)
     load(want);
   };
 

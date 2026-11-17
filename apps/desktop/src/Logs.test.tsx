@@ -184,4 +184,28 @@ describe('OPS-01 · Logs (D18, D18b)', () => {
     await screen.findByText(/No log files/);
     expect(screen.getByRole('button', { name: 'Reload' })).toBeInTheDocument();
   });
+
+  it('audit logs4: a pick holds while its list loads and when that list fails; Reload then reads the picked file', async () => {
+    let listing = 0;
+    const asked: string[] = [];
+    show(async (r) => {
+      asked.push(r.path);
+      if (r.path === '/jobmanager/logs')
+        return ++listing === 2
+          ? ok(500, '{"errors":["Internal server error."]}')
+          : list([
+              { name: 'jobmanager.log', size: 1, mtime: 2 },
+              { name: 'jobmanager.log.1', size: 1, mtime: 1 },
+            ]);
+      return ok(200, r.path.endsWith('.1') ? 'old' : text);
+    });
+    await screen.findByRole('table', { name: 'Log lines' });
+    const pick = screen.getByRole('combobox', { name: 'Log file' });
+    await userEvent.selectOptions(pick, 'jobmanager.log.1'); // its list fails
+    expect(await screen.findByText(/had an internal error while listing its logs/)).toBeInTheDocument();
+    expect(pick).toHaveValue('jobmanager.log.1');
+    await userEvent.click(screen.getByRole('button', { name: 'Reload' }));
+    await screen.findByText('old');
+    expect(asked.at(-1)).toBe('/jobmanager/logs/jobmanager.log.1');
+  });
 });

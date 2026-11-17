@@ -102,14 +102,18 @@ const sameProblem = (message: string) =>
     .replace(/\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b/gi, '#')
     // Long hex, also inside ids joined by "_" (an ExecutionAttemptID: <graph>_<vertex>_<subtask>_<attempt>).
     .replace(/(?<![0-9a-z])[0-9a-f]{16,}(?:_[0-9a-f]+)*(?![0-9a-z])/gi, '#')
-    // A TaskManager or broker address with its resource suffix: 10.0.0.5:39231-a2b3c4.
-    .replace(/\b\d{1,3}(?:\.\d{1,3}){3}(?::\d+)?(?:-[0-9a-f]+)?\b/gi, '#')
+    // The host's IP (pods move); its port only with a TaskManager's resource suffix. A service port stays:
+    // :9092 down and :8081 down are different problems.
+    .replace(/\b\d{1,3}(?:\.\d{1,3}){3}\b/g, '#')
+    .replace(/#:\d+-[0-9a-f]+\b/gi, '#:#')
     // Flink's task-name suffix: (subtask/parallelism)#attempt.
     .replace(/\(\d+\/\d+\)(?:#\d+)?/g, '(#)')
     // Counts and durations that change per occurrence (Kafka: "Expiring 5 record(s) … 120001 ms").
-    .replace(/\b\d+(?=\s*(?:record\(s\)|records?|ms|s|seconds?|bytes?)\b)/gi, '#')
+    // Not inside a name ("orders-10s"): the number stands on its own.
+    .replace(/(?<![\w-])\d+(?=\s*(?:record\(s\)|records?|ms|s|seconds?|bytes?)\b)/gi, '#')
     .replace(
-      /\b(checkpoint|snapshot|savepoint|attempt|subtask|task|partition|id|job)(\s*#?\s*)\d+/gi,
+      // One way to match the gap (not "\s*#?\s*"): linear on long whitespace runs.
+      /\b(checkpoint|snapshot|savepoint|attempt|subtask|task|partition|id|job)(\s*(?:#\s*)?)\d+/gi,
       '$1$2#',
     );
 

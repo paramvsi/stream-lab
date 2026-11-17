@@ -215,4 +215,18 @@ describe('JOB-08 · grouped exceptions (board X20)', () => {
   ])('audit 2: one problem with per-occurrence %s stays one group', (_, a, b) => {
     expect(groupExceptions([ex(2, a), ex(1, b)])).toHaveLength(1);
   });
+
+  it.each([
+    ['service ports', 'a.E: Connection refused: /10.0.0.5:9092', 'a.E: Connection refused: /10.0.0.5:8081'],
+    ['a number inside a name', 'a.E: Topic orders-10s not found', 'a.E: Topic orders-60s not found'],
+  ])('audit 3: different problems stay apart (%s)', (_, a, b) => {
+    expect(groupExceptions([ex(2, a), ex(1, b)])).toHaveLength(2);
+  });
+
+  it('audit 3: a long whitespace run after an id word stays fast (no quadratic backtracking)', () => {
+    const line = `a.E: task${' '.repeat(40_000)}x`;
+    const t0 = performance.now();
+    groupExceptions([ex(1, line)]);
+    expect(performance.now() - t0).toBeLessThan(50);
+  });
 });

@@ -143,8 +143,15 @@ export function WorkspaceRoute({ id }: { id: string }) {
       useSaveState.setState({ state: 'saving' });
       const p = snapshot();
       base.current = p;
-      savePipeline(p).then(
-        () => {
+      // An update unless it was never written (first save failed): a delete elsewhere is not undone by it.
+      savePipeline(p, { update: !unsaved.has(id) }).then(
+        (written) => {
+          if (!written) {
+            // Deleted in another tab; its broadcast may still be on the way.
+            wasDeleted.current = true;
+            setDeleted(true);
+            return;
+          }
           unsaved.delete(id);
           useSaveState.setState({ state: 'saved' });
           setStoreError(null);

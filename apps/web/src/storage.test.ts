@@ -40,6 +40,17 @@ describe('SIM-02 / SIM-20 · storage', () => {
     expect((await listPipelines()).map((x) => x.id)).toEqual(['b']);
   });
 
+  it('PIPELINE-DELETED-ELSEWHERE: an update of a deleted pipeline is refused, not written back (persist-audit Q1)', async () => {
+    // Another tab deleted it; this tab's autosave fires before the "deleted" broadcast arrives.
+    await savePipeline(p('a', 'Card bursts', '2026-11-15T10:00:00Z'));
+    await deletePipeline('a');
+    expect(await savePipeline(p('a', 'Card bursts', '2026-11-15T10:01:00Z'), { update: true })).toBe(false);
+    expect(await getPipeline('a')).toBeUndefined();
+    // A plain save (Undo of the delete, a first save) still creates it.
+    expect(await savePipeline(p('a', 'Card bursts', '2026-11-15T10:02:00Z'))).toBe(true);
+    expect((await getPipeline('a'))?.updatedAt).toBe('2026-11-15T10:02:00.000Z');
+  });
+
   it('list reports size and scenario for the table', async () => {
     await savePipeline({
       ...p('a', 'x', '2026-11-15T10:00:00Z'),

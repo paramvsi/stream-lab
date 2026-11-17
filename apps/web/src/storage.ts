@@ -90,13 +90,31 @@ export async function getPipeline(id: string): Promise<(Pipeline & { scenario?: 
   return (await db()).get('pipelines', id);
 }
 
-export async function savePipeline(p: Pipeline & { scenario?: string }): Promise<void> {
+/**
+ * True when written. `update`: only overwrite a stored pipeline — false (nothing written) when it is gone. An
+ * autosave can fire after another tab's delete committed but before its broadcast arrives; checking in the same
+ * transaction as the write closes that gap (PIPELINE-DELETED-ELSEWHERE). Without it, a save creates (first save,
+ * Undo of a delete).
+ */
+export async function savePipeline(
+  p: Pipeline & { scenario?: string },
+  opts: { update?: boolean } = {},
+): Promise<boolean> {
   try {
-    await (await db()).put('pipelines', p);
+    const d = await db();
+    if (opts.update) {
+      const tx = d.transaction('pipelines', 'readwrite');
+      if ((await tx.store.getKey(p.id)) === undefined) {
+        await tx.done;
+        return false;
+      }
+      await Promise.all([tx.store.put(p), tx.done]);
+    } else await d.put('pipelines', p);
   } catch (e) {
     throw await storeError(e);
   }
   announce({ type: 'saved', id: p.id, updatedAt: p.updatedAt, tab: TAB });
+  return true;
 }
 
 export async function deletePipeline(id: string): Promise<void> {

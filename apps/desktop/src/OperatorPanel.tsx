@@ -65,9 +65,10 @@ export function OperatorPanel(p: Props) {
   const titleId = useId();
   return (
     <section aria-labelledby={titleId} className="flex flex-col gap-3 rounded-lg border border-line p-4">
-      <h3 id={titleId} className="m-0 text-[16px] font-semibold">
+      {/* h2: a section of the job page beside "Job graph", not one of its operator cards. */}
+      <h2 id={titleId} className="m-0 text-[16px] font-semibold">
         {p.vertex.name}
-      </h3>
+      </h2>
       {/* Each tab's reads are mounted only while the job runs (no reads otherwise), fresh per operator (never the
           last one's rows). */}
       <Tabs

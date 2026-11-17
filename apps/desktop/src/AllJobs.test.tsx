@@ -140,4 +140,23 @@ describe('JOB-11 · jobs across connections (board X18)', () => {
     await userEvent.type(screen.getByRole('searchbox', { name: 'Search jobs' }), 'card');
     expect(names()).toEqual(['card-velocity']);
   });
+
+  it('audit of 0347582: no chip counts until every connection answered; a filter with no match says so and clears', async () => {
+    let release = () => {};
+    show((c) => async () => {
+      if (c.id === 'p') await new Promise<void>((r) => (release = r)); // prod is slow
+      return ok({ jobs: [row(c.id + '1', `${c.id}-job`, c.id === 'p' ? 'RESTARTING' : 'RUNNING')] });
+    });
+    await screen.findByText('s-job');
+    expect(screen.getByRole('button', { name: 'Failing' })).toBeInTheDocument(); // no "Failing 0" while prod reads
+    release();
+    expect(await screen.findByRole('button', { name: 'Failing 1' })).toBeInTheDocument();
+    const box = screen.getByRole('searchbox', { name: 'Search jobs' });
+    await userEvent.type(box, 'zzz');
+    expect(screen.getByText('No jobs match this search or filter.')).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: 'Clear search and filter' }));
+    expect(box).toHaveValue('');
+    expect(box).toHaveFocus();
+    expect(screen.getByText('p-job')).toBeInTheDocument();
+  });
 });

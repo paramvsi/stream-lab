@@ -72,6 +72,7 @@ export function AllJobs({
   // The Jobs list's own chips and search (D07b), across connections.
   const [bucket, setBucket] = useState<JobBucket | undefined>();
   const [q, setQ] = useState('');
+  const search = useRef<HTMLInputElement>(null);
   const counts = bucketCounts(all);
   const rows = queryJobs(all, { ...(bucket ? { bucket } : {}), q });
   const down = connections.filter((c) => read[c.id]?.error);
@@ -128,7 +129,13 @@ export function AllJobs({
       )}
       <div className="flex flex-wrap items-end gap-3">
         <Field label="Search jobs" className="w-[280px]">
-          <Input type="search" placeholder="Name or ID" value={q} onChange={(e) => setQ(e.target.value)} />
+          <Input
+            ref={search}
+            type="search"
+            placeholder="Name or ID"
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
+          />
         </Field>
         <div className="inline-flex gap-0.5 rounded-[9px] border border-line bg-subtle p-0.5">
           {CHIPS.map((ch) => (
@@ -139,7 +146,8 @@ export function AllJobs({
               aria-pressed={bucket === ch.bucket}
               onClick={() => setBucket(ch.bucket)}
             >
-              {`${ch.label} ${counts[ch.key]}`}
+              {/* A count only once every connection has answered: never "Failing 0" while one is still reading. */}
+              {reading ? ch.label : `${ch.label} ${counts[ch.key]}`}
             </Button>
           ))}
         </div>
@@ -157,6 +165,24 @@ export function AllJobs({
           rowKey={(r) => `${r.conn.id}/${r.jid}`}
         />
       )}
+      {/* As the Jobs list (D07b): mounted empty so the words are announced, and one step to clear. */}
+      <div role="status" className="flex items-center gap-3 text-[14px] text-muted">
+        {!!all.length && rows.length === 0 && (!!bucket || !!q.trim()) && (
+          <>
+            No jobs match this search or filter.
+            <Button
+              size="sm"
+              onClick={() => {
+                setQ('');
+                setBucket(undefined);
+                search.current?.focus();
+              }}
+            >
+              Clear search and filter
+            </Button>
+          </>
+        )}
+      </div>
     </main>
   );
 }

@@ -472,6 +472,7 @@ export function JobOverview({
           conn={c.name}
           jid={jid}
           job={j.name}
+          fallbackFocus={h1}
         />
       )}
       {/* JOB-05: below the job header (D08c). A failed exceptions read says so rather than nothing; losing the

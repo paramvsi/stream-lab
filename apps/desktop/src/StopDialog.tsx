@@ -1,25 +1,27 @@
 import { AppError, ErrorBanner, present } from '@sl/errors';
 import { getSavepointDir, savepointStatus, stopWithSavepoint, type FlinkHttp } from '@sl/flink';
 import { Button, Dialog, Field, Input, Loading, Skeleton, useToastOptional } from '@sl/ui';
-import { Copy } from 'lucide-react';
-import { useEffect, useId, useState } from 'react';
+import { useEffect, useId, useRef, useState, type RefObject } from 'react';
 
-type Step =
-  | { name: 'confirm' }
-  | { name: 'running' }
-  | { name: 'done'; location: string }
-  | { name: 'failed'; error: AppError };
+type Step = { name: 'confirm' } | { name: 'running' } | { name: 'failed'; error: AppError };
 
-/** How often a running stop is asked about (one GET each; the stop itself is never sent again). */
+/** How often a running stop is asked about: one GET each (the stop itself is never sent again); slower when a read fails. */
 const EVERY_MS = 1_000;
+const AFTER_FAIL_MS = 5_000;
+
+const asAppError = (e: unknown, conn: string) =>
+  e instanceof AppError ? e : new AppError('CONN-IO', { host: conn, reason: 'the request failed' }, e);
 
 /**
- * ACT-01 / boards D15 (confirm), D15b (in progress), D15c (done), D15d (failed). The folder is the cluster's
- * default (getSavepointDir) or one typed in; none is SP-DIR-MISSING before anything is sent. The stop is one
- * POST, never retried; a refusal says why here and the dialog stays on confirm.
- * ponytail: D15b's bytes / % and per-operator progress (needs checkpoint stats), "Run in background", the
- * "Cancel without a savepoint instead" link (D15e) and SP-TIMEOUT's threshold are next slices; after a timed-out
- * POST the job's state should be read before anything else is offered.
+ * ACT-01 / boards D15 (confirm), D15b (in progress), D15c (done: a toast on the job page, as drawn), D15d
+ * (failed, with Try again). The folder is the cluster's default (getSavepointDir) or one typed in; none is
+ * SP-DIR-MISSING before anything is sent; a default that can not be read says why. The stop is one POST, never
+ * retried; while it is sent the dialog can not be closed; a refusal says why and stays on confirm. Closed while it
+ * runs, the stop goes on and its result comes as a toast. Each opening starts at the question (a stop that is
+ * still running shows its progress).
+ * ponytail: D15b's bytes / % and per-operator progress (needs checkpoint stats), the "Cancel without a savepoint
+ * instead" link (D15e) and SP-TIMEOUT's threshold are next slices; after a timed-out POST the job's state should
+ * be read before anything else is offered.
  */
 export function StopDialog({
   open,
@@ -28,6 +30,7 @@ export function StopDialog({
   conn,
   jid,
   job,
+  fallbackFocus,
 }: {
   open: boolean;
   onOpenChange: (o: boolean) => void;
@@ -35,9 +38,12 @@ export function StopDialog({
   conn: string;
   jid: string;
   job: string;
+  /** Where focus goes on close when the trigger is gone (the job left RUNNING): the page heading. */
+  fallbackFocus?: RefObject<HTMLElement | null>;
 }) {
   const [step, setStep] = useState<Step>({ name: 'confirm' });
   const [dir, setDir] = useState<string | null>(null);
+  const [dirError, setDirError] = useState<AppError | null>(null);
   const [fromCluster, setFromCluster] = useState(false);
   const [drain, setDrain] = useState(false);
   const [fieldError, setFieldError] = useState<AppError | null>(null);
@@ -46,10 +52,50 @@ export function StopDialog({
   const [rid, setRid] = useState<string | null>(null);
   const drainId = useId();
   const toast = useToastOptional();
-
-  // The cluster's default folder, read once per opening (a failed read leaves the field to fill in).
+  const openRef = useRef(open);
+  // Closed by us (the stop ended): Radix gives no close-focus event then, and the trigger may be gone (the job
+  // left RUNNING). After the close is committed, focus that fell to <body> goes to the page heading.
+  const closedByUs = useRef(false);
   useEffect(() => {
-    if (!open) return;
+    if (open || !closedByUs.current) return;
+    closedByUs.current = false;
+    const t = setTimeout(() => {
+      if (document.activeElement === document.body || !document.activeElement)
+        fallbackFocus?.current?.focus();
+    }, 0);
+    return () => clearTimeout(t);
+  }, [open, fallbackFocus]);
+  useEffect(() => {
+    openRef.current = open;
+  }, [open]);
+
+  const copy = (text: string) => {
+    const clip = typeof navigator === 'undefined' ? undefined : navigator.clipboard;
+    const failed = () => {
+      const p = present(new AppError('COPY-FAILED'));
+      toast?.({ severity: p.severity, message: p.message });
+    };
+    if (!clip) return failed();
+    clip.writeText(text).then(() => toast?.({ severity: 'success', message: 'Path copied' }), failed);
+  };
+
+  // Each opening (not one that finds a stop still running) starts at the question, with the folder read again.
+  // Adjusted during render (React's pattern for state that follows a prop); `opening` keys the folder read.
+  const [wasOpen, setWasOpen] = useState(false);
+  const [opening, setOpening] = useState(0);
+  if (open !== wasOpen) {
+    setWasOpen(open);
+    if (open && step.name !== 'running') {
+      setStep({ name: 'confirm' });
+      setFieldError(null);
+      setSendError(null);
+      setDir(null);
+      setDirError(null);
+      setOpening((n) => n + 1);
+    }
+  }
+  useEffect(() => {
+    if (!opening) return;
     let live = true;
     getSavepointDir(http, conn).then(
       (d) => {
@@ -57,14 +103,19 @@ export function StopDialog({
         setDir(d ?? '');
         setFromCluster(!!d);
       },
-      () => live && setDir(''),
+      (e: unknown) => {
+        if (!live) return;
+        setDir('');
+        setFromCluster(false);
+        setDirError(asAppError(e, conn));
+      },
     );
     return () => {
       live = false;
     };
-  }, [open, http, conn]);
+  }, [opening, http, conn]);
 
-  // A running stop: one status read at a time until it is done.
+  // A running stop: one status read at a time until it is done, open or not (closed: the result is a toast).
   useEffect(() => {
     if (step.name !== 'running' || !rid) return;
     let live = true;
@@ -74,17 +125,33 @@ export function StopDialog({
         (s) => {
           if (!live) return;
           if (!s.done) timer = setTimeout(ask, EVERY_MS);
-          else if ('location' in s) setStep({ name: 'done', location: s.location });
-          else setStep({ name: 'failed', error: s.error });
+          else if ('location' in s) {
+            // D15c: the job page with a toast, as drawn; the dialog closes.
+            setStep({ name: 'confirm' });
+            closedByUs.current = true;
+            onOpenChange(false);
+            const location = s.location;
+            toast?.({
+              severity: 'success',
+              message: `${job} stopped. Savepoint saved.`,
+              action: { label: 'Copy path', onClick: () => copy(location) },
+            });
+          } else if (openRef.current) setStep({ name: 'failed', error: s.error });
+          else {
+            setStep({ name: 'confirm' });
+            const p = present(s.error);
+            toast?.({ severity: p.severity, message: p.message });
+          }
         },
-        // A read that fails is asked again: a GET, the stop itself is not re-sent.
-        () => live && (timer = setTimeout(ask, EVERY_MS)),
+        // A read that fails is asked again, slower: a GET; the stop itself is not re-sent.
+        () => live && (timer = setTimeout(ask, AFTER_FAIL_MS)),
       );
     timer = setTimeout(ask, EVERY_MS);
     return () => {
       live = false;
       clearTimeout(timer);
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [step.name, rid, http, conn, jid]);
 
   const stop = () => {
@@ -101,76 +168,66 @@ export function StopDialog({
       },
       (e: unknown) => {
         setSending(false);
-        setSendError(
-          e instanceof AppError
-            ? e
-            : new AppError('CONN-IO', { host: conn, reason: 'the request failed' }, e),
-        );
+        setSendError(asAppError(e, conn));
       },
     );
   };
 
-  const close = () => onOpenChange(false);
-  const copy = (text: string) => {
-    const clip = typeof navigator === 'undefined' ? undefined : navigator.clipboard;
-    const failed = () => {
-      const p = present(new AppError('COPY-FAILED'));
-      toast?.({ severity: p.severity, message: p.message });
-    };
-    if (!clip) return failed();
-    clip.writeText(text).then(() => toast?.({ severity: 'success', message: 'Path copied' }), failed);
+  // Not while the stop is being sent: closing then would leave a stop the user did not see answered.
+  const change = (o: boolean) => {
+    if (!o && sending) return;
+    onOpenChange(o);
   };
+  const close = () => change(false);
+  const onCloseAutoFocus = () =>
+    setTimeout(() => {
+      if (document.activeElement === document.body || !document.activeElement)
+        fallbackFocus?.current?.focus();
+    }, 0);
+  const shared = { open, onOpenChange: change, onCloseAutoFocus };
 
   if (step.name === 'running')
     return (
-      <Dialog open={open} onOpenChange={onOpenChange} title={`Stopping ${job}`}>
+      <Dialog {...shared} title={`Stopping ${job}`}>
         <Loading label="Writing savepoint">
           <p className="m-0 text-[14px]">Writing savepoint…</p>
           <Skeleton className="mt-3 h-2 w-full" />
         </Loading>
-      </Dialog>
-    );
-  if (step.name === 'done')
-    return (
-      <Dialog
-        open={open}
-        onOpenChange={onOpenChange}
-        title={`${job} stopped`}
-        severity="success"
-        footer={<Button onClick={close}>Close</Button>}
-      >
-        <p className="m-0 text-[14px]">Savepoint saved:</p>
-        <p className="m-0 font-mono text-[13px] break-all">{step.location}</p>
-        <div>
-          <Button size="sm" icon={<Copy size={14} aria-hidden="true" />} onClick={() => copy(step.location)}>
-            Copy path
-          </Button>
-        </div>
+        <p className="m-0 text-[13px] text-muted">
+          You can close this; the stop goes on, and you will be told when it ends.
+        </p>
       </Dialog>
     );
   if (step.name === 'failed')
     return (
       <Dialog
-        open={open}
-        onOpenChange={onOpenChange}
+        {...shared}
         title="Savepoint failed"
         severity="error"
-        footer={<Button onClick={close}>Close</Button>}
+        footer={
+          <>
+            <Button variant="secondary" onClick={close}>
+              Close
+            </Button>
+            <Button variant="primary" onClick={() => setStep({ name: 'confirm' })}>
+              Try again
+            </Button>
+          </>
+        }
       >
         <p className="m-0 text-[14px]">{present(step.error).message}</p>
       </Dialog>
     );
   return (
     <Dialog
-      open={open}
-      onOpenChange={onOpenChange}
+      {...shared}
       title={`Stop ${job} with a savepoint?`}
       footer={
         <>
-          <Button variant="secondary" onClick={close}>
+          <Button variant="secondary" disabled={sending} onClick={close}>
             Keep running
           </Button>
-          <Button variant="primary" loading={sending} onClick={stop}>
+          <Button variant="primary" loading={sending} disabled={dir === null} onClick={stop}>
             Stop with savepoint
           </Button>
         </>
@@ -185,13 +242,16 @@ export function StopDialog({
           <Skeleton className="h-9 w-full" />
         </Loading>
       ) : (
-        <Field
-          label="Savepoint folder"
-          {...(fromCluster ? { help: "From this cluster's default savepoint folder" } : {})}
-          {...(fieldError ? { error: present(fieldError).message } : {})}
-        >
-          <Input mono value={dir} onChange={(e) => setDir(e.target.value)} />
-        </Field>
+        <>
+          {dirError && <ErrorBanner error={dirError} />}
+          <Field
+            label="Savepoint folder"
+            {...(fromCluster ? { help: "From this cluster's default savepoint folder" } : {})}
+            {...(fieldError ? { error: present(fieldError).message } : {})}
+          >
+            <Input mono value={dir} onChange={(e) => setDir(e.target.value)} />
+          </Field>
+        </>
       )}
       <div className="flex items-start gap-2">
         <input

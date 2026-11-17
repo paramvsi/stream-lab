@@ -35,7 +35,7 @@ type Screen =
   | { name: 'list' }
   | { name: 'cluster'; id: string }
   | { name: 'jobs'; id: string }
-  | { name: 'job'; id: string; jid: string; act?: 'stop' | 'savepoint' }
+  | { name: 'job'; id: string; jid: string; start?: { act: 'stop' | 'savepoint'; n: number } }
   | { name: 'logs'; id: string }
   | { name: 'kind'; kind: KindChoice | null }
   | { name: 'form'; kind: Connection['kind'] };
@@ -197,13 +197,15 @@ export function App({
               id: `sp-${c.id}-${j.jid}`,
               label: `Trigger savepoint: ${j.name}`,
               hint: `Action · ${c.name}`,
-              run: () => setScreen({ name: 'job', id: c.id, jid: j.jid, act: 'savepoint' }),
+              run: () =>
+                setScreen({ name: 'job', id: c.id, jid: j.jid, start: { act: 'savepoint', n: Date.now() } }),
             },
             {
               id: `stop-${c.id}-${j.jid}`,
               label: `Stop with savepoint: ${j.name}`,
               hint: `Action · ${c.name}`,
-              run: () => setScreen({ name: 'job', id: c.id, jid: j.jid, act: 'stop' }),
+              run: () =>
+                setScreen({ name: 'job', id: c.id, jid: j.jid, start: { act: 'stop', n: Date.now() } }),
             },
           ]),
         ])
@@ -266,7 +268,7 @@ export function App({
           key={`${open.id}/${screen.jid}`}
           c={open}
           jid={screen.jid}
-          {...(screen.act ? { start: screen.act } : {})}
+          {...(screen.start ? { start: screen.start } : {})}
           transport={transport}
           history={history}
           onJobs={() => setScreen({ name: 'jobs', id: open.id })}

@@ -735,4 +735,53 @@ describe('APP-01 · command palette (board G01)', () => {
     await within(dialog).findByRole('option', { name: /^refund-matcher/ });
     expect(within(dialog).queryByRole('option', { name: /savepoint/ })).toBeNull();
   });
+
+  it('audit of c3add40 #1: an action the page can not do on its first read is dropped (no savepoint minutes later)', async () => {
+    const posts: string[] = [];
+    let reads = 0;
+    const base = jobHttp(posts);
+    const http: FlinkHttp = async (req) => {
+      if (req.path === '/jobs/a1') {
+        // restarting when the page reads it, running again a poll later
+        const state = ++reads === 1 ? 'RESTARTING' : 'RUNNING';
+        return ok({
+          jid: 'a1',
+          name: 'refund-matcher',
+          state,
+          'start-time': 1,
+          'end-time': -1,
+          duration: 60_000,
+          now: 60_001,
+          vertices: [],
+        });
+      }
+      return base(req);
+    };
+    await withOne(http);
+    await userEvent.keyboard('{Meta>}k{/Meta}');
+    await userEvent.type(screen.getByRole('combobox', { name: 'Search commands' }), 'trigger refund');
+    await screen.findByRole('option', { name: /Trigger savepoint: refund-matcher/ });
+    await userEvent.keyboard('{Enter}');
+    await screen.findByRole('heading', { level: 1, name: 'refund-matcher' });
+    await vi.waitFor(() => expect(reads).toBeGreaterThanOrEqual(2), { timeout: 5_000 }); // it is running again
+    await new Promise((r) => setTimeout(r, 300));
+    expect(posts).toEqual([]);
+  }, 10_000);
+
+  it("audit of c3add40 #2: on that job's page already, the palette action still runs", async () => {
+    const posts: string[] = [];
+    await withOne(jobHttp(posts));
+    await userEvent.keyboard('{Meta>}k{/Meta}');
+    await userEvent.type(screen.getByRole('combobox', { name: 'Search commands' }), 'refund');
+    await screen.findByRole('option', { name: /^refund-matcher/ });
+    await userEvent.keyboard('{Enter}');
+    await screen.findByRole('heading', { level: 1, name: 'refund-matcher' });
+    await screen.findByRole('button', { name: 'Trigger savepoint' });
+    (document.activeElement as HTMLElement).blur();
+    await userEvent.keyboard('{Meta>}k{/Meta}');
+    await userEvent.type(screen.getByRole('combobox', { name: 'Search commands' }), 'trigger refund');
+    await screen.findByRole('option', { name: /Trigger savepoint: refund-matcher/ });
+    await userEvent.keyboard('{Enter}');
+    await vi.waitFor(() => expect(posts).toEqual(['/jobs/a1/savepoints']));
+  });
 });

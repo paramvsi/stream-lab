@@ -225,8 +225,8 @@ export function JobOverview({
   jid: string;
   transport: (c: Connection) => FlinkHttp;
   onJobs?: () => void;
-  /** APP-01: opened from the palette to do this, once the page's own rules allow it (else nothing is sent). */
-  start?: 'stop' | 'savepoint';
+  /** APP-01: a palette pick for this page (n: which pick, so a page already open notices a new one). */
+  start?: { act: 'stop' | 'savepoint'; n: number };
   /** JOB-06: where this page records what changes (the app's store; one of its own when none is given). */
   history?: HistoryStore;
 }) {
@@ -413,20 +413,30 @@ export function JobOverview({
   const canStop = !!j && !gone && !c.readOnly && j.state === 'RUNNING';
   const [hadStop, setHadStop] = useState(canStop);
   if (canStop !== hadStop) setHadStop(canStop);
-  // APP-01: the palette's action, once: Stop opens its confirm dialog (adjusted during render); Trigger sends its
-  // one POST from an effect. Only when the page allows it (running, writable, no other action going).
-  const [act, setAct] = useState(start);
-  if (act === 'stop' && canStop && !sp.busy) {
-    setAct(undefined);
-    setStopping(true);
+  // APP-01: a palette pick is decided once, as soon as the page knows the job: if its own rules allow it now
+  // (running, writable, no other action going), Stop opens its confirm dialog and Trigger sends its one POST; if
+  // not, it is dropped (never kept to fire later, e.g. when a restarting job runs again). A page already open
+  // takes a new pick without remounting (a remount would lose a stop being followed).
+  const [seen, setSeen] = useState<number | undefined>(undefined);
+  const [act, setAct] = useState<'stop' | 'savepoint' | undefined>(undefined);
+  if (start && start.n !== seen) {
+    setSeen(start.n);
+    setAct(start.act);
   }
-  const triggerNow = act === 'savepoint' && canStop && !sp.busy && !stopRunning;
-  const fired = useRef(false);
+  const [fire, setFire] = useState(0);
+  if (act && j) {
+    setAct(undefined);
+    if (canStop && !sp.busy && !stopping && !stopRunning) {
+      if (act === 'stop') setStopping(true);
+      else setFire((f) => f + 1);
+    }
+  }
+  const fired = useRef(0);
   useEffect(() => {
-    if (!triggerNow || fired.current) return;
-    fired.current = true;
+    if (fire <= fired.current) return;
+    fired.current = fire;
     sp.trigger();
-  }, [triggerNow, sp]);
+  }, [fire, sp]);
   // Only focus that was on the button moves (as the banner's focus does): React fires no blur when it removes the
   // button, so stopFocused stays set then; a reader elsewhere on the page is never moved.
   const stopFocused = useRef(false);

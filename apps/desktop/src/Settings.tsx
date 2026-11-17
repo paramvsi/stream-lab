@@ -1,5 +1,5 @@
 import { Button, Field, Select, Tabs } from '@sl/ui';
-import { Server } from 'lucide-react';
+import { ArrowLeft } from 'lucide-react';
 import { useId } from 'react';
 import { useScreenHeading } from './focus';
 
@@ -30,7 +30,7 @@ export function Settings({
         <h1 ref={h1} tabIndex={-1} className="m-0 text-[26px] font-semibold outline-none">
           Settings
         </h1>
-        <Button icon={<Server size={16} aria-hidden="true" />} onClick={onBack}>
+        <Button icon={<ArrowLeft size={16} aria-hidden="true" />} onClick={onBack}>
           Back
         </Button>
       </div>

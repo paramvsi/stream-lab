@@ -39,7 +39,7 @@ type Screen =
   | { name: 'job'; id: string; jid: string; start?: { act: 'stop' | 'savepoint'; n: number } }
   | { name: 'logs'; id: string }
   | { name: 'kind'; kind: KindChoice | null }
-  | { name: 'settings' }
+  | { name: 'settings'; from: Screen }
   | { name: 'form'; kind: Connection['kind'] };
 
 export function App({
@@ -60,6 +60,8 @@ export function App({
   // APP-04: what a new connection's refresh starts at (in memory until the Tauri store lands).
   const [defaultPollMs, setDefaultPollMs] = useState(5000);
   const add = () => setScreen({ name: 'kind', kind: null });
+  // Settings remembers where it was opened from: Back returns there (from Settings itself, the same place).
+  const openSettings = () => setScreen((s) => (s.name === 'settings' ? s : { name: 'settings', from: s }));
   const home = () => setScreen({ name: 'home' });
 
   // APP-01 / board G01: ⌘K (Ctrl+K) anywhere but the connection steps (a jump would drop what is typed) and over
@@ -95,7 +97,7 @@ export function App({
       if (mod && (e.key === ',' || e.code === 'Comma')) {
         if (overDialog()) return;
         e.preventDefault();
-        setScreen({ name: 'settings' });
+        openSettings();
       } else if (mod && is(e, 'k')) {
         if (overDialog()) return;
         e.preventDefault();
@@ -182,7 +184,7 @@ export function App({
     { id: 'list', label: 'Connections', run: () => setScreen({ name: 'list' }) },
     { id: 'add', label: 'Add connection', run: add },
     { id: 'keys', label: 'Keyboard shortcuts', hint: '?', run: () => setSheet(true) },
-    { id: 'settings', label: 'Settings', hint: '⌘,', run: () => setScreen({ name: 'settings' }) },
+    { id: 'settings', label: 'Settings', hint: '⌘,', run: () => openSettings() },
     ...(transport
       ? connections.flatMap((c): Command[] => [
           {
@@ -237,7 +239,9 @@ export function App({
         />
       );
     if (screen.name === 'settings')
-      return <Settings pollMs={defaultPollMs} onPollMs={setDefaultPollMs} onBack={home} />;
+      return (
+        <Settings pollMs={defaultPollMs} onPollMs={setDefaultPollMs} onBack={() => setScreen(screen.from)} />
+      );
     if (screen.name === 'kind')
       return (
         <KindPicker

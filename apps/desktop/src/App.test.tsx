@@ -845,4 +845,30 @@ describe('APP-04 · Settings (boards D21)', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Continue' }));
     expect(screen.getByLabelText('Refresh every')).toHaveValue('15000');
   });
+
+  it('audit of b0c592e: Back returns to the screen Settings was opened from', async () => {
+    render(
+      <TooltipProvider>
+        <ToastProvider>
+          <App transport={() => async () => ({ status: 503, headers: {}, body: '', url: '' })} />
+        </ToastProvider>
+      </TooltipProvider>,
+    );
+    await userEvent.click(screen.getByRole('button', { name: 'Add a connection' }));
+    await userEvent.click(screen.getByRole('radio', { name: /Self-managed/ }));
+    await userEvent.click(screen.getByRole('button', { name: 'Continue' }));
+    await userEvent.type(screen.getByLabelText(/^Name/), 'local-docker');
+    await userEvent.selectOptions(screen.getByLabelText(/^Environment/), 'dev');
+    await userEvent.type(screen.getByLabelText(/JobManager REST URL/), 'http://localhost:8081');
+    await userEvent.click(screen.getByRole('button', { name: 'Save' }));
+    await screen.findByRole('heading', { level: 1, name: 'Fleet' });
+    (document.activeElement as HTMLElement).blur();
+    await userEvent.keyboard('{Meta>}1{/Meta}');
+    await screen.findByRole('heading', { level: 1, name: 'local-docker' });
+    (document.activeElement as HTMLElement).blur();
+    await userEvent.keyboard('{Meta>},{/Meta}');
+    await screen.findByRole('heading', { level: 1, name: 'Settings' });
+    await userEvent.click(screen.getByRole('button', { name: 'Back' }));
+    expect(await screen.findByRole('heading', { level: 1, name: 'local-docker' })).toBeTruthy();
+  });
 });

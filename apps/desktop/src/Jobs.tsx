@@ -106,11 +106,12 @@ export function Jobs({
       header: header('name', 'Job'),
       ...order('name'),
       // A real button: it says it opens something (a row with a click handler does not), and Tab reaches it.
+      // Board D07: the name is bold ink, not a link colour.
       render: (r) =>
         onOpenJob ? (
           <button
             type="button"
-            className="sl-focus -mx-1 rounded-sm px-1 text-left font-medium text-rose-700 hover:underline"
+            className="sl-focus -mx-1 rounded-sm px-1 text-left font-semibold text-ink hover:underline"
             onClick={() => onOpenJob(r.jid)}
           >
             {r.name}

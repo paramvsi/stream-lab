@@ -57,10 +57,11 @@ export function JobOverview({
   useEffect(() => {
     document.title = `${gone ? 'Job not found' : (j?.name ?? 'Job')} · Stream Lab`;
   }, [j?.name, gone]);
-  // The 404 page replaced what had focus: start it at its heading (DoD), not <body>.
+  // The 404 page came or went and took what had focus with it: focus goes to the heading (DoD), not <body>.
+  const isGone = !!gone;
   useEffect(() => {
-    if (gone && (document.activeElement === document.body || !document.activeElement)) h1.current?.focus();
-  }, [gone, h1]);
+    if (document.activeElement === document.body || !document.activeElement) h1.current?.focus();
+  }, [isGone, h1]);
   const p = j ? Math.max(0, ...j.vertices.map((v) => v.parallelism)) : 0;
   return (
     <main className="flex min-h-screen flex-col gap-5 bg-surface px-8 py-7">
@@ -78,8 +79,8 @@ export function JobOverview({
             {j && !gone && (
               <>
                 {' · '}
-                <span className="font-mono">{j.jid}</span> · started{' '}
-                {ago((j.now ?? j['start-time'] + j.duration) - j['start-time'])} · parallelism {p}
+                <span className="font-mono">{j.jid}</span> · started {ago(j.now - j['start-time'])} ·
+                parallelism {p}
               </>
             )}
           </p>

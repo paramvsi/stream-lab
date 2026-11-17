@@ -1,6 +1,6 @@
 import { type Connection, type FlinkHttp } from '@sl/flink';
 import { ToastProvider, TooltipProvider } from '@sl/ui';
-import { render, screen, waitFor, within } from '@testing-library/react';
+import { act, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 import { JobOverview } from './JobOverview';
@@ -94,6 +94,24 @@ describe('JOB-02 · Job overview (board D08)', () => {
     await waitFor(() => expect(n).toBeGreaterThan(1), { timeout: 4000 });
     expect(screen.queryByText(/This job no longer exists/)).toBeNull();
     expect(screen.getByRole('table', { name: 'Operators' })).toBeInTheDocument();
+  });
+
+  it('audit 2 #1: the cluster answers again after the 404 page: focus goes to the h1, not <body>', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      let missing = true;
+      show(async (req) => (missing ? answer(404, { errors: ['x'] }) : answer(200, detail))(req), {
+        onJobs: vi.fn(),
+      });
+      const back = await screen.findByRole('button', { name: 'Back to list' });
+      back.focus();
+      missing = false;
+      await act(async () => vi.advanceTimersByTimeAsync(30_000));
+      await screen.findByRole('table', { name: 'Operators' });
+      expect(screen.getByRole('heading', { level: 1, name: 'refund-matcher' })).toHaveFocus();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('a job the cluster no longer has is the API-404-JOB page with Back to list', async () => {

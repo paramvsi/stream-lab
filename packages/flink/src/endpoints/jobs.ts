@@ -121,7 +121,8 @@ export const JobDetailSchema = z.looseObject({
   'start-time': z.number(),
   'end-time': z.number(),
   duration: z.number(),
-  now: z.number().optional(),
+  /** The server's clock: "started N ago" counts from it (not the viewer's clock, not duration). */
+  now: z.number(),
   timestamps: z.record(z.string(), z.number()).optional(),
   vertices: z.array(VertexSchema),
   'status-counts': z.record(z.string(), z.number()).optional(),

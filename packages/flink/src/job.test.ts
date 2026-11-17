@@ -77,6 +77,12 @@ describe('JOB-02 · job detail (GET /jobs/:jid)', () => {
     });
   });
 
+  it('now (the server clock "started N ago" counts from) is required: without it, API-SHAPE, not a wrong age', async () => {
+    const noNow: Partial<typeof detail> = { ...detail };
+    delete noNow.now;
+    await expect(getJob(answer(200, noNow), 'prod', 'x')).rejects.toMatchObject({ code: 'API-SHAPE' });
+  });
+
   it('API-SHAPE when the detail can not be read', async () => {
     await expect(getJob(answer(200, { jid: 'x' }), 'prod', 'x')).rejects.toMatchObject({ code: 'API-SHAPE' });
   });

@@ -125,6 +125,7 @@ describe('JOB-01 · Open on a fleet card', () => {
                     'start-time': 1,
                     'end-time': -1,
                     duration: 60_000,
+                    now: 60_001,
                     vertices: [],
                   }
                 : {

@@ -17,6 +17,8 @@ import { TONE, word } from './Jobs';
 export function JobGraphView({
   graph,
   note,
+  selected = null,
+  onSelect,
   backpressure = {},
 }: {
   graph: JobGraph;
@@ -24,6 +26,9 @@ export function JobGraphView({
   backpressure?: Record<string, Backpressure | null | undefined>;
   /** Under the title, e.g. "Backpressure from 2 min ago." when the readings are stale (§4). */
   note?: string;
+  /** JOB-03: a card's name opens that operator's panel; the open one is pressed. */
+  selected?: string | null;
+  onSelect?: (id: string) => void;
 }) {
   const byId = new Map(graph.nodes.map((n) => [n.id, n]));
   const layers = graphLayers(graph);
@@ -54,7 +59,20 @@ export function JobGraphView({
                       key={id}
                       className="flex min-w-[180px] flex-col gap-1 rounded-md border border-line p-3"
                     >
-                      <h4 className="m-0 text-[14px] font-semibold">{n.name}</h4>
+                      <h4 className="m-0 text-[14px] font-semibold">
+                        {onSelect ? (
+                          <button
+                            type="button"
+                            aria-pressed={selected === id}
+                            onClick={() => onSelect(id)}
+                            className={`sl-focus -mx-1 cursor-pointer rounded-sm border-0 bg-transparent px-1 text-left font-semibold text-ink ${selected === id ? 'underline decoration-rose-600 decoration-2 underline-offset-4' : ''}`}
+                          >
+                            {n.name}
+                          </button>
+                        ) : (
+                          n.name
+                        )}
+                      </h4>
                       <span className="font-mono text-[12px] text-muted">p {n.parallelism}</span>
                       {backpressure[id]?.level === 'high' && (
                         // JOB-BACKPRESSURE (D08b): an object badge on the operator; HIGH is the catalog's trigger.

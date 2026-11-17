@@ -59,8 +59,7 @@ type Props = {
  * JOB-03 / boards D09c and D09b: one operator's Subtasks (records in / s, busy %; the skew sentence only over a
  * complete table) and Watermarks (each subtask's input watermark and lag; the one holding the operator back),
  * each on a quiet 5 s poll while the job runs and its tab is open (Radix unmounts the other).
- * ponytail: the Metrics tab (D09, charts), the State column (no per-subtask metric in Flink) and opening from the
- * graph cards are next slices.
+ * ponytail: the Metrics tab (D09, charts), and the State column (no per-subtask metric in Flink) are next slices.
  */
 export function OperatorPanel(p: Props) {
   const titleId = useId();

@@ -1659,6 +1659,21 @@ describe('JOB-02 · Job overview (board D08)', () => {
     expect(said).not.toHaveTextContent(/idleness/);
   });
 
+  it('JOB-03 / D09: an operator card on the job graph opens its panel too (keyboard), and shows it is the open one', async () => {
+    show(async (req) =>
+      req.path.includes('/subtasks/')
+        ? { status: 200, headers: {}, url: '', body: '[]' }
+        : answer(200, { ...detail, plan: hashPlan })(req),
+    );
+    const g = await screen.findByRole('list', { name: 'Job graph' });
+    const card = within(g).getByRole('button', { name: 'Window aggregate' });
+    card.focus();
+    await userEvent.keyboard('{Enter}');
+    expect(await screen.findByRole('region', { name: 'Window aggregate' })).toBeInTheDocument();
+    expect(card).toHaveAttribute('aria-pressed', 'true');
+    expect(within(g).getByRole('button', { name: 'Sink: alerts' })).toHaveAttribute('aria-pressed', 'false');
+  });
+
   it('lists the operators with parallelism and status', async () => {
     show(answer(200, detail));
     const table = await screen.findByRole('table', { name: 'Operators' });

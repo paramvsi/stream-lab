@@ -32,6 +32,7 @@ export { duration, size } from './format';
 import { diffJob, memoryHistory, type HistoryEvent, type HistoryStore } from './history';
 import { JobGraphView } from './JobGraphView';
 import { JobHistory } from './JobHistory';
+import { CancelDialog } from './CancelDialog';
 import { StopDialog } from './StopDialog';
 import { useTriggerSavepoint } from './useTriggerSavepoint';
 import { OperatorPanel } from './OperatorPanel';
@@ -230,6 +231,7 @@ export function JobOverview({
   // ACT-01: the stop dialog, and the transport its one POST goes through (not the polls' shared limiter queue).
   const [stopping, setStopping] = useState(false);
   const [stopRunning, setStopRunning] = useState(false);
+  const [cancelling, setCancelling] = useState(false);
   const actionHttp = useMemo(() => transport(c), [transport, c]);
   const {
     value: j,
@@ -518,6 +520,22 @@ export function JobOverview({
           job={j.name}
           fallbackFocus={h1}
           onRunningChange={setStopRunning}
+          onCancelInstead={() => {
+            setStopping(false);
+            setCancelling(true);
+          }}
+        />
+      )}
+      {j && !c.readOnly && (
+        <CancelDialog
+          open={cancelling}
+          onOpenChange={setCancelling}
+          http={actionHttp}
+          conn={c.name}
+          jid={jid}
+          job={j.name}
+          prod={c.env === 'prod'}
+          fallbackFocus={h1}
         />
       )}
       {/* JOB-05: below the job header (D08c). A failed exceptions read says so rather than nothing; losing the

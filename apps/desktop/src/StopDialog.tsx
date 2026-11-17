@@ -42,6 +42,7 @@ export function StopDialog({
   job,
   fallbackFocus,
   onRunningChange,
+  onCancelInstead,
 }: {
   open: boolean;
   onOpenChange: (o: boolean) => void;
@@ -53,6 +54,8 @@ export function StopDialog({
   fallbackFocus?: RefObject<HTMLElement | null>;
   /** A stop was sent and is still running (the page keeps other actions off meanwhile). */
   onRunningChange?: (running: boolean) => void;
+  /** D15's "Cancel without a savepoint instead": the page closes this and opens the cancel dialog (D15e). */
+  onCancelInstead?: () => void;
 }) {
   const [step, setStep] = useState<Step>({ name: 'confirm' });
   const [dir, setDir] = useState<string | null>(null);
@@ -259,6 +262,11 @@ export function StopDialog({
       title={`Stop ${job} with a savepoint?`}
       footer={
         <>
+          {onCancelInstead && (
+            <Button variant="ghost" disabled={sending} className="mr-auto" onClick={onCancelInstead}>
+              Cancel without a savepoint instead
+            </Button>
+          )}
           <Button variant="secondary" disabled={sending} onClick={close}>
             Keep running
           </Button>

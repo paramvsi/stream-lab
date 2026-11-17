@@ -2068,6 +2068,19 @@ describe('JOB-02 · Job overview (board D08)', () => {
     },
   );
 
+  it('ACT-02 / D15 → D15e: the stop dialog\'s "Cancel without a savepoint instead" opens the cancel dialog (prod: type to confirm)', async () => {
+    show(async (req) =>
+      req.path === '/jobmanager/config'
+        ? { status: 200, headers: {}, url: '', body: '[]' }
+        : answer(200, detail)(req),
+    );
+    await userEvent.click(await screen.findByRole('button', { name: 'Stop with savepoint' }));
+    const d = await screen.findByRole('dialog', { name: 'Stop refund-matcher with a savepoint?' });
+    await userEvent.click(within(d).getByRole('button', { name: 'Cancel without a savepoint instead' }));
+    const c = await screen.findByRole('dialog', { name: 'Cancel refund-matcher on Production?' });
+    expect(within(c).getByRole('textbox', { name: 'Type the job name to confirm' })).toBeInTheDocument();
+  });
+
   it('lists the operators with parallelism and status', async () => {
     show(answer(200, detail));
     const table = await screen.findByRole('table', { name: 'Operators' });

@@ -22,7 +22,7 @@ import {
   type FlinkVertex,
 } from '@sl/flink';
 import { Button, Loading, Skeleton, StatusBadge, Table, Tabs, type Column } from '@sl/ui';
-import { ListChecks, SearchX, Square } from 'lucide-react';
+import { Download, ListChecks, SearchX, Square } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState, type RefObject } from 'react';
 import { useScreenHeading } from './focus';
 import { Checkpoints } from './Checkpoints';
@@ -33,6 +33,7 @@ import { diffJob, memoryHistory, type HistoryEvent, type HistoryStore } from './
 import { JobGraphView } from './JobGraphView';
 import { JobHistory } from './JobHistory';
 import { StopDialog } from './StopDialog';
+import { useTriggerSavepoint } from './useTriggerSavepoint';
 import { OperatorPanel } from './OperatorPanel';
 import { Kpi } from './Kpi';
 import { TONE, uptime, word } from './Jobs';
@@ -234,6 +235,8 @@ export function JobOverview({
     error,
     banner,
   } = usePolled(c, transport, (http, conn, t) => getJob(http, conn, jid, t), h1, 2_000);
+  // ACT-02 / D15f: trigger a savepoint without stopping (toasts, no dialog).
+  const sp = useTriggerSavepoint(actionHttp, c.name, jid, j?.name ?? jid);
   // JOB-06: each new job read against the one before; what changed is recorded (restarts, rescales).
   const [own] = useState(memoryHistory);
   const store = history ?? own;
@@ -469,7 +472,13 @@ export function JobOverview({
           {/* ACT-01: stop with savepoint, the default stop, for a running job on a writable connection. A
               read-only connection hides it (JOB-READONLY above; hidden vs disabled is a pending ruling). */}
           {canStop && (
+            <Button icon={<Download size={16} aria-hidden="true" />} loading={sp.busy} onClick={sp.trigger}>
+              Trigger savepoint
+            </Button>
+          )}
+          {canStop && (
             <Button
+              variant="primary"
               icon={<Square size={16} aria-hidden="true" />}
               onClick={() => setStopping(true)}
               onFocus={() => (stopFocused.current = true)}

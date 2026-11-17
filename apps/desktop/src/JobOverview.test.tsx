@@ -1934,6 +1934,67 @@ describe('JOB-02 · Job overview (board D08)', () => {
     },
   );
 
+  it(
+    'ACT-02 / D15f: Trigger savepoint starts one at once (default folder), says it is in progress, then saved; the job keeps running',
+    { timeout: 20_000 },
+    async () => {
+      vi.useFakeTimers({ shouldAdvanceTime: true });
+      try {
+        const posts: { path: string; body: unknown }[] = [];
+        let reads = 0;
+        show(async (req) => {
+          if (req.path === '/jobmanager/config')
+            return {
+              status: 200,
+              headers: {},
+              url: '',
+              body: JSON.stringify([{ key: 'execution.checkpointing.savepoint-dir', value: 's3://sp' }]),
+            };
+          if (req.method === 'POST')
+            return (
+              posts.push({ path: req.path, body: req.body }),
+              { status: 202, headers: {}, url: '', body: JSON.stringify({ 'request-id': 'r9' }) }
+            );
+          if (/\/savepoints\/r9$/.test(req.path)) {
+            reads++;
+            return {
+              status: 200,
+              headers: {},
+              url: '',
+              body: JSON.stringify(
+                reads < 2
+                  ? { status: { id: 'IN_PROGRESS' } }
+                  : { status: { id: 'COMPLETED' }, operation: { location: 's3://sp/savepoint-9f1c' } },
+              ),
+            };
+          }
+          return answer(200, detail)(req);
+        });
+        const t = await screen.findByRole('button', { name: 'Trigger savepoint' });
+        await userEvent.click(t);
+        expect(await screen.findAllByText('Savepoint in progress for refund-matcher')).not.toHaveLength(0);
+        expect(t).toHaveAttribute('aria-disabled', 'true'); // one at a time: no second trigger while it runs
+        for (
+          let i = 0;
+          i < 4 && !screen.queryAllByText('Savepoint savepoint-9f1c saved for refund-matcher.').length;
+          i++
+        )
+          await act(async () => vi.advanceTimersByTimeAsync(1_000));
+        expect(screen.queryAllByText('Savepoint savepoint-9f1c saved for refund-matcher.')).not.toHaveLength(
+          0,
+        );
+        expect(posts).toEqual([
+          {
+            path: `/jobs/${detail.jid}/savepoints`,
+            body: { 'target-directory': 's3://sp', 'cancel-job': false },
+          },
+        ]);
+      } finally {
+        vi.useRealTimers();
+      }
+    },
+  );
+
   it('lists the operators with parallelism and status', async () => {
     show(answer(200, detail));
     const table = await screen.findByRole('table', { name: 'Operators' });

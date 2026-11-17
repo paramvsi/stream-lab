@@ -162,7 +162,8 @@ describe('JOB-01 · Open on a fleet card', () => {
     await userEvent.click(await screen.findByRole('button', { name: 'Jobs' }));
     expect(screen.getByRole('heading', { level: 1, name: 'Jobs' })).toHaveFocus();
     // JOB-02: a row opens that job (D08); Jobs comes back to the list.
-    await userEvent.click(await screen.findByRole('row', { name: /refund-matcher/ }));
+    // audit #6: the job name is a button (says it opens something), reached by keyboard.
+    await userEvent.click(await screen.findByRole('button', { name: 'refund-matcher' }));
     expect(await screen.findByRole('heading', { level: 1, name: 'refund-matcher' })).toBeTruthy();
     await userEvent.click(screen.getByRole('button', { name: 'Jobs' }));
     expect(screen.getByRole('heading', { level: 1, name: 'Jobs' })).toBeTruthy();

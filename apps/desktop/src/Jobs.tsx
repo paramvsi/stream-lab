@@ -101,7 +101,24 @@ export function Jobs({
   const order = (by: JobSort) =>
     sort?.by === by ? { sort: sort.desc ? ('descending' as const) : ('ascending' as const) } : {};
   const columns: Column<FlinkJobRow>[] = [
-    { key: 'name', header: header('name', 'Job'), ...order('name'), render: (r) => r.name },
+    {
+      key: 'name',
+      header: header('name', 'Job'),
+      ...order('name'),
+      // A real button: it says it opens something (a row with a click handler does not), and Tab reaches it.
+      render: (r) =>
+        onOpenJob ? (
+          <button
+            type="button"
+            className="sl-focus -mx-1 rounded-sm px-1 text-left font-medium text-rose-700 hover:underline"
+            onClick={() => onOpenJob(r.jid)}
+          >
+            {r.name}
+          </button>
+        ) : (
+          r.name
+        ),
+    },
     {
       key: 'state',
       header: header('state', 'Status'),
@@ -181,13 +198,7 @@ export function Jobs({
       ) : (
         <>
           {stale && <p className="m-0 text-[13px] text-muted">Not answering. Showing data from {since}.</p>}
-          <Table
-            label="Jobs"
-            columns={columns}
-            rows={shown}
-            rowKey={(r) => r.jid}
-            {...(onOpenJob ? { onSelect: (r: FlinkJobRow) => onOpenJob(r.jid) } : {})}
-          />
+          <Table label="Jobs" columns={columns} rows={shown} rowKey={(r) => r.jid} />
         </>
       )}
       {/* Mounted empty, so the words are announced when they come (a region born full often is not). Outside the rows

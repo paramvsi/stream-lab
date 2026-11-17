@@ -4,8 +4,17 @@ import { Button, Loading, Skeleton, StatusBadge, Table, type Column } from '@sl/
 import { ListChecks, SearchX } from 'lucide-react';
 import { useEffect } from 'react';
 import { useScreenHeading } from './focus';
-import { TONE, uptime, word } from './Jobs';
+import { TONE, word } from './Jobs';
 import { usePolled } from './usePolled';
+
+const plural = (n: number, unit: string) => `${n} ${unit}${n === 1 ? '' : 's'}`;
+/** Board D08 "started 6 days ago": whole minutes, hours or days, in words. */
+export const ago = (ms: number) =>
+  ms < 3_600_000
+    ? `${plural(Math.max(1, Math.floor(ms / 60_000)), 'minute')} ago`
+    : ms < 86_400_000
+      ? `${plural(Math.floor(ms / 3_600_000), 'hour')} ago`
+      : `${plural(Math.floor(ms / 86_400_000), 'day')} ago`;
 
 const columns: Column<FlinkVertex>[] = [
   { key: 'name', header: 'Operator', render: (v) => v.name },
@@ -23,6 +32,8 @@ const columns: Column<FlinkVertex>[] = [
  * ponytail: the job graph (xyflow, D08), the KPIs (records in, watermark lag, last checkpoint, restarts), the
  * History / Exceptions / Checkpoints / Configuration / Savepoints tabs and the savepoint / stop actions (M8) are
  * next slices; operators are a table until the graph lands. A 404 keeps polling (it may be a short gap in HA).
+ * The app shell's breadcrumb (D08 "payments-prod / Jobs / name") waits for the shell; the subtitle names the
+ * connection meanwhile.
  */
 export function JobOverview({
   c,
@@ -41,32 +52,37 @@ export function JobOverview({
     error,
     banner,
   } = usePolled(c, transport, (http, conn, t) => getJob(http, conn, jid, t), h1, 2_000);
+  // §4: a single 404 over a job on screen is a blip (HA failover); the page goes only once the banner would.
+  const gone = error?.code === 'API-404-JOB' && (!j || !!banner) ? error : null;
   useEffect(() => {
-    document.title = `${j?.name ?? 'Job'} · Stream Lab`;
-  }, [j?.name]);
-  if (error?.code === 'API-404-JOB')
-    return (
-      <main className="flex min-h-screen flex-col bg-surface px-8 py-7">
-        <ErrorPage error={error} icon={SearchX} {...(onJobs ? { onAction: () => onJobs() } : {})} />
-      </main>
-    );
+    document.title = `${gone ? 'Job not found' : (j?.name ?? 'Job')} · Stream Lab`;
+  }, [j?.name, gone]);
+  // The 404 page replaced what had focus: start it at its heading (DoD), not <body>.
+  useEffect(() => {
+    if (gone && (document.activeElement === document.body || !document.activeElement)) h1.current?.focus();
+  }, [gone, h1]);
   const p = j ? Math.max(0, ...j.vertices.map((v) => v.parallelism)) : 0;
   return (
     <main className="flex min-h-screen flex-col gap-5 bg-surface px-8 py-7">
-      {banner}
+      {!gone && banner}
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div className="flex flex-col gap-1">
           <div className="flex items-center gap-3">
             <h1 ref={h1} tabIndex={-1} className="m-0 text-[26px] font-semibold outline-none">
-              {j?.name ?? 'Job'}
+              {gone ? 'Job not found' : (j?.name ?? 'Job')}
             </h1>
-            {j && <StatusBadge tone={TONE[j.state] ?? 'neutral'}>{word(j.state)}</StatusBadge>}
+            {j && !gone && <StatusBadge tone={TONE[j.state] ?? 'neutral'}>{word(j.state)}</StatusBadge>}
           </div>
-          {j && (
-            <p className="m-0 text-[14px] text-muted">
-              <span className="font-mono">{j.jid}</span> · started {uptime(j.duration)} ago · parallelism {p}
-            </p>
-          )}
+          <p className="m-0 text-[14px] text-muted">
+            on {c.name}
+            {j && !gone && (
+              <>
+                {' · '}
+                <span className="font-mono">{j.jid}</span> · started{' '}
+                {ago((j.now ?? j['start-time'] + j.duration) - j['start-time'])} · parallelism {p}
+              </>
+            )}
+          </p>
         </div>
         {onJobs && (
           <Button icon={<ListChecks size={16} aria-hidden="true" />} onClick={onJobs}>
@@ -74,7 +90,9 @@ export function JobOverview({
           </Button>
         )}
       </div>
-      {!j ? (
+      {gone ? (
+        <ErrorPage error={gone} icon={SearchX} {...(onJobs ? { onAction: () => onJobs() } : {})} />
+      ) : !j ? (
         !banner && (
           <Loading label="Loading job">
             <Skeleton height={56} />

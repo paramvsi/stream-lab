@@ -38,6 +38,7 @@ const detail = {
   'start-time': 1,
   'end-time': -1,
   duration: 6 * 86_400_000,
+  now: 1 + 6 * 86_400_000,
   vertices: [v('v1', 'Source: payments', 4), v('v2', 'Window aggregate', 4), v('v3', 'Sink: alerts', 2)],
 };
 const answer =
@@ -59,7 +60,8 @@ describe('JOB-02 · Job overview (board D08)', () => {
     const h = await screen.findByRole('heading', { level: 1, name: 'refund-matcher' });
     expect(within(h.parentElement!).getByText('Running')).toBeInTheDocument(); // the job's own badge
     expect(screen.getByText(detail.jid)).toBeInTheDocument();
-    expect(screen.getByText(/started 6 d ago · parallelism 4/)).toBeInTheDocument();
+    expect(screen.getByText(/started 6 days ago · parallelism 4/)).toBeInTheDocument(); // D08 wording
+    expect(screen.getByText(/on payments-prod/)).toBeInTheDocument();
   });
 
   it('lists the operators with parallelism and status', async () => {
@@ -72,6 +74,26 @@ describe('JOB-02 · Job overview (board D08)', () => {
       'Sink: alerts',
     ]);
     expect(rows[2]).toHaveTextContent('2');
+  });
+
+  it('audit #1: a finished job says when it started, not how long it ran (D08d)', async () => {
+    show(answer(200, { ...detail, state: 'FINISHED', duration: 3_600_000, 'end-time': 3_600_001 }));
+    expect(await screen.findByText(/started 6 days ago/)).toBeInTheDocument();
+  });
+
+  it('audit #2: when the 404 page replaces the screen, focus is on its h1, not <body>', async () => {
+    show(answer(404, { errors: ['Job not found'] }));
+    await screen.findByText(/This job no longer exists/);
+    expect(screen.getByRole('heading', { level: 1 })).toHaveFocus();
+  });
+
+  it('audit #3: one 404 over a loaded job is not the full-page state (§4: 1 failure is silent)', async () => {
+    let n = 0;
+    show(async (req) => (n++ === 0 ? answer(200, detail) : answer(404, { errors: ['x'] }))(req));
+    await screen.findByRole('table', { name: 'Operators' });
+    await waitFor(() => expect(n).toBeGreaterThan(1), { timeout: 4000 });
+    expect(screen.queryByText(/This job no longer exists/)).toBeNull();
+    expect(screen.getByRole('table', { name: 'Operators' })).toBeInTheDocument();
   });
 
   it('a job the cluster no longer has is the API-404-JOB page with Back to list', async () => {

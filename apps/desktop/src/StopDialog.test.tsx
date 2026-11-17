@@ -380,4 +380,25 @@ describe('SP-TIMEOUT (catalog: still IN_PROGRESS after 10 min, board D15b)', () 
       expect(screen.queryByRole('dialog')).toBeNull();
       expect(posts).toHaveLength(1);
     }));
+
+  it('audit of 8e70592: the time goes on (closed and reopened, it is the real one); Keep waiting keeps focus in the dialog', () =>
+    run(async () => {
+      render(<Harness http={slow([])} />);
+      await start();
+      await userEvent.keyboard('{Escape}', { advanceTimers: vi.advanceTimersByTime }); // closed while it runs
+      await vi.advanceTimersByTimeAsync(25 * 60_000);
+      await userEvent.click(screen.getByRole('button', { name: 'Open stop' }), {
+        advanceTimers: vi.advanceTimersByTime,
+      });
+      await vi.waitFor(() =>
+        expect(screen.getByRole('dialog', { name: 'Stopping refund-matcher' })).toHaveTextContent(
+          /taking longer than usual \(25 min \d+ s\)/,
+        ),
+      );
+      const keep = screen.getByRole('button', { name: 'Keep waiting' });
+      keep.focus();
+      await userEvent.keyboard('{Enter}', { advanceTimers: vi.advanceTimersByTime });
+      expect(screen.queryByText(/taking longer than usual/)).toBeNull();
+      expect(screen.getByText(/You can close this; the stop goes on/)).toHaveFocus();
+    }));
 });

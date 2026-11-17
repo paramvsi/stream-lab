@@ -145,15 +145,26 @@ export function StopDialog({
   // SP-TIMEOUT: still running 10 min after it was sent, the dialog says so once (Keep waiting hides it; Close
   // closes the dialog: the stop goes on and its result comes as a toast, as any running stop closed).
   const [started, setStarted] = useState<number | null>(null);
-  const [slow, setSlow] = useState<{ dur: string } | 'dismissed' | null>(null);
+  const [slow, setSlow] = useState<'shown' | 'dismissed' | null>(null);
+  // The time it has run, kept current while the warning shows (closed and reopened, it is still the real one).
+  const [now, setNow] = useState(0);
+  const note = useRef<HTMLParagraphElement>(null);
   useEffect(() => {
     if (step.name !== 'running' || started === null || slow) return;
     const t = setTimeout(
-      () => setSlow({ dur: duration(Date.now() - started) }),
+      () => {
+        setNow(Date.now());
+        setSlow('shown');
+      },
       Math.max(0, started + SP_TIMEOUT_MS - Date.now()),
     );
     return () => clearTimeout(t);
   }, [step.name, started, slow]);
+  useEffect(() => {
+    if (step.name !== 'running' || slow !== 'shown') return;
+    const t = setInterval(() => setNow(Date.now()), 1_000);
+    return () => clearInterval(t);
+  }, [step.name, slow]);
 
   // A running stop: one status read at a time until it is done, open or not (closed: the result is a toast).
   useEffect(() => {
@@ -246,18 +257,22 @@ export function StopDialog({
   if (step.name === 'running')
     return (
       <Dialog {...shared} title={`Stopping ${job}`}>
-        {slow && slow !== 'dismissed' && (
+        {slow === 'shown' && started !== null && (
           <ErrorBanner
-            error={new AppError('SP-TIMEOUT', { dur: slow.dur })}
+            error={new AppError('SP-TIMEOUT', { dur: duration(now - started) })}
             handles={new Set(['Keep waiting', 'Close'])}
-            onAction={(a) => (a === 'Keep waiting' ? setSlow('dismissed') : close())}
+            onAction={(a) => {
+              if (a !== 'Keep waiting') return close();
+              note.current?.focus(); // the banner and its button go: focus stays in the dialog, visibly
+              setSlow('dismissed');
+            }}
           />
         )}
         <Loading label="Writing savepoint">
           <p className="m-0 text-[14px]">Writing savepoint…</p>
           <Skeleton className="mt-3 h-2 w-full" />
         </Loading>
-        <p className="m-0 text-[13px] text-muted">
+        <p ref={note} tabIndex={-1} className="sl-focus m-0 rounded-sm text-[13px] text-muted">
           You can close this; the stop goes on. Stay on this page to be told when it ends.
         </p>
       </Dialog>

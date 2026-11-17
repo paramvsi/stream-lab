@@ -1014,7 +1014,11 @@ describe('JOB-02 · Job overview (board D08)', () => {
         let hang = false;
         show(async (req) => {
           if (req.path.endsWith('/backpressure')) {
-            if (hang) await new Promise(() => {}); // never answers (the transport's own timeout is the cap)
+            // Hangs until the request's own timeoutMs, as the transport contract says (FLINK_API: Rust enforces it).
+            if (hang) {
+              await new Promise((r) => setTimeout(r, req.timeoutMs ?? 10_000));
+              throw new TransportError({ kind: 'timeout', host: 'payments-prod.example.com', timeoutS: 2 });
+            }
             return {
               status: 200,
               headers: {},
@@ -1028,7 +1032,48 @@ describe('JOB-02 · Job overview (board D08)', () => {
         hang = true;
         for (let t = 0; t < 30; t++) await act(async () => vi.advanceTimersByTimeAsync(1_000));
         const g = screen.getByRole('region', { name: 'Job graph' }).parentElement!;
-        expect(within(g).getByText(/Backpressure from .* ago/)).toBeInTheDocument();
+        expect(within(g).getByText(/not answering\. Showing data from/i)).toBeInTheDocument();
+      } finally {
+        vi.useRealTimers();
+      }
+    },
+  );
+
+  it(
+    'audit bp4 #1: on a job too big to read in one round, every operator is read in turn (the last ones too)',
+    { timeout: 20_000 },
+    async () => {
+      vi.useFakeTimers({ shouldAdvanceTime: true });
+      try {
+        const many = {
+          ...detail,
+          vertices: Array.from({ length: 12 }, (_, i) => ({
+            ...detail.vertices[0]!,
+            id: `x${i}`,
+            name: `op ${i}`,
+          })),
+        };
+        show(async (req) => {
+          const m = /\/vertices\/(x\d+)\/backpressure$/.exec(req.path);
+          if (m) {
+            await new Promise((r) => setTimeout(r, 1_000)); // 12 reads take 12 s: more than one 5 s round
+            const last = m[1] === 'x11';
+            return {
+              status: 200,
+              headers: {},
+              url: '',
+              body: JSON.stringify({
+                status: 'ok',
+                backpressureLevel: last ? 'high' : 'ok',
+                subtasks: [{ ratio: last ? 0.9 : 0 }],
+              }),
+            };
+          }
+          return answer(200, many)(req);
+        });
+        await screen.findByRole('list', { name: 'Job graph' });
+        for (let t = 0; t < 40; t++) await act(async () => vi.advanceTimersByTimeAsync(1_000));
+        expect(screen.getByText('backpressured 90%')).toBeInTheDocument();
       } finally {
         vi.useRealTimers();
       }

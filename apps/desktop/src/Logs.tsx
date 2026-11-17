@@ -94,6 +94,7 @@ export function Logs({
   // count is new content) and to its pattern.
   const [found, setFound] = useState<{
     src: object;
+    gen: number;
     q: string;
     hits: Set<string> | null;
     error: AppError | null;
@@ -103,6 +104,10 @@ export function Logs({
   // read without a fresh list, a list that fails is not overwritten by a read, and a later load drops an earlier
   // one's answers (req). Used at open, on a pick and on Reload.
   const req = useRef(0);
+  /** The size of the file when its shown text was read (Follow reads again only when it changed). */
+  const shownSize = useRef<number | undefined>(undefined);
+  /** A load (open, pick, Reload) starts a new one; Follow's reads stay in it (the regex answer carries over). */
+  const [gen, setGen] = useState(0);
   const load = useCallback(
     (want: string | null) => {
       const id = ++req.current;
@@ -113,7 +118,11 @@ export function Logs({
           const n = want && fs.some((f) => f.name === want) ? want : (fs[0]?.name ?? null);
           setName(n);
           if (!n) return;
-          return getJmLog(http, c.name, n).then((t) => id === req.current && setText(t));
+          return getJmLog(http, c.name, n).then((t) => {
+            if (id !== req.current) return;
+            shownSize.current = fs.find((f) => f.name === n)?.size;
+            setText(t);
+          });
         })
         .catch((e: unknown) => id === req.current && setError(asAppError(e, c.name)));
     },
@@ -127,6 +136,7 @@ export function Logs({
     };
   }, [load]);
   const again = (want: string | null) => {
+    setGen((g) => g + 1);
     setText(null);
     setError(null);
     setName(want); // the pick holds at once (the picker does not snap back; a failed list keeps it for Reload)
@@ -135,9 +145,10 @@ export function Logs({
 
   const file = files?.find((f) => f.name === name) ?? null;
 
-  // D18 Follow: the shown file read again every 2 s (Flink serves a log whole: no partial read). Only while a file
-  // is shown (never during a load: a load's list comes first), one read at a time, an answer dropped if a load
-  // started meanwhile (req). A failed read is said (catalog) and Follow turns off. Off over 50 MB.
+  // D18 Follow, every 2 s, "incremental by size" (FLINK_API): the list again (small), and the file read again only
+  // when its size changed (Flink serves a log whole: no partial read). Only while a file is shown (never during a
+  // load), one tick at a time, an answer dropped if a load started meanwhile (req). A good tick clears the error; a
+  // failed one is said (catalog) and Follow turns off. Off over 50 MB, also when the file grows past it.
   // ponytail: no auto-scroll to the newest line yet; no §4 "1 failure silent" (it stops at once).
   const [follow, setFollow] = useState(false);
   const big = !!file && tooLarge(file.size);
@@ -149,15 +160,25 @@ export function Logs({
       if (busy) return;
       busy = true;
       const id = req.current;
-      getJmLog(http, c.name, name)
-        .then(
-          (s) => id === req.current && setText(s),
-          (e: unknown) => {
+      listJmLogs(http, c.name)
+        .then((fs) => {
+          if (id !== req.current) return;
+          const f = fs.find((x) => x.name === name);
+          if (!f) throw new AppError('LOG-GONE', { file: name });
+          setFiles(fs); // the size and the 50 MB guard stay current (over it, Follow stops: `big`)
+          setError(null);
+          if (tooLarge(f.size) || f.size === shownSize.current) return;
+          return getJmLog(http, c.name, name).then((t) => {
             if (id !== req.current) return;
-            setError(asAppError(e, c.name));
-            setFollow(false);
-          },
-        )
+            shownSize.current = f.size;
+            setText(t);
+          });
+        })
+        .catch((e: unknown) => {
+          if (id !== req.current) return;
+          setError(asAppError(e, c.name));
+          setFollow(false);
+        })
         .finally(() => {
           busy = false;
         });
@@ -177,20 +198,26 @@ export function Logs({
     let live = true;
     const src = parsed;
     filterLinesBounded(parsed.entries.map(joined), q, true, makeWorker).then(
-      (lines) => live && setFound({ src, q, hits: new Set(lines), error: null }),
+      (lines) => live && setFound({ src, gen, q, hits: new Set(lines), error: null }),
       (e: unknown) =>
-        live && setFound({ src, q, hits: null, error: e instanceof AppError ? e : asAppError(e, c.name) }),
+        live &&
+        setFound({ src, gen, q, hits: null, error: e instanceof AppError ? e : asAppError(e, c.name) }),
     );
     return () => {
       live = false;
     };
-  }, [regex, q, parsed, makeWorker, c.name]);
+  }, [regex, q, parsed, gen, makeWorker, c.name]);
   const answer = regex && q && found?.src === parsed && found.q === q ? found : null;
+  // Follow brought new text of the same file (same load): this pattern's last answer stands in until its own, so
+  // the table does not flash every line every 2 s (new lines show when the answer lands).
+  const carry =
+    answer ??
+    (regex && q && found && found.gen === gen && found.q === q && found.src !== parsed ? found : null);
   const shown = useMemo(() => {
     if (!parsed) return null;
     const byLevel = parsed.entries.filter(atLeast(level));
     if (regex && q) {
-      if (answer) return answer.hits ? byLevel.filter((e) => answer.hits!.has(joined(e))) : [];
+      if (carry) return carry.hits ? byLevel.filter((e) => carry.hits!.has(joined(e))) : [];
       // While this pattern runs: this same content's last answer (an earlier pattern), else this content as it is,
       // never another file's answer (and no flicker to a skeleton on each key).
       const hits = found?.src === parsed ? found.hits : null;
@@ -198,8 +225,8 @@ export function Logs({
     }
     const lq = q.toLowerCase();
     return byLevel.filter((e) => !lq || [e.message, ...e.more].some((l) => l.toLowerCase().includes(lq)));
-  }, [parsed, level, q, regex, answer, found]);
-  const searchError = answer?.error ?? null;
+  }, [parsed, level, q, regex, carry, found]);
+  const searchError = carry?.error ?? null;
 
   return (
     <main className="flex min-h-screen flex-col gap-5 bg-surface px-8 py-7">

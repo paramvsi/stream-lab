@@ -297,56 +297,150 @@ describe('OPS-01 · Logs (D18, D18b)', () => {
     expect(await screen.findByText('Exception two', {}, { timeout: 3_000 })).toBeInTheDocument();
   });
 
-  it('D18 Follow: on, the file is read again every 2 s; off, it stops; a failed read is said and Follow turns off', async () => {
+  /** A JobManager whose one log grows by a line per listing (size = listings), unless `size` says otherwise. */
+  const growing = (o: { read?: (n: number) => ReturnType<typeof ok>; size?: (n: number) => number } = {}) => {
+    const st = { lists: 0, reads: 0 };
+    const line = (k: number) => `2026-11-17 12:00:0${k},000 INFO  x [] - line ${k}`;
+    const http: FlinkHttp = async (r) => {
+      if (r.path === '/jobmanager/logs') {
+        st.lists++;
+        return list([{ name: 'jobmanager.log', size: o.size ? o.size(st.lists) : st.lists, mtime: 1 }]);
+      }
+      st.reads++;
+      return (
+        o.read?.(st.reads) ?? ok(200, Array.from({ length: st.reads }, (_, k) => line(k + 1)).join('\n'))
+      );
+    };
+    return { st, http };
+  };
+  const fake = () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
+    return userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+  };
+
+  it('D18 Follow: on, it lists and reads again every 2 s; off, it stops; a failed read is said and Follow turns off', async () => {
     try {
-      const u = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
-      let reads = 0;
-      show(async (r) => {
-        if (r.path === '/jobmanager/logs') return list([{ name: 'jobmanager.log', size: 1, mtime: 1 }]);
-        reads++;
-        if (reads === 4) return ok(404, '{"errors":["gone"]}');
-        return ok(
-          200,
-          `2026-11-17 12:00:00,000 INFO  x [] - line one${reads > 1 ? '\n2026-11-17 12:00:02,000 INFO  x [] - line two' : ''}`,
-        );
-      });
-      await screen.findByText('line one');
+      const u = fake();
+      const { st, http } = growing({ read: (n) => (n === 4 ? ok(404, '{"errors":["gone"]}') : undefined!) });
+      show(http);
+      await screen.findByText('line 1');
       const sw = screen.getByRole('switch', { name: 'Follow' });
       await u.click(sw);
       await vi.advanceTimersByTimeAsync(2_000);
-      expect(await screen.findByText('line two')).toBeInTheDocument();
-      expect(reads).toBe(2);
+      expect(await screen.findByText('line 2')).toBeInTheDocument();
+      expect(st.reads).toBe(2);
       await u.click(sw); // off
       await vi.advanceTimersByTimeAsync(6_000);
-      expect(reads).toBe(2);
+      expect(st.reads).toBe(2);
       await u.click(sw); // on again: read 3 ok, read 4 gone
       await vi.advanceTimersByTimeAsync(4_000);
       expect(await screen.findByText(/jobmanager\.log is no longer there/)).toBeInTheDocument();
       expect(sw).not.toBeChecked();
       await vi.advanceTimersByTimeAsync(4_000);
-      expect(reads).toBe(4);
+      expect(st.reads).toBe(4);
     } finally {
       vi.useRealTimers();
     }
   });
 
   it('D18 Follow: after Reload of the same file, Follow still reads', async () => {
-    vi.useFakeTimers({ shouldAdvanceTime: true });
     try {
-      const u = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
-      let reads = 0;
-      show(async (r) => {
-        if (r.path === '/jobmanager/logs') return list([{ name: 'jobmanager.log', size: 1, mtime: 1 }]);
-        reads++;
-        return ok(200, `2026-11-17 12:00:00,000 INFO  x [] - read ${reads}`);
-      });
-      await screen.findByText('read 1');
+      const u = fake();
+      const { http } = growing();
+      show(http);
+      await screen.findByText('line 1');
       await u.click(screen.getByRole('switch', { name: 'Follow' }));
       await u.click(screen.getByRole('button', { name: 'Reload' }));
-      await screen.findByText('read 2');
+      await screen.findByText('line 2');
       await vi.advanceTimersByTimeAsync(2_000);
-      expect(await screen.findByText('read 3')).toBeInTheDocument();
+      expect(await screen.findByText('line 3')).toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('audit fw #3 (FLINK_API "incremental by size"): an unchanged size reads nothing; past 50 MB Follow stops with LOG-TOO-LARGE', async () => {
+    try {
+      const u = fake();
+      const { st, http } = growing({ size: (n) => (n < 3 ? 10 : 60_000_000) }); // list 1, 2: 10 B; list 3: 60 MB
+      show(http);
+      await screen.findByText('line 1');
+      await u.click(screen.getByRole('switch', { name: 'Follow' }));
+      await vi.advanceTimersByTimeAsync(2_000); // list 2: same size, no read
+      expect(st).toEqual({ lists: 2, reads: 1 });
+      await vi.advanceTimersByTimeAsync(2_000); // list 3: 60 MB
+      expect(await screen.findByText(/57\.2 MB|60\.0 MB|over 50 MB/)).toBeInTheDocument();
+      const sw = screen.getByRole('switch', { name: 'Follow' });
+      expect(sw).toBeDisabled();
+      await vi.advanceTimersByTimeAsync(6_000);
+      expect(st).toEqual({ lists: 3, reads: 1 });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('audit fw #2: a good Follow read clears an error a Follow read showed', async () => {
+    try {
+      const u = fake();
+      const { http } = growing({
+        read: (n) => (n === 2 ? ok(500, '{"errors":["Internal server error."]}') : undefined!),
+      });
+      show(http);
+      await screen.findByText('line 1');
+      const sw = screen.getByRole('switch', { name: 'Follow' });
+      await u.click(sw);
+      await vi.advanceTimersByTimeAsync(2_000); // read 2 fails
+      const banner = await screen.findByRole('alert');
+      expect(sw).not.toBeChecked();
+      await u.click(sw);
+      await vi.advanceTimersByTimeAsync(2_000); // read 3 ok
+      await screen.findByText('line 3');
+      expect(banner.isConnected).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('audit fw #1: a regex search keeps filtering across a Follow read (no flash of every line)', async () => {
+    try {
+      const u = fake();
+      const slow = (): FilterWorker => {
+        const w: FilterWorker = {
+          onmessage: null,
+          onerror: null,
+          onmessageerror: null,
+          postMessage: (d) =>
+            setTimeout(
+              () => w.onmessage?.({ data: answerFilter(d as { lines: string[]; pattern: string }) }),
+              300,
+            ),
+          terminate: () => {},
+        };
+        return w;
+      };
+      const { http } = growing();
+      render(
+        <TooltipProvider>
+          <ToastProvider>
+            <Logs c={conn} transport={() => http} makeWorker={slow} />
+          </ToastProvider>
+        </TooltipProvider>,
+      );
+      await screen.findByText('line 1');
+      await u.click(screen.getByRole('button', { name: 'Reload' })); // two lines: "line 1", "line 2"
+      await screen.findByText('line 2');
+      await u.click(screen.getByRole('checkbox', { name: 'Regex' }));
+      await u.type(screen.getByRole('searchbox', { name: 'Search logs' }), '2$');
+      await vi.advanceTimersByTimeAsync(400);
+      await vi.waitFor(() => expect(screen.queryByText('line 1')).toBeNull());
+      await u.click(screen.getByRole('switch', { name: 'Follow' }));
+      let flashed = false;
+      for (let t = 0; t < 2_800; t += 25) {
+        await vi.advanceTimersByTimeAsync(25);
+        if (screen.queryByText('line 1')) flashed = true;
+      }
+      expect(flashed).toBe(false);
+      expect(screen.getByText('line 2')).toBeInTheDocument();
     } finally {
       vi.useRealTimers();
     }

@@ -56,8 +56,11 @@ interface JobShape {
 
 /**
  * Events between two reads of one job.
- * - A restart: the time Flink says the job last entered RESTARTING moved (so a restart is caught even when no
- *   read landed in RESTARTING), at that time. Several restarts between two reads are one event.
+ * - A restart: the time Flink says the job last entered RESTARTING moved (default scheduler: caught even when
+ *   no read landed in RESTARTING), at that time. Several restarts between two reads are one event.
+ *   ponytail: under the adaptive scheduler that time never moves, so a restart is caught only when a read lands
+ *   in RESTARTING; a short one between two reads is missed. Candidate rule (RUNNING moved while RESTARTING did
+ *   not) is unverified against Flink: see MORNING.md.
  * - An operator's parallelism changed: a rescale. A restart that changed parallelism is one rescale (the adaptive
  *   scheduler rescales through a restart), not a restart as well.
  * The first read is a baseline. Only what the reads show: no cause is guessed.

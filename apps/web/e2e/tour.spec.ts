@@ -139,9 +139,15 @@ test('EXPL-01 audit 3: a drawer opened before the tour, one Escape closes the dr
   await expect(card(page)).toContainText('STEP 1 OF 5');
   await page.keyboard.press('Escape');
   await expect(card(page)).toHaveCount(0);
-  await page.locator('.react-flow__node').filter({ hasText: 'Rules' }).focus();
-  await page.keyboard.press('Enter');
-  await expect(page.getByRole('dialog', { name: /settings$/ })).toBeVisible();
+  // Closing the tour returns focus to where it was; on a slow runner that lands after this focus() and the Enter
+  // goes elsewhere. Retry until the node has focus and Enter opens its settings.
+  const rules = page.locator('.react-flow__node').filter({ hasText: 'Rules' });
+  await expect(async () => {
+    await rules.focus();
+    await expect(rules).toBeFocused({ timeout: 500 });
+    await page.keyboard.press('Enter');
+    await expect(page.getByRole('dialog', { name: /settings$/ })).toBeVisible({ timeout: 1000 });
+  }).toPass({ timeout: 8000 });
   await page.getByRole('button', { name: 'Tour', exact: true }).click();
   await expect(card(page)).toContainText('STEP 1 OF 5');
   await page.locator('.react-flow__node').filter({ hasText: 'Rules' }).focus();

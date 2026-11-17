@@ -102,6 +102,9 @@ export function Logs({
   makeWorker?: () => FilterWorker;
 }) {
   const h1 = useScreenHeading();
+  useEffect(() => {
+    document.title = `Logs · ${c.name} · Stream Lab`;
+  }, [c.name]);
   const http = useMemo(() => transport(c), [transport, c]);
   const [files, setFiles] = useState<LogFile[] | null>(null);
   const [name, setName] = useState<string | null>(null);

@@ -73,6 +73,9 @@ export function AllJobs({
   onFleet?: () => void;
 }) {
   const h1 = useScreenHeading();
+  useEffect(() => {
+    document.title = 'Jobs · all connections · Stream Lab';
+  }, []);
   const [read, setRead] = useState<Record<string, FeedState>>({});
   const onState = useCallback((id: string, st: FeedState) => setRead((r) => ({ ...r, [id]: st })), []);
   // Each Feed's Retry, for FLEET-PARTIAL's (one stable map for the screen's life).

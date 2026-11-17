@@ -844,6 +844,56 @@ describe('APP-01 · command palette (board G01)', () => {
     await userEvent.click(await within(t).findByRole('button', { name: 'refund-matcher' }));
     expect(await screen.findByRole('heading', { level: 1, name: 'refund-matcher' })).toBeTruthy();
   });
+
+  it('whole-app audit #1: a stop run in the background is still known after leaving the page and coming back (no second stop)', async () => {
+    const posts: string[] = [];
+    await withOne(jobHttp(posts));
+    await userEvent.keyboard('{Meta>}k{/Meta}');
+    await userEvent.type(screen.getByRole('combobox', { name: 'Search commands' }), 'refund');
+    await screen.findByRole('option', { name: /^refund-matcher/ });
+    await userEvent.keyboard('{Enter}');
+    await userEvent.click(await screen.findByRole('button', { name: 'Stop with savepoint' }));
+    const confirm = await screen.findByRole('dialog', { name: /with a savepoint\?/ });
+    await within(confirm).findByDisplayValue('s3://payments/savepoints');
+    await userEvent.click(within(confirm).getByRole('button', { name: 'Stop with savepoint' }));
+    await userEvent.click(await screen.findByRole('button', { name: 'Run in background' }));
+    (document.activeElement as HTMLElement).blur();
+    await userEvent.keyboard('{Meta>},{/Meta}'); // leave the page
+    await userEvent.click(await screen.findByRole('button', { name: 'Back' }));
+    await screen.findByRole('heading', { level: 1, name: 'refund-matcher' });
+    // the stop is still running: Trigger savepoint says why it is off, and Stop shows its progress, not the question
+    await vi.waitFor(() =>
+      expect(screen.getByRole('button', { name: 'Trigger savepoint' })).toHaveAttribute(
+        'aria-disabled',
+        'true',
+      ),
+    );
+    await userEvent.click(screen.getByRole('button', { name: 'Stop with savepoint' }));
+    expect(await screen.findByRole('dialog', { name: 'Stopping refund-matcher' })).toBeInTheDocument();
+    expect(posts.filter((p) => p.endsWith('/stop'))).toHaveLength(1);
+  });
+
+  it('whole-app audit #2 #3: each screen names the window; G L works from a radio (a letter is not typed there)', async () => {
+    await withOne();
+    await userEvent.keyboard('{Meta>}k{/Meta}');
+    await userEvent.type(screen.getByRole('combobox', { name: 'Search commands' }), 'all connections');
+    await userEvent.keyboard('{Enter}');
+    await screen.findByRole('table', { name: 'Jobs on all connections' });
+    expect(document.title).toBe('Jobs · all connections · Stream Lab');
+    (document.activeElement as HTMLElement).blur();
+    await userEvent.keyboard('{Meta>},{/Meta}');
+    await screen.findByRole('heading', { level: 1, name: 'Settings' });
+    expect(document.title).toBe('Settings · Stream Lab');
+    await userEvent.keyboard('{Meta>}1{/Meta}');
+    await screen.findByRole('heading', { level: 1, name: 'local-docker' });
+    (document.activeElement as HTMLElement).blur();
+    await userEvent.keyboard('gl');
+    await screen.findByRole('heading', { level: 1, name: 'Logs' });
+    expect(document.title).toBe('Logs · local-docker · Stream Lab');
+    screen.getByRole('radio', { name: 'Error' }).focus(); // a level radio has focus
+    await userEvent.keyboard('gj');
+    expect(await screen.findByRole('heading', { level: 1, name: 'Jobs' })).toBeTruthy();
+  });
 });
 
 describe('APP-04 · Settings (boards D21)', () => {

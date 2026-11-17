@@ -45,6 +45,8 @@ export function StopDialog({
   fallbackFocus,
   onRunningChange,
   onCancelInstead,
+  resume,
+  onSent,
 }: {
   open: boolean;
   onOpenChange: (o: boolean) => void;
@@ -58,8 +60,12 @@ export function StopDialog({
   onRunningChange?: (running: boolean) => void;
   /** D15's "Cancel without a savepoint instead": the page closes this and opens the cancel dialog (D15e). */
   onCancelInstead?: () => void;
+  /** A stop sent earlier from this job's page (the page was left and came back): followed on, never sent again. */
+  resume?: { rid: string; at: number } | null;
+  /** The app keeps the stop while it runs: told when one is accepted, and (null) when it ended done or failed. */
+  onSent?: (s: { rid: string; at: number } | null) => void;
 }) {
-  const [step, setStep] = useState<Step>({ name: 'confirm' });
+  const [step, setStep] = useState<Step>(resume ? { name: 'running' } : { name: 'confirm' });
   const [dir, setDir] = useState<string | null>(null);
   const [dirError, setDirError] = useState<AppError | null>(null);
   const [fromCluster, setFromCluster] = useState(false);
@@ -67,7 +73,7 @@ export function StopDialog({
   const [fieldError, setFieldError] = useState<AppError | null>(null);
   const [sendError, setSendError] = useState<AppError | null>(null);
   const [sending, setSending] = useState(false);
-  const [rid, setRid] = useState<string | null>(null);
+  const [rid, setRid] = useState<string | null>(resume?.rid ?? null);
   const drainId = useId();
   const toast = useToastOptional();
   const openRef = useRef(open);
@@ -143,7 +149,7 @@ export function StopDialog({
 
   // SP-TIMEOUT: still running 10 min after it was sent, the dialog says so once (Keep waiting hides it; Close
   // closes the dialog: the stop goes on and its result comes as a toast, as any running stop closed).
-  const [started, setStarted] = useState<number | null>(null);
+  const [started, setStarted] = useState<number | null>(resume?.at ?? null);
   const [slow, setSlow] = useState<'shown' | 'dismissed' | null>(null);
   // The time it has run, kept current while the warning shows (closed and reopened, it is still the real one), in
   // whole minutes: the warning is a polite live region, read again whenever its text changes.
@@ -182,6 +188,7 @@ export function StopDialog({
             // Only a stop that completed settles a lost one (Flink 1.20 accepts a second stop with 202 and fails
             // it later: an accepted or failed one does not).
             setUncertain(false);
+            onSent?.(null);
             // D15c: the job page with a toast, as drawn; the dialog closes.
             setStep({ name: 'confirm' });
             closedByUs.current = true;
@@ -194,7 +201,7 @@ export function StopDialog({
               message: `${job} stopped. Savepoint ${name} saved.`,
               action: { label: 'Copy path', onClick: () => copy(location) },
             });
-          } else if (openRef.current) setStep({ name: 'failed', error: s.error });
+          } else if ((onSent?.(null), openRef.current)) setStep({ name: 'failed', error: s.error });
           else {
             setStep({ name: 'confirm' });
             const p = present(s.error);
@@ -231,7 +238,9 @@ export function StopDialog({
         setSending(false);
         setRid(r);
         setStep({ name: 'running' });
-        setStarted(Date.now());
+        const at = Date.now();
+        setStarted(at);
+        onSent?.({ rid: r, at });
         setSlow(null);
       },
       (e: unknown) => {

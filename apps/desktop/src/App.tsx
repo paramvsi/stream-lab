@@ -59,6 +59,19 @@ export function App({
   // JOB-06: one history store for the app's life (SQLite with the Rust side).
   const [history] = useState(memoryHistory);
   const toast = useToast();
+  // ACT-01: stops sent and still running, by connection and job, so a page left and come back to follows them on
+  // (never offers a second stop). ponytail: a result that comes while elsewhere is not toasted (app-level tracking).
+  const [stops, setStops] = useState(() => new Map<string, { rid: string; at: number }>());
+  const onStop = useCallback(
+    (key: string) => (s: { rid: string; at: number } | null) =>
+      setStops((m) => {
+        const n = new Map(m);
+        if (s) n.set(key, s);
+        else n.delete(key);
+        return n;
+      }),
+    [],
+  );
   // APP-04: what a new connection's refresh starts at (in memory until the Tauri store lands).
   const [defaultPollMs, setDefaultPollMs] = useState(5000);
   const add = () => setScreen({ name: 'kind', kind: null });
@@ -94,7 +107,8 @@ export function App({
     const overDialog = () => !!document.querySelector('[role="dialog"], [role="alertdialog"]');
     const typing = (e: KeyboardEvent) =>
       !!(e.target as HTMLElement | null)?.closest?.(
-        'input, textarea, select, [contenteditable=""], [contenteditable="true"]',
+        // A checkbox, radio or button input takes no letters: the keys still work there.
+        'input:not([type="checkbox"]):not([type="radio"]):not([type="button"]), textarea, select, [contenteditable=""], [contenteditable="true"]',
       );
     // A letter or digit by the character typed; by the physical key only when the character is not a Latin letter
     // or digit: AZERTY's ⌘ + "1/&" gives "&", an Arabic or Cyrillic layout gives its own letters. A Latin layout
@@ -312,6 +326,8 @@ export function App({
           c={open}
           jid={screen.jid}
           {...(screen.start ? { start: screen.start } : {})}
+          stop={stops.get(`${open.id}/${screen.jid}`) ?? null}
+          onStop={onStop(`${open.id}/${screen.jid}`)}
           onStartTaken={dropStart}
           transport={transport}
           history={history}

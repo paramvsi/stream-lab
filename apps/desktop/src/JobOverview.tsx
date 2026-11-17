@@ -222,6 +222,8 @@ export function JobOverview({
   history,
   start,
   onStartTaken,
+  stop,
+  onStop,
 }: {
   c: Connection;
   jid: string;
@@ -231,6 +233,9 @@ export function JobOverview({
   start?: { act: 'stop' | 'savepoint'; n: number };
   /** Told as soon as the pick is taken, so the app drops it (a remount must never run it again). */
   onStartTaken?: (n: number) => void;
+  /** A stop sent from this page earlier and still running (the app keeps it while the page is left). */
+  stop?: { rid: string; at: number } | null;
+  onStop?: (s: { rid: string; at: number } | null) => void;
   /** JOB-06: where this page records what changes (the app's store; one of its own when none is given). */
   history?: HistoryStore;
 }) {
@@ -560,6 +565,8 @@ export function JobOverview({
           job={j.name}
           fallbackFocus={h1}
           onRunningChange={setStopRunning}
+          {...(stop ? { resume: stop } : {})}
+          {...(onStop ? { onSent: onStop } : {})}
           onCancelInstead={() => {
             setStopping(false);
             setCancelling(true);

@@ -1,6 +1,6 @@
 import { Button, Field, Select, Tabs } from '@sl/ui';
 import { ArrowLeft } from 'lucide-react';
-import { useId } from 'react';
+import { useEffect, useId } from 'react';
 import { useScreenHeading } from './focus';
 
 /** The refresh intervals a connection can have (the connection form's list). */
@@ -22,6 +22,9 @@ export function Settings({
   onBack: () => void;
 }) {
   const h1 = useScreenHeading();
+  useEffect(() => {
+    document.title = 'Settings · Stream Lab';
+  }, []);
   const theme = useId();
   const darkWhy = useId();
   return (

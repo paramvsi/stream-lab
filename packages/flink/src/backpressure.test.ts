@@ -30,13 +30,20 @@ describe('JOB-BACKPRESSURE · vertex backpressure (D08b)', () => {
       'prod',
       'j/1',
       'v/2',
+      'RUNNING',
     );
     expect(path).toBe('/jobs/j%2F1/vertices/v%2F2/backpressure');
     expect(b).toEqual({ level: 'high', pct: 97 });
   });
 
   it('"deprecated" (no fresh sample yet) is no reading, not 0 %', async () => {
-    const b = await getBackpressure(answer({ status: 'deprecated', subtasks: [] }), 'prod', 'j', 'v');
+    const b = await getBackpressure(
+      answer({ status: 'deprecated', subtasks: [] }),
+      'prod',
+      'j',
+      'v',
+      'RUNNING',
+    );
     expect(b).toBeNull();
   });
 
@@ -46,13 +53,27 @@ describe('JOB-BACKPRESSURE · vertex backpressure (D08b)', () => {
       'prod',
       'j',
       'v',
+      'RUNNING',
     );
     expect(b).toEqual({ level: 'low', pct: 20 });
   });
 
   it('API-SHAPE when it can not be read', async () => {
-    await expect(getBackpressure(answer({ subtasks: 'x' }), 'prod', 'j', 'v')).rejects.toMatchObject({
+    await expect(
+      getBackpressure(answer({ subtasks: 'x' }), 'prod', 'j', 'v', 'RUNNING'),
+    ).rejects.toMatchObject({
       code: 'API-SHAPE',
     });
+  });
+
+  it('audit: a job that is not running has no reading, and no request (Flink keeps serving its last values as "ok")', async () => {
+    let asked = 0;
+    const http: FlinkHttp = async (r) => (
+      asked++,
+      answer({ status: 'ok', backpressureLevel: 'high', subtasks: [sub(0, 0.97, 'high')] })(r)
+    );
+    for (const state of ['FINISHED', 'FAILED', 'CANCELED', 'RESTARTING'])
+      expect(await getBackpressure(http, 'prod', 'j', 'v', state)).toBeNull();
+    expect(asked).toBe(0);
   });
 });

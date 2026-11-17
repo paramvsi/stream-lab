@@ -3,10 +3,13 @@ import { getJson } from './fleet';
 import type { FlinkHttp } from './http';
 
 /**
- * GET /jobs/:jid/vertices/:vid/backpressure — JobVertexBackPressureInfo. `status` is "ok" or "deprecated" (no
- * fresh sample yet); the level is "ok" | "low" | "high", written as `backpressureLevel` and, by a hidden getter,
- * `backpressure-level` too; each subtask's back-pressured share is `ratio` (a double, 0–1).
+ * GET /jobs/:jid/vertices/:vid/backpressure — JobVertexBackPressureInfo. `status` is "deprecated" only when Flink
+ * holds no metrics for the vertex yet (and for an unknown job or vertex: never a 404); otherwise "ok", which does
+ * NOT mean fresh: after a job ends, Flink keeps serving its last values (and `end-timestamp` is the request time).
+ * The level is "ok" | "low" | "high" (Flink: max subtask ratio ≤ 0.10, ≤ 0.5, else), written as
+ * `backpressureLevel` and, by a hidden getter, `backpressure-level` too; each subtask's share is `ratio` (0–1).
  * FLINK: https://github.com/apache/flink/blob/release-1.20/flink-runtime/src/main/java/org/apache/flink/runtime/rest/messages/JobVertexBackPressureInfo.java
+ * FLINK: https://github.com/apache/flink/blob/release-1.20/flink-runtime/src/main/java/org/apache/flink/runtime/rest/handler/job/JobVertexBackPressureHandler.java
  */
 const Level = z.enum(['ok', 'low', 'high']);
 const BackpressureSchema = z.looseObject({
@@ -25,14 +28,20 @@ export interface Backpressure {
   pct: number;
 }
 
-/** JOB-BACKPRESSURE (board D08b). Null while Flink has no fresh sample ("deprecated"): no reading, never 0 %. */
+/**
+ * JOB-BACKPRESSURE (board D08b). Only for a RUNNING job: any other state has no reading (Flink's "ok" would be the
+ * last values of a job no longer running), and no request is made. Null too while Flink has no metrics
+ * ("deprecated"): no reading, never 0 %.
+ */
 export async function getBackpressure(
   http: FlinkHttp,
   conn: string,
   jid: string,
   vid: string,
+  jobState: string,
   timeoutMs = 10_000,
 ): Promise<Backpressure | null> {
+  if (jobState !== 'RUNNING') return null;
   const r = await getJson(
     http,
     conn,

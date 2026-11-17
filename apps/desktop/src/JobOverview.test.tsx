@@ -1672,6 +1672,10 @@ describe('JOB-02 · Job overview (board D08)', () => {
     expect(await screen.findByRole('region', { name: 'Window aggregate' })).toBeInTheDocument();
     expect(card).toHaveAttribute('aria-pressed', 'true');
     expect(within(g).getByRole('button', { name: 'Sink: alerts' })).toHaveAttribute('aria-pressed', 'false');
+    // A toggle: pressed again, the panel closes and it is no longer pressed.
+    await userEvent.keyboard('{Enter}');
+    expect(screen.queryByRole('region', { name: 'Window aggregate' })).toBeNull();
+    expect(card).toHaveAttribute('aria-pressed', 'false');
   });
 
   it('lists the operators with parallelism and status', async () => {

@@ -467,7 +467,7 @@ export function JobOverview({
                     <JobGraphView
                       graph={jobGraph(j)}
                       selected={openOp}
-                      onSelect={setOpenOp}
+                      onSelect={(id) => setOpenOp((o) => (o === id ? null : id))}
                       backpressure={bpShown}
                       {...(running && bp.stale
                         ? {

@@ -127,11 +127,18 @@ export async function deletePipeline(id: string): Promise<void> {
   clearRescue(id);
   void deleteUploads(id); // its uploaded rows (OPFS) are freed too
   unsaved.delete(id);
+  seenStored.delete(id);
   announce({ type: 'deleted', id, tab: TAB });
 }
 
 /** Pipelines whose first save failed (storage full/blocked): open from memory, with the banner (not "Saved"). */
 export const unsaved = new Map<string, Pipeline & { scenario?: string }>();
+
+/**
+ * Pipelines this tab has seen in IndexedDB. A copy in `unsaved` with nothing stored is then one another tab
+ * deleted while this tab was elsewhere, not one never saved: it must not be written back.
+ */
+export const seenStored = new Set<string>();
 
 /* ---------- unload rescue (SIM-20) ---------- */
 

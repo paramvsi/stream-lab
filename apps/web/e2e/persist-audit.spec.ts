@@ -194,6 +194,42 @@ test('Q1b after a failed autosave, the next one still does not bring back a pipe
   await expect(list.getByText('No saved pipelines yet')).toBeVisible();
 });
 
+test('Q1c a failed autosave, then away and back after another tab deleted it: not written back, the banner says so', async ({
+  page,
+  context,
+}) => {
+  await page.addInitScript(() => {
+    const w = window as unknown as { failOnce?: boolean };
+    const put = IDBObjectStore.prototype.put;
+    IDBObjectStore.prototype.put = function (...a: Parameters<typeof put>) {
+      if (w.failOnce) {
+        w.failOnce = false;
+        throw Object.assign(new Error('full'), { name: 'QuotaExceededError' });
+      }
+      return put.apply(this, a);
+    };
+  });
+  await openBlank(page);
+  await addNode(page, 'Source');
+  await saved(page);
+  await page.evaluate(() => ((window as unknown as { failOnce: boolean }).failOnce = true));
+  await addNode(page, 'Sink');
+  await expect(page.getByRole('status').filter({ hasText: /^Not saved$/ })).toBeVisible();
+  // Leave the workspace inside the app (as "Manage storage" does): it no longer hears other tabs.
+  await page.evaluate(() => (location.hash = '#/pipelines'));
+  await expect(page.getByRole('heading', { name: /pipelines/i }).first()).toBeVisible();
+  const list = await context.newPage();
+  await list.goto('/#/pipelines');
+  await list.getByRole('button', { name: 'Delete Untitled pipeline' }).click();
+  await list.getByRole('button', { name: 'Delete pipeline' }).click();
+  await expect(list.getByText('No saved pipelines yet')).toBeVisible();
+  await page.evaluate(() => history.back());
+  await expect(page.getByText('This pipeline was deleted in another tab.')).toBeVisible();
+  await expect(nodes(page)).toHaveCount(2); // the edits are still here, for "Keep a copy"
+  await list.reload();
+  await expect(list.getByText('No saved pipelines yet')).toBeVisible();
+});
+
 test('Q2 never-saved pipeline: edits survive "Manage storage" and Back', async ({ page }) => {
   await fullStorage(page);
   await openBlank(page);

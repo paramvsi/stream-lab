@@ -11,6 +11,7 @@ import {
   onSavedElsewhere,
   peekRescue,
   savePipeline,
+  seenStored,
   unsaved,
   writeRescue,
 } from '../storage';
@@ -83,15 +84,28 @@ export function WorkspaceRoute({ id }: { id: string }) {
         );
         const newest = candidates.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))[0];
         if (!newest) return setStatus('missing');
-        inDb.current = !!stored;
+        inDb.current = !!stored || seenStored.has(id);
+        if (stored) seenStored.add(id);
         show(newest);
-        if (newest !== stored) {
+        const goneElsewhere = () => {
+          // Deleted in another tab (maybe while this tab was elsewhere): the edits stay on screen for "Keep a
+          // copy", but nothing writes it back.
+          unsaved.delete(id);
+          clearRescue(id);
+          wasDeleted.current = true;
+          setDeleted(true);
+        };
+        if (!stored && inDb.current) goneElsewhere();
+        else if (newest !== stored) {
           // Not in IndexedDB yet: write it back; until that works, "Not saved" and the banner.
           try {
-            await savePipeline(newest);
-            inDb.current = true;
-            unsaved.delete(id);
-            clearRescue(id);
+            if (!(await savePipeline(newest, { update: inDb.current }))) goneElsewhere();
+            else {
+              inDb.current = true;
+              seenStored.add(id);
+              unsaved.delete(id);
+              clearRescue(id);
+            }
           } catch (e) {
             if (!(e instanceof AppError)) throw e;
             unsaved.set(id, newest);
@@ -158,6 +172,7 @@ export function WorkspaceRoute({ id }: { id: string }) {
             return;
           }
           inDb.current = true;
+          seenStored.add(id);
           unsaved.delete(id);
           useSaveState.setState({ state: 'saved' });
           setStoreError(null);

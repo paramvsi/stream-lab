@@ -468,6 +468,7 @@ export function JobOverview({
                         running={running}
                         heading={h1}
                         pageBanner={!!banner}
+                        now={j.now}
                       />
                     )}
                   </div>

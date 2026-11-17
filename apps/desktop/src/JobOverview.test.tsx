@@ -1473,6 +1473,41 @@ describe('JOB-02 · Job overview (board D08)', () => {
     },
   );
 
+  it("JOB-03 / D09b: the Watermarks tab lists each subtask's watermark and lag, names the one holding back, says ended", async () => {
+    const now = detail.now;
+    show(async (req) => {
+      if (req.path.endsWith('/vertices/v2/watermarks'))
+        return {
+          status: 200,
+          headers: {},
+          url: '',
+          body: JSON.stringify([
+            { id: '0.currentInputWatermark', value: String(now - 41_000) },
+            { id: '1.currentInputWatermark', value: String(now - 2_000) },
+            { id: '2.currentInputWatermark', value: String(now - 1_000) },
+            { id: '3.currentInputWatermark', value: '9223372036854775807' },
+          ]),
+        };
+      if (req.path.includes('/subtasks/')) return { status: 200, headers: {}, url: '', body: '[]' };
+      return answer(200, detail)(req);
+    });
+    const ops = await screen.findByRole('table', { name: 'Operators' });
+    await userEvent.click(within(ops).getAllByRole('row')[2]!);
+    const p = await screen.findByRole('region', { name: 'Window aggregate' });
+    await userEvent.click(within(p).getByRole('tab', { name: 'Watermarks' }));
+    const t = await within(p).findByRole('table', { name: 'Watermarks' });
+    const rows = within(t)
+      .getAllByRole('row')
+      .slice(1)
+      .map((r) => r.textContent);
+    expect(rows[0]).toMatch(/41 s · holding back/);
+    expect(rows[1]).toMatch(/2 s$/);
+    expect(rows[3]).toMatch(/Input ended/);
+    expect(
+      within(p).getByText(/Subtask 0 is 39 s behind the others, so the operator's watermark waits for it\./),
+    ).toBeInTheDocument();
+  });
+
   it('lists the operators with parallelism and status', async () => {
     show(answer(200, detail));
     const table = await screen.findByRole('table', { name: 'Operators' });

@@ -1,13 +1,16 @@
 import { present } from '@sl/errors';
 import {
   getSubtaskLoads,
+  getWatermarks,
+  holdingBack,
   skew,
   type Connection,
   type FlinkHttp,
   type FlinkVertex,
   type SubtaskLoad,
+  type SubtaskWatermark,
 } from '@sl/flink';
-import { Loading, Skeleton, Table, type Column } from '@sl/ui';
+import { Loading, Skeleton, Table, Tabs, type Column } from '@sl/ui';
 import { CircleAlert } from 'lucide-react';
 import { useEffect, useId, useRef, type ReactNode, type RefObject } from 'react';
 import { HOST_DOWN, usePolled } from './usePolled';
@@ -42,12 +45,16 @@ type Props = {
   heading: RefObject<HTMLHeadingElement | null>;
   /** The page's own banner is up: it says the outage, the panel does not say it again. */
   pageBanner: boolean;
+  /** The JobManager's clock (the job read's `now`): watermark lag is measured against it. */
+  now: number;
 };
 
 /**
- * JOB-03 / board D09c: one operator's subtasks (records in / s, busy %) on a quiet 5 s poll while the job runs,
- * with the skew sentence only over a complete table. ponytail: the Metrics and Watermarks tabs (D09, D09b), the
- * State column (no per-subtask metric in Flink) and opening from the graph cards are next slices.
+ * JOB-03 / boards D09c and D09b: one operator's Subtasks (records in / s, busy %; the skew sentence only over a
+ * complete table) and Watermarks (each subtask's input watermark and lag; the one holding the operator back),
+ * each on a quiet 5 s poll while the job runs and its tab is open (Radix unmounts the other).
+ * ponytail: the Metrics tab (D09, charts), the State column (no per-subtask metric in Flink) and opening from the
+ * graph cards are next slices.
  */
 export function OperatorPanel(p: Props) {
   const titleId = useId();
@@ -56,12 +63,23 @@ export function OperatorPanel(p: Props) {
       <h3 id={titleId} className="m-0 text-[16px] font-semibold">
         {p.vertex.name}
       </h3>
-      {/* Mounted only while the job runs (no reads otherwise), fresh per operator (never the last one's rows). */}
-      {p.running ? (
-        <Subtasks key={p.vertex.id} {...p} />
-      ) : (
-        <p className="m-0 text-[14px] text-muted">Subtask metrics are read while the job runs.</p>
-      )}
+      {/* Each tab's reads are mounted only while the job runs (no reads otherwise), fresh per operator (never the
+          last one's rows). */}
+      <Tabs
+        label={`${p.vertex.name} sections`}
+        items={[
+          {
+            value: 'subtasks',
+            label: 'Subtasks',
+            content: <Running {...p}>{<Subtasks key={p.vertex.id} {...p} />}</Running>,
+          },
+          {
+            value: 'watermarks',
+            label: 'Watermarks',
+            content: <Running {...p}>{<Watermarks key={p.vertex.id} {...p} />}</Running>,
+          },
+        ]}
+      />
     </section>
   );
 }
@@ -122,6 +140,82 @@ function Subtasks({ c, transport, jid, vertex, heading, pageBanner }: Props) {
             </p>
           )}
         </>
+      )}
+    </div>
+  );
+}
+
+function Running({ running, children }: Props & { children: ReactNode }) {
+  return (
+    <div className="pt-3">
+      {running ? (
+        children
+      ) : (
+        <p className="m-0 text-[14px] text-muted">Subtask metrics are read while the job runs.</p>
+      )}
+    </div>
+  );
+}
+
+/** Seconds as the board writes them: "41 s", "3 min 20 s". */
+const lagText = (ms: number) => {
+  const s = Math.max(0, Math.round(ms / 1000));
+  return s < 60 ? `${s} s` : `${Math.floor(s / 60)} min${s % 60 ? ` ${s % 60} s` : ''}`;
+};
+const timeOf = (ms: number) =>
+  new Date(ms).toLocaleTimeString([], {
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: false,
+  });
+
+function Watermarks({ c, transport, jid, vertex, heading, pageBanner, now }: Props) {
+  const wm = usePolled(
+    c,
+    transport,
+    (http, conn, t) => getWatermarks(http, conn, jid, vertex.id, vertex.parallelism, t),
+    heading,
+    5_000,
+    { quiet: true },
+  );
+  const v = wm.value;
+  const err = !v && wm.error && !pageBanner && !HOST_DOWN.has(wm.error.code) ? wm.error : null;
+  if (!v)
+    return err ? (
+      <Problem>Watermarks could not be read: {present(err).message}</Problem>
+    ) : (
+      <Loading label="Loading watermarks">
+        <Skeleton className="h-24 w-full" />
+      </Loading>
+    );
+  const held = holdingBack(v);
+  const cols: Column<SubtaskWatermark>[] = [
+    { key: 'i', header: '#', mono: true, render: (w) => w.index },
+    {
+      key: 'w',
+      header: 'Watermark',
+      mono: true,
+      render: (w) => (w.ended ? 'Input ended' : w.at === null ? 'No watermark yet' : timeOf(w.at)),
+    },
+    {
+      key: 'lag',
+      header: 'Lag',
+      mono: true,
+      align: 'right',
+      render: (w) =>
+        w.at === null ? '—' : `${lagText(now - w.at)}${held?.index === w.index ? ' · holding back' : ''}`,
+    },
+  ];
+  return (
+    <div className="flex flex-col gap-3">
+      {wm.stale && <p className="m-0 text-[13px] text-muted">Not answering. Showing data from {wm.since}.</p>}
+      <Table label="Watermarks" columns={cols} rows={v} rowKey={(w) => String(w.index)} />
+      {held && (
+        <p className="m-0 text-[14px]">
+          Subtask {held.index} is {lagText(held.behindMs)} behind the others, so the operator's watermark
+          waits for it. Its source partition may be idle: consider an idleness timeout.
+        </p>
       )}
     </div>
   );

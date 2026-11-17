@@ -29,7 +29,7 @@ import { Checkpoints } from './Checkpoints';
 import { ExceptionGroups } from './ExceptionGroups';
 import { ago, duration, shortAgo, size } from './format';
 export { duration, size } from './format';
-import { diffJob, memoryHistory, type HistoryStore } from './history';
+import { diffJob, memoryHistory, type HistoryEvent, type HistoryStore } from './history';
 import { JobGraphView } from './JobGraphView';
 import { JobHistory } from './JobHistory';
 import { OperatorPanel } from './OperatorPanel';
@@ -235,29 +235,28 @@ export function JobOverview({
   const store = history ?? own;
   const last = useRef<FlinkJobDetail | null>(null);
   const [recorded, setRecorded] = useState(0);
-  // A write that fails says so (HISTORY-IO on the tab) and the read it came from stays the baseline, so the next
-  // read finds the same change again and the write is tried again: nothing is dropped.
+  // A write that fails says so (HISTORY-IO on the tab) and its events stay pending: each later read tries them
+  // again, with whatever that read found, until one write succeeds. The baseline always moves on, so a change that
+  // reverses before the retry is recorded both ways, never dropped. The error clears only on a good write.
   const [saveError, setSaveError] = useState<AppError | null>(null);
   const saving = useRef(false);
+  const pending = useRef<HistoryEvent[]>([]);
   useEffect(() => {
     if (!j || j === last.current || saving.current) return;
-    const events = diffJob(last.current, j, Date.now());
-    if (!events.length) {
-      // Nothing (left) to save: a change that reversed before its retry is no longer there to record.
-      last.current = j;
-      setSaveError(null);
-      return;
-    }
+    const batch = [...pending.current, ...diffJob(last.current, j, Date.now())];
+    last.current = j;
+    if (!batch.length) return;
     saving.current = true;
-    store.append(c.id, jid, events).then(
+    store.append(c.id, jid, batch).then(
       () => {
         saving.current = false;
-        last.current = j;
+        pending.current = [];
         setSaveError(null);
         setRecorded((n) => n + 1);
       },
       (e: unknown) => {
         saving.current = false;
+        pending.current = batch;
         setSaveError(
           new AppError(
             'HISTORY-IO',

@@ -1773,6 +1773,48 @@ describe('JOB-02 · Job overview (board D08)', () => {
     expect(await screen.findByText(/local history could not be read: disk I\/O error/)).toBeInTheDocument();
   });
 
+  it(
+    'audit hist3: a failed save is kept and retried as it was, even when the job changes back before the retry',
+    { timeout: 20_000 },
+    async () => {
+      vi.useFakeTimers({ shouldAdvanceTime: true });
+      try {
+        const base = memoryHistory();
+        let fail = true;
+        const history: HistoryStore = {
+          ...base,
+          append: async (...a) => {
+            if (fail) throw new Error('database is locked');
+            return base.append(...a);
+          },
+        };
+        let p2 = 4;
+        show(
+          async (req) =>
+            answer(200, {
+              ...detail,
+              vertices: detail.vertices.map((v) => (v.id === 'v2' ? { ...v, parallelism: p2 } : v)),
+            })(req),
+          { history },
+        );
+        await screen.findByRole('table', { name: 'Operators' });
+        p2 = 8; // rescaled: its save fails
+        for (let t = 0; t < 3; t++) await act(async () => vi.advanceTimersByTimeAsync(1_000));
+        p2 = 4; // and back, before the retry
+        for (let t = 0; t < 3; t++) await act(async () => vi.advanceTimersByTimeAsync(1_000));
+        await userEvent.click(screen.getByRole('tab', { name: 'History' }));
+        expect(await screen.findByText(/could not be saved/)).toBeInTheDocument(); // still unsaved: still said
+        fail = false;
+        for (let t = 0; t < 3; t++) await act(async () => vi.advanceTimersByTimeAsync(1_000));
+        const ev = (await base.events(conn.id, detail.jid)).map((e) => e.detail);
+        expect(ev).toEqual(['Window aggregate: parallelism 8 → 4', 'Window aggregate: parallelism 4 → 8']);
+        expect(screen.queryByText(/could not be saved/)).toBeNull();
+      } finally {
+        vi.useRealTimers();
+      }
+    },
+  );
+
   it('lists the operators with parallelism and status', async () => {
     show(answer(200, detail));
     const table = await screen.findByRole('table', { name: 'Operators' });

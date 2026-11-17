@@ -58,17 +58,26 @@ const shortAgo = (ms: number) =>
       ? `${Math.floor(ms / 3_600_000)} h ago`
       : `${Math.floor(ms / 86_400_000)} d ago`;
 
-type Ckpt = { off: true } | { off: false; last: FlinkCheckpoint | null; failedInRow: number };
-/** Board D08c "3 failures in a row": FAILED checkpoints since the last completed one (newest first; one in progress is skipped). */
-const failedInRow = (h: readonly FlinkCheckpoint[]) => {
+type Failures = { n: number; more: boolean };
+type Ckpt = { off: true } | { off: false; last: FlinkCheckpoint | null; failed: Failures };
+/**
+ * Board D08c "3 failures in a row": FAILED checkpoints since the last completed one, newest first. Savepoints
+ * are left out (a failed stop-with-savepoint is not a checkpoint failure; latest.completed holds checkpoints
+ * only), as is one in progress. Flink keeps only the last web.checkpoints.history entries (10 by default): a run
+ * that fills the whole history is "10+".
+ */
+const failedInRow = (h: readonly FlinkCheckpoint[]): Failures => {
   let n = 0;
-  for (const c of [...h].sort((a, b) => b.id - a.id)) {
+  for (const c of [...h].filter((c) => !c.is_savepoint).sort((a, b) => b.id - a.id)) {
     if (c.status === 'IN_PROGRESS') continue;
-    if (c.status !== 'FAILED') break;
+    if (c.status !== 'FAILED') return { n, more: false };
     n++;
   }
-  return n;
+  return { n, more: n > 0 && n === h.length };
 };
+const failedNote = (f: Failures) =>
+  `${f.n}${f.more ? '+' : ''} failure${f.n === 1 && !f.more ? '' : 's'} in a row`;
+
 /**
  * Checkpoints for the D08 KPI. Off is either Flink's 404 (no settings: JOB-CKPT-NONE) or zero counts with the
  * disabled interval (checkpointingOff reads the config only then, so a running job pays one call, not two).
@@ -77,7 +86,7 @@ async function readCkpt(http: FlinkHttp, conn: string, jid: string, t: number): 
   try {
     const s = await getCheckpoints(http, conn, jid, t);
     if (s.counts.total === 0 && (await checkpointingOff(http, conn, jid, t))) return { off: true };
-    return { off: false, last: lastCompleted(s), failedInRow: failedInRow(s.history) };
+    return { off: false, last: lastCompleted(s), failed: failedInRow(s.history) };
   } catch (e) {
     if (e instanceof AppError && e.code === 'JOB-CKPT-NONE') return { off: true };
     throw e;
@@ -191,22 +200,21 @@ export function JobOverview({
                 note={present(new AppError('JOB-CKPT-NONE')).message}
               />
             ) : ck.stale ? (
+              // Stale keeps the last thing known: a failure stays "Failed" (red), never a healthy-looking number.
               <Kpi
                 label="Last checkpoint"
                 value={
-                  cp?.last
-                    ? `${duration(cp.last.end_to_end_duration)} · ${size(cp.last.checkpointed_size)}`
-                    : '—'
+                  cp?.failed.n
+                    ? 'Failed'
+                    : cp?.last
+                      ? `${duration(cp.last.end_to_end_duration)} · ${size(cp.last.checkpointed_size)}`
+                      : '—'
                 }
                 note={`Not answering. Showing data from ${ck.since}.`}
+                {...(cp?.failed.n ? { tone: 'error' as const } : {})}
               />
-            ) : cp?.failedInRow ? (
-              <Kpi
-                label="Last checkpoint"
-                value="Failed"
-                note={`${cp.failedInRow} failure${cp.failedInRow === 1 ? '' : 's'} in a row`}
-                tone="error"
-              />
+            ) : cp?.failed.n ? (
+              <Kpi label="Last checkpoint" value="Failed" note={failedNote(cp.failed)} tone="error" />
             ) : cp?.last ? (
               <Kpi
                 label="Last checkpoint"

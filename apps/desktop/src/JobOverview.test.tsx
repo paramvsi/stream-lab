@@ -170,11 +170,16 @@ describe('JOB-02 · Job overview (board D08)', () => {
       down = true;
       await act(async () => vi.advanceTimersByTimeAsync(60_000));
       down = false;
-      await act(async () => vi.advanceTimersByTimeAsync(31_000));
-      await waitFor(() =>
-        expect(screen.getAllByText(/Back in contact with payments-prod/).length).toBeGreaterThan(0),
-      );
-      expect(screen.getAllByText(/Back in contact with payments-prod/)).toHaveLength(1);
+      // Every toast seen over the next 40 s (success toasts close after 4 s, so two in a row never overlap).
+      // Toasts, not text: Radix also copies a toast's words into a hidden announcer for a moment.
+      const seen = new Set<Element>();
+      for (let t = 0; t < 40; t++) {
+        await act(async () => vi.advanceTimersByTimeAsync(1_000));
+        document.querySelectorAll('.sl-toast').forEach((e) => {
+          if (/Back in contact with payments-prod/.test(e.textContent ?? '')) seen.add(e);
+        });
+      }
+      expect(seen.size).toBe(1);
     } finally {
       vi.useRealTimers();
     }
@@ -198,6 +203,46 @@ describe('JOB-02 · Job overview (board D08)', () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it('audit 3 #1: stale while failing still says Failed (red), with the stale note', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      let bad = false;
+      const f = (id: number) => ({ ...ckpt.latest.completed, id, status: 'FAILED' });
+      const failing = { ...ckpt, history: [f(12), f(11), ckpt.latest.completed] };
+      show(async (req) =>
+        req.path.endsWith('/checkpoints')
+          ? bad
+            ? { status: 500, headers: {}, url: '', body: '' }
+            : { status: 200, headers: {}, url: '', body: JSON.stringify(failing) }
+          : answer(200, detail)(req),
+      );
+      const k = await screen.findByRole('group', { name: 'Last checkpoint' });
+      await waitFor(() => expect(k).toHaveTextContent('Failed'));
+      bad = true;
+      await act(async () => vi.advanceTimersByTimeAsync(20_000));
+      await waitFor(() => expect(k).toHaveTextContent(/Not answering/));
+      expect(k).toHaveTextContent('Failed');
+      expect(k).not.toHaveTextContent('3.4 s');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('audit 3 #2: savepoints do not count as checkpoint failures, nor end a run of them', async () => {
+    const sp = (id: number, status: string) => ({ ...ckpt.latest.completed, id, status, is_savepoint: true });
+    show(answer(200, detail, { ...ckpt, history: [sp(13, 'FAILED'), ckpt.latest.completed] }));
+    const k = await screen.findByRole('group', { name: 'Last checkpoint' });
+    await waitFor(() => expect(k).toHaveTextContent('3.4 s'));
+    expect(k).not.toHaveTextContent('Failed');
+  });
+
+  it('audit 3 #3: a run longer than the history says "10+", not "10"', async () => {
+    const f = (id: number) => ({ ...ckpt.latest.completed, id, status: 'FAILED' });
+    show(answer(200, detail, { ...ckpt, history: Array.from({ length: 10 }, (_, i) => f(60 - i)) }));
+    const k = await screen.findByRole('group', { name: 'Last checkpoint' });
+    await waitFor(() => expect(k).toHaveTextContent('10+ failures in a row'));
   });
 
   it('audit #3/#4: duration and size carry at unit edges; a missing size is "—"', () => {

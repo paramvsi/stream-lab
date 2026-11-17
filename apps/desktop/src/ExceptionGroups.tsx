@@ -75,7 +75,9 @@ export function ExceptionGroups({
               const id = `${base}-${i}`;
               const label = g.name || 'Exception';
               // Names say the message too: two groups of one exception type stay apart (a11y names).
-              const title = g.message ? `${label} · ${g.message}` : label;
+              // Cut: a long root-cause line (a ClassCastException's loader text) would fill every name.
+              const msg = g.message.length > 60 ? `${g.message.slice(0, 59)}…` : g.message;
+              const title = msg ? `${label} · ${msg}` : label;
               return (
                 <Fragment key={g.key}>
                   <tr>
@@ -102,7 +104,7 @@ export function ExceptionGroups({
                     <tr id={id}>
                       <td colSpan={5} className="border-b border-line bg-subtle px-3.5 py-3">
                         <ul
-                          aria-label={`${title} occurrences`}
+                          aria-label={`Occurrences: ${title}`}
                           className="m-0 flex list-none flex-col gap-2 p-0"
                         >
                           {g.entries.map((e, k) => (
@@ -158,12 +160,12 @@ function Trace({ e, label }: { e: FlinkException; label: string }) {
       {/* A scroller the keyboard can reach (as Table does). */}
       <div
         role="region"
-        aria-label={`${label} stack trace`}
+        aria-label={`Stack trace: ${label}`}
         tabIndex={0}
         className="sl-focus max-h-64 overflow-auto rounded-md border border-line bg-surface p-3"
       >
         <ol
-          aria-label={`${label} stack trace (newest)`}
+          aria-label={`Newest stack trace: ${label}`}
           className="m-0 list-decimal pl-8 font-mono text-[12px] text-ink"
         >
           {lines(e.stacktrace).map(({ text, depth }, i) => (

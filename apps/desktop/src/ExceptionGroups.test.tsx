@@ -48,14 +48,14 @@ describe('JOB-08 · grouped exceptions (board X20)', () => {
     expect(show).toHaveAttribute('aria-expanded', 'false');
     await userEvent.click(show);
     expect(show).toHaveAttribute('aria-expanded', 'true');
-    const list = screen.getByRole('list', { name: 'TimeoutException · Kafka describeTopics occurrences' });
+    const list = screen.getByRole('list', { name: 'Occurrences: TimeoutException · Kafka describeTopics' });
     const items = within(list).getAllByRole('listitem');
     expect(items).toHaveLength(3);
     expect(items[0]).toHaveTextContent(clock(T + 3 * 60_000));
     expect(items[0]).toHaveTextContent('Window aggregate (2/4)');
     await userEvent.click(show);
     expect(
-      screen.queryByRole('list', { name: 'TimeoutException · Kafka describeTopics occurrences' }),
+      screen.queryByRole('list', { name: 'Occurrences: TimeoutException · Kafka describeTopics' }),
     ).toBeNull();
   });
 
@@ -66,10 +66,10 @@ describe('JOB-08 · grouped exceptions (board X20)', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Show 2' })); // NPE, second row
     rerender(<ExceptionGroups entries={[npe(T + 4 * 60_000), ...first]} />); // NPE 3, newer: now first
     expect(
-      screen.getByRole('list', { name: 'NullPointerException · ScoreFunction.map occurrences' }),
+      screen.getByRole('list', { name: 'Occurrences: NullPointerException · ScoreFunction.map' }),
     ).toBeInTheDocument();
     expect(
-      screen.queryByRole('list', { name: 'TimeoutException · Kafka describeTopics occurrences' }),
+      screen.queryByRole('list', { name: 'Occurrences: TimeoutException · Kafka describeTopics' }),
     ).toBeNull();
   });
 
@@ -102,10 +102,10 @@ describe('JOB-08 · grouped exceptions (board X20)', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Show 1' }));
     // Two groups open: each trace, list and Copy is named for its group.
     const trace = screen.getByRole('list', {
-      name: 'TimeoutException · Kafka describeTopics stack trace (newest)',
+      name: 'Newest stack trace: TimeoutException · Kafka describeTopics',
     });
     expect(
-      screen.getByRole('list', { name: 'NullPointerException · ScoreFunction.map stack trace (newest)' }),
+      screen.getByRole('list', { name: 'Newest stack trace: NullPointerException · ScoreFunction.map' }),
     ).toBeInTheDocument();
     const items = within(trace).getAllByRole('listitem');
     expect(items.map((l) => l.textContent)).toEqual([
@@ -148,12 +148,23 @@ describe('JOB-08 · grouped exceptions (board X20)', () => {
       screen.getByRole('button', { name: /^Copy stack trace \(TimeoutException · Heartbeat/ }),
     ).toBeInTheDocument();
     expect(
-      screen.getAllByRole('region', { name: /stack trace$/ }).map((r) => r.getAttribute('aria-label')),
+      screen.getAllByRole('region', { name: /^Stack trace: / }).map((r) => r.getAttribute('aria-label')),
     ).toHaveLength(2);
     expect(
       new Set(
-        screen.getAllByRole('region', { name: /stack trace$/ }).map((r) => r.getAttribute('aria-label')),
+        screen.getAllByRole('region', { name: /^Stack trace: / }).map((r) => r.getAttribute('aria-label')),
       ).size,
     ).toBe(2);
+  });
+
+  it('audit d11b #3: a very long message is cut in names (role word first), never the whole line on every stop', async () => {
+    const long =
+      "java.lang.ClassCastException: class com.acme.Payment cannot be cast to class com.acme.Payment (com.acme.Payment is in unnamed module of loader org.apache.flink.util.ChildFirstClassLoader @5a2e4553; com.acme.Payment is in unnamed module of loader 'app')";
+    render(<ExceptionGroups entries={[ex(T, long)]} />);
+    await userEvent.click(screen.getByRole('button', { name: 'Show 1' }));
+    const copy = screen.getByRole('button', { name: /^Copy stack trace \(ClassCastException · / });
+    const region = screen.getByRole('region', { name: /^Stack trace: ClassCastException · / });
+    for (const el of [copy, region]) expect(el.getAttribute('aria-label')!.length).toBeLessThanOrEqual(110);
+    expect(region.getAttribute('aria-label')).toMatch(/…$/);
   });
 });

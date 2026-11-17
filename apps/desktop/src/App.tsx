@@ -35,7 +35,7 @@ type Screen =
   | { name: 'list' }
   | { name: 'cluster'; id: string }
   | { name: 'jobs'; id: string }
-  | { name: 'job'; id: string; jid: string }
+  | { name: 'job'; id: string; jid: string; act?: 'stop' | 'savepoint' }
   | { name: 'logs'; id: string }
   | { name: 'kind'; kind: KindChoice | null }
   | { name: 'form'; kind: Connection['kind'] };
@@ -190,6 +190,22 @@ export function App({
             hint: `Job · ${c.name} · ${stateWord(j.state)}`,
             run: () => setScreen({ name: 'job', id: c.id, jid: j.jid }),
           })),
+          // Board G01 actions, for running jobs on a writable connection. They open the job page, which starts the
+          // action once its own rules allow it (Stop: its confirm dialog first; Trigger: its one POST).
+          ...(c.readOnly ? [] : jobsOf(c.id).filter((j) => j.state === 'RUNNING')).flatMap((j): Command[] => [
+            {
+              id: `sp-${c.id}-${j.jid}`,
+              label: `Trigger savepoint: ${j.name}`,
+              hint: `Action · ${c.name}`,
+              run: () => setScreen({ name: 'job', id: c.id, jid: j.jid, act: 'savepoint' }),
+            },
+            {
+              id: `stop-${c.id}-${j.jid}`,
+              label: `Stop with savepoint: ${j.name}`,
+              hint: `Action · ${c.name}`,
+              run: () => setScreen({ name: 'job', id: c.id, jid: j.jid, act: 'stop' }),
+            },
+          ]),
         ])
       : []),
   ];
@@ -250,6 +266,7 @@ export function App({
           key={`${open.id}/${screen.jid}`}
           c={open}
           jid={screen.jid}
+          {...(screen.act ? { start: screen.act } : {})}
           transport={transport}
           history={history}
           onJobs={() => setScreen({ name: 'jobs', id: open.id })}

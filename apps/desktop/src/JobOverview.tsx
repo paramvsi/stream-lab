@@ -219,11 +219,14 @@ export function JobOverview({
   transport,
   onJobs,
   history,
+  start,
 }: {
   c: Connection;
   jid: string;
   transport: (c: Connection) => FlinkHttp;
   onJobs?: () => void;
+  /** APP-01: opened from the palette to do this, once the page's own rules allow it (else nothing is sent). */
+  start?: 'stop' | 'savepoint';
   /** JOB-06: where this page records what changes (the app's store; one of its own when none is given). */
   history?: HistoryStore;
 }) {
@@ -410,6 +413,20 @@ export function JobOverview({
   const canStop = !!j && !gone && !c.readOnly && j.state === 'RUNNING';
   const [hadStop, setHadStop] = useState(canStop);
   if (canStop !== hadStop) setHadStop(canStop);
+  // APP-01: the palette's action, once: Stop opens its confirm dialog (adjusted during render); Trigger sends its
+  // one POST from an effect. Only when the page allows it (running, writable, no other action going).
+  const [act, setAct] = useState(start);
+  if (act === 'stop' && canStop && !sp.busy) {
+    setAct(undefined);
+    setStopping(true);
+  }
+  const triggerNow = act === 'savepoint' && canStop && !sp.busy && !stopRunning;
+  const fired = useRef(false);
+  useEffect(() => {
+    if (!triggerNow || fired.current) return;
+    fired.current = true;
+    sp.trigger();
+  }, [triggerNow, sp]);
   // Only focus that was on the button moves (as the banner's focus does): React fires no blur when it removes the
   // button, so stopFocused stays set then; a reader elsewhere on the page is never moved.
   const stopFocused = useRef(false);

@@ -483,7 +483,7 @@ describe('APP-01 · command palette (board G01)', () => {
     await userEvent.keyboard('{Meta>}k{/Meta}');
     const dialog = screen.getByRole('dialog', { name: 'Commands' });
     await userEvent.type(within(dialog).getByRole('combobox'), 'refund');
-    const opt = await within(dialog).findByRole('option', { name: /refund-matcher/ });
+    const opt = await within(dialog).findByRole('option', { name: /^refund-matcher/ });
     expect(opt).toHaveTextContent('Job · local-docker');
     await userEvent.keyboard('{Enter}');
     expect(await screen.findByRole('heading', { level: 1, name: 'refund-matcher' })).toBeTruthy();
@@ -558,7 +558,7 @@ describe('APP-01 · command palette (board G01)', () => {
     const at = () => document.getElementById(box.getAttribute('aria-activedescendant') ?? '')?.textContent;
     expect(at()).toMatch(/^payments-staging/);
     release();
-    await within(dialog).findByRole('option', { name: /refund-matcher/ });
+    await within(dialog).findByRole('option', { name: /^refund-matcher/ });
     expect(at()).toMatch(/^payments-staging/);
     await userEvent.keyboard('{Enter}');
     expect(await screen.findByRole('heading', { level: 1, name: 'payments-staging' })).toBeTruthy();
@@ -581,7 +581,7 @@ describe('APP-01 · command palette (board G01)', () => {
     expect(notes).toHaveAttribute('aria-live', 'polite');
     expect(notes).toHaveAttribute('aria-atomic', 'false');
     expect(await within(notes).findByText(/^local-docker: /)).toBeInTheDocument();
-    const runs = await within(dialog).findAllByRole('option', { name: /refund-matcher/ });
+    const runs = await within(dialog).findAllByRole('option', { name: /^refund-matcher/ });
     expect(runs.map((o) => o.textContent)).toEqual([
       expect.stringContaining('Running'),
       expect.stringContaining('Finished'),
@@ -645,6 +645,94 @@ describe('APP-01 · command palette (board G01)', () => {
     (document.activeElement as HTMLElement).blur();
     await userEvent.keyboard('{Meta>}k{/Meta}');
     const palette = screen.getByRole('dialog', { name: 'Commands' });
-    expect(await within(palette).findByRole('option', { name: /chargeback-router/ })).toBeInTheDocument();
+    expect(await within(palette).findByRole('option', { name: /^chargeback-router/ })).toBeInTheDocument();
+  });
+
+  const jobHttp =
+    (posts: string[]): FlinkHttp =>
+    async (req) => {
+      if (req.method === 'POST') {
+        posts.push(req.path);
+        return ok({ 'request-id': 'r1' });
+      }
+      return ok(
+        req.path === '/jobs/overview'
+          ? { jobs: [row('a1', 'refund-matcher', 'RUNNING'), row('f9', 'old-batch', 'FINISHED')] }
+          : req.path === '/jobs/a1'
+            ? {
+                jid: 'a1',
+                name: 'refund-matcher',
+                state: 'RUNNING',
+                'start-time': 1,
+                'end-time': -1,
+                duration: 60_000,
+                now: 60_001,
+                vertices: [],
+              }
+            : req.path === '/jobs/a1/checkpoints'
+              ? { counts: { completed: 0, failed: 0, in_progress: 0, restored: 0, total: 1 }, history: [] }
+              : req.path === '/jobmanager/config'
+                ? [{ key: 'execution.checkpointing.savepoint-dir', value: 's3://payments/savepoints' }]
+                : req.path.startsWith('/jobs/a1/savepoints/')
+                  ? { status: { id: 'IN_PROGRESS' } }
+                  : {},
+      );
+    };
+
+  it('G01 actions: "Stop with savepoint: {job}" opens the job with its Stop dialog (confirm first); only running jobs offer it', async () => {
+    const posts: string[] = [];
+    await withOne(jobHttp(posts));
+    await userEvent.keyboard('{Meta>}k{/Meta}');
+    const dialog = screen.getByRole('dialog', { name: 'Commands' });
+    await userEvent.type(within(dialog).getByRole('combobox'), 'stop');
+    const opts = await within(dialog).findAllByRole('option', { name: /Stop with savepoint/ });
+    expect(opts.map((o) => o.textContent)).toEqual([
+      expect.stringContaining('Stop with savepoint: refund-matcher'),
+    ]);
+    await userEvent.keyboard('{Enter}');
+    expect(
+      await screen.findByRole('dialog', { name: /Stop refund-matcher|Stop with savepoint/ }),
+    ).toBeInTheDocument();
+    expect(posts).toEqual([]); // nothing sent before the dialog's own confirm
+  });
+
+  it('G01 actions: "Trigger savepoint: {job}" opens the job and sends its one trigger', async () => {
+    const posts: string[] = [];
+    await withOne(jobHttp(posts));
+    await userEvent.keyboard('{Meta>}k{/Meta}');
+    const dialog = screen.getByRole('dialog', { name: 'Commands' });
+    await userEvent.type(within(dialog).getByRole('combobox'), 'trigger refund');
+    await within(dialog).findByRole('option', { name: /Trigger savepoint: refund-matcher/ });
+    await userEvent.keyboard('{Enter}');
+    await screen.findByRole('heading', { level: 1, name: 'refund-matcher' });
+    await vi.waitFor(() => expect(posts).toEqual(['/jobs/a1/savepoints']));
+    await new Promise((r) => setTimeout(r, 100));
+    expect(posts).toEqual(['/jobs/a1/savepoints']); // once
+  });
+
+  it('G01 actions: a read-only connection offers no actions (its jobs still jump)', async () => {
+    const posts: string[] = [];
+    render(
+      <TooltipProvider>
+        <ToastProvider>
+          <App transport={() => jobHttp(posts)} />
+        </ToastProvider>
+      </TooltipProvider>,
+    );
+    await userEvent.click(screen.getByRole('button', { name: 'Add a connection' }));
+    await userEvent.click(screen.getByRole('radio', { name: /Self-managed/ }));
+    await userEvent.click(screen.getByRole('button', { name: 'Continue' }));
+    await userEvent.type(screen.getByLabelText(/^Name/), 'payments-prod');
+    await userEvent.selectOptions(screen.getByLabelText(/^Environment/), 'prod');
+    await userEvent.type(screen.getByLabelText(/JobManager REST URL/), 'http://prod:8081');
+    await userEvent.click(screen.getByRole('switch', { name: /Read-only connection/ }));
+    await userEvent.click(screen.getByRole('button', { name: 'Save' }));
+    await screen.findByRole('heading', { level: 1, name: 'Fleet' });
+    (document.activeElement as HTMLElement).blur();
+    await userEvent.keyboard('{Meta>}k{/Meta}');
+    const dialog = screen.getByRole('dialog', { name: 'Commands' });
+    await userEvent.type(within(dialog).getByRole('combobox'), 'refund');
+    await within(dialog).findByRole('option', { name: /^refund-matcher/ });
+    expect(within(dialog).queryByRole('option', { name: /savepoint/ })).toBeNull();
   });
 });

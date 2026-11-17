@@ -88,8 +88,11 @@ export function Jobs({
   const lost = useRef(false);
   const hasRows = useRef(false);
   const search = useRef<HTMLInputElement>(null);
-  /** Retry was pressed from the banner: once the banner goes, focus goes to the heading (not on a quiet recovery). */
-  const retryFocused = useRef(false);
+  /**
+   * Focus is on the banner or its Retry. When they go (however the cluster came back), focus would fall to
+   * <body>: it goes to the heading instead. Removal fires no blur with a target, so leaving to elsewhere clears it.
+   */
+  const focusInBanner = useRef(false);
   /** When the last good answer came, and when the last answer of any kind came (for "data from N min ago"). */
   const [at, setAt] = useState(0);
   const [now, setNow] = useState(0);
@@ -118,7 +121,6 @@ export function Jobs({
           setError(null);
         } else {
           fails.current++;
-          retryFocused.current = false; // that Retry is over: a later recovery must not pull focus
           const e =
             r.error instanceof AppError
               ? r.error
@@ -171,10 +173,7 @@ export function Jobs({
       render: (r) => (jobBucket(r.state) === 'finished' ? '—' : uptime(r.duration)),
     },
   ];
-  const retry = () => {
-    retryFocused.current = true;
-    setRound((n) => n + 1);
-  };
+  const retry = () => setRound((n) => n + 1);
   // With rows on screen, a lost cluster is CONN-LOST (or API-TIMEOUT) over the kept rows (§4); an API answer
   // (401, 404, shape…) keeps its own code. Before any rows, the error itself, with a Retry of our own.
   const s = Math.round(nextDelay(POLL.jobs.everyMs, pollFails) / 1000);
@@ -196,20 +195,33 @@ export function Jobs({
   // A banner whose button had focus went away (Retry now worked): focus goes to the heading, not <body>.
   const bannerUp = !!banner;
   useEffect(() => {
-    if (bannerUp || !retryFocused.current) return;
-    retryFocused.current = false;
+    if (bannerUp || !focusInBanner.current) return;
+    focusInBanner.current = false;
     if (document.activeElement === document.body || !document.activeElement) h1.current?.focus();
   }, [bannerUp, h1]);
   return (
     <main className="flex min-h-screen flex-col gap-5 bg-surface px-8 py-7">
       {banner && (
-        <ErrorBanner error={banner} handles={new Set(rows ? ['Retry', 'Retry now'] : [])} onAction={retry} />
-      )}
-      {banner && !rows && (
-        <div>
-          <Button icon={<RotateCw size={16} aria-hidden="true" />} onClick={retry}>
-            Retry
-          </Button>
+        <div
+          className="flex flex-col gap-3"
+          onFocus={() => (focusInBanner.current = true)}
+          onBlur={(e) => {
+            if (e.relatedTarget && !e.currentTarget.contains(e.relatedTarget as Node))
+              focusInBanner.current = false;
+          }}
+        >
+          <ErrorBanner
+            error={banner}
+            handles={new Set(rows ? ['Retry', 'Retry now'] : [])}
+            onAction={retry}
+          />
+          {!rows && (
+            <div>
+              <Button icon={<RotateCw size={16} aria-hidden="true" />} onClick={retry}>
+                Retry
+              </Button>
+            </div>
+          )}
         </div>
       )}
       <div className="flex flex-wrap items-start justify-between gap-4">

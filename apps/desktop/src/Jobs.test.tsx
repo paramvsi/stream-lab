@@ -299,3 +299,62 @@ describe('audit 3 of 4b4f05f', () => {
     expect(screen.getByTestId('jobs-match')).toHaveTextContent('');
   });
 });
+
+describe('audit 4 of 31039a3: focus on the banner when it goes', () => {
+  const lose = async () => {
+    const f = flaky();
+    show(f.http);
+    await screen.findByRole('table', { name: 'Jobs' });
+    f.st.down = true;
+    for (const ms of [5_000, 10_000, 20_000]) await tick(ms);
+    await screen.findByText(/Lost contact with payments-prod/);
+    return f;
+  };
+  const heading = () => screen.getByRole('heading', { level: 1, name: 'Jobs' });
+
+  it('A: Retry now pressed, fails, then a quiet recovery: focus goes to the heading', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      const f = await lose();
+      await userEvent.click(screen.getByRole('button', { name: 'Retry now' }));
+      await tick(100);
+      f.st.down = false;
+      await tick(30_000);
+      await waitFor(() => expect(screen.queryByText(/Lost contact/)).toBeNull());
+      expect(heading()).toHaveFocus();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('B: on Retry now without pressing it, then a quiet recovery: focus goes to the heading', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      const f = await lose();
+      screen.getByRole('button', { name: 'Retry now' }).focus();
+      f.st.down = false;
+      await tick(30_000);
+      await waitFor(() => expect(screen.queryByText(/Lost contact/)).toBeNull());
+      expect(heading()).toHaveFocus();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('C: first load, Retry pressed and failed, then the next poll answers: focus goes to the heading', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      const f = flaky();
+      f.st.down = true;
+      show(f.http);
+      await userEvent.click(await screen.findByRole('button', { name: 'Retry' }));
+      await tick(100);
+      f.st.down = false;
+      await tick(30_000);
+      await screen.findByRole('table', { name: 'Jobs' });
+      expect(heading()).toHaveFocus();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});

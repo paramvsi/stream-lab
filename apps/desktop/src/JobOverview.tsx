@@ -4,6 +4,7 @@ import {
   getCheckpoints,
   getExceptions,
   getJob,
+  jobGraph,
   lastCompleted,
   POLL,
   recentFailures,
@@ -24,6 +25,7 @@ import { Checkpoints } from './Checkpoints';
 import { ExceptionGroups } from './ExceptionGroups';
 import { ago, duration, shortAgo, size } from './format';
 export { duration, size } from './format';
+import { JobGraphView } from './JobGraphView';
 import { Kpi } from './Kpi';
 import { TONE, uptime, word } from './Jobs';
 import { usePolled } from './usePolled';
@@ -186,7 +188,7 @@ const columns: Column<FlinkVertex>[] = [
 /**
  * JOB-02 / board D08: one job from /jobs/:jid, polled every 2 s while visible (FLINK_API "Open job overview"),
  * with usePolled's §4 errors. A job the cluster no longer has is API-404-JOB's full-page state (Back to list).
- * ponytail: the job graph (xyflow, D08), the KPIs records in, watermark lag and restarts (metrics, history), the
+ * ponytail: the graph's metric colouring (JOB-03), the KPIs records in, watermark lag and restarts (metrics, history), the
  * History / Exceptions / Checkpoints / Configuration / Savepoints tabs and the savepoint / stop actions (M8) are
  * next slices; operators are a table until the graph lands. A 404 keeps polling (it may be a short gap in HA).
  * The app shell's breadcrumb (D08 "payments-prod / Jobs / name") waits for the shell; the subtitle names the
@@ -369,6 +371,7 @@ export function JobOverview({
                         <Kpi label="Last checkpoint" value="None yet" />
                       )}
                     </div>
+                    <JobGraphView graph={jobGraph(j)} />
                     <Table label="Operators" columns={columns} rows={j.vertices} rowKey={(v) => v.id} />
                   </div>
                 </ErrorBoundary>

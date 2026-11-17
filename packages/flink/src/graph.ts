@@ -51,3 +51,27 @@ export function jobGraph(j: FlinkJobDetail): JobGraph {
     : [];
   return { nodes, edges };
 }
+
+/**
+ * The graph's columns, left to right (board D08): a node sits one column after its deepest input, so a join
+ * waits for its longest branch. Within a column, vertex order. Relaxed at most n times, so even a cycle (not
+ * possible in a job graph) ends.
+ * ponytail: columns, not a full layout; a wide or crossing-heavy graph wants elkjs + @xyflow/react (the stack).
+ */
+export function graphLayers(g: JobGraph): string[][] {
+  const depth = new Map(g.nodes.map((n) => [n.id, 0]));
+  for (let i = 0; i < g.nodes.length; i++) {
+    let moved = false;
+    for (const e of g.edges) {
+      const d = (depth.get(e.from) ?? 0) + 1;
+      if (d > (depth.get(e.to) ?? 0) && d < g.nodes.length) {
+        depth.set(e.to, d);
+        moved = true;
+      }
+    }
+    if (!moved) break;
+  }
+  const layers: string[][] = [];
+  for (const n of g.nodes) (layers[depth.get(n.id) ?? 0] ??= []).push(n.id);
+  return layers.filter(Boolean);
+}

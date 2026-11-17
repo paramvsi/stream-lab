@@ -845,6 +845,23 @@ describe('JOB-02 · Job overview (board D08)', () => {
     },
   );
 
+  it('JOB-02: the Overview tab shows the job graph (D08), its operators in flow order', async () => {
+    const plan = {
+      nodes: [
+        { id: 'v1' },
+        { id: 'v2', inputs: [{ num: 0, id: 'v1', ship_strategy: 'HASH' }] },
+        { id: 'v3', inputs: [{ num: 0, id: 'v2' }] },
+      ],
+    };
+    show(answer(200, { ...detail, plan }));
+    const g = await screen.findByRole('list', { name: 'Job graph' });
+    expect(
+      within(g)
+        .getAllByRole('heading')
+        .map((h) => h.textContent),
+    ).toEqual(['Source: payments', 'Window aggregate', 'Sink: alerts']);
+  });
+
   it('lists the operators with parallelism and status', async () => {
     show(answer(200, detail));
     const table = await screen.findByRole('table', { name: 'Operators' });

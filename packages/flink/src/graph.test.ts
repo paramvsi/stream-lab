@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { jobGraph } from './graph';
+import { graphLayers, jobGraph } from './graph';
 
 const v = (id: string, name: string, parallelism: number, status = 'RUNNING') => ({
   id,
@@ -105,5 +105,57 @@ describe('JOB-02 · job graph from the plan (board D08)', () => {
     };
     const keys = jobGraph(detail(p)).edges.map((e) => `${e.from}-${e.to}-${e.num}`);
     expect(new Set(keys).size).toBe(2);
+  });
+});
+
+describe('JOB-02 · graph layers (columns, left to right)', () => {
+  const g = (nodes: string[], edges: [string, string][]) => ({
+    nodes: nodes.map((id) => ({ id, name: id, parallelism: 1, status: 'RUNNING' })),
+    edges: edges.map(([from, to], num) => ({ from, to, ship: null, num })),
+  });
+
+  it('a chain is one node per column, in flow order', () => {
+    expect(
+      graphLayers(
+        g(
+          ['k', 'w', 's'],
+          [
+            ['s', 'w'],
+            ['w', 'k'],
+          ],
+        ),
+      ),
+    ).toEqual([['s'], ['w'], ['k']]);
+  });
+
+  it('a node goes one column after its deepest input (a join waits for its longest branch)', () => {
+    const layers = graphLayers(
+      g(
+        ['a', 'b', 'c', 'j'],
+        [
+          ['a', 'b'],
+          ['b', 'j'],
+          ['c', 'j'],
+        ],
+      ),
+    );
+    expect(layers).toEqual([['a', 'c'], ['b'], ['j']]);
+  });
+
+  it('no edges (a plan that did not parse): one column with every node, never a crash', () => {
+    expect(graphLayers(g(['x', 'y'], []))).toEqual([['x', 'y']]);
+  });
+
+  it('a cycle (impossible in a job graph, but never hang) still places every node once', () => {
+    const layers = graphLayers(
+      g(
+        ['a', 'b'],
+        [
+          ['a', 'b'],
+          ['b', 'a'],
+        ],
+      ),
+    );
+    expect(layers.flat().sort()).toEqual(['a', 'b']);
   });
 });

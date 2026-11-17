@@ -41,7 +41,7 @@ export function ExceptionGroups({
       else n.add(i);
       return n;
     });
-  // Accessible names: type · message, the message cut at 60 characters (by code point: never half a character),
+  // Accessible names: type · message, the message cut at 60 characters (by code point: never half a UTF-16 pair; a flag or joined emoji at the edge can still split),
   // since a long root-cause line would fill every name. Two groups cut alike get their row number.
   const cut = groups.map((g) => {
     const label = g.name || 'Exception';

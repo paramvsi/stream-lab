@@ -273,3 +273,29 @@ describe('audit 2 of e31e81c', () => {
     }
   });
 });
+
+describe('audit 3 of 4b4f05f', () => {
+  it('#1 a recovery nobody asked for does not move focus to the heading', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      const f = flaky();
+      show(f.http);
+      await screen.findByRole('table', { name: 'Jobs' });
+      f.st.down = true;
+      for (const ms of [5_000, 10_000, 20_000]) await tick(ms);
+      await screen.findByText(/Lost contact with payments-prod/);
+      (document.activeElement as HTMLElement | null)?.blur(); // reading the table: focus on <body>
+      f.st.down = false;
+      await tick(30_000);
+      await waitFor(() => expect(screen.queryByText(/Lost contact/)).toBeNull());
+      expect(document.activeElement).toBe(document.body);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('#2 the no-match live region exists (empty) before any rows arrive', () => {
+    show(async () => new Promise(() => {}));
+    expect(screen.getByTestId('jobs-match')).toHaveTextContent('');
+  });
+});

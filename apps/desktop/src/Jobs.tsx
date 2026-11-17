@@ -88,6 +88,8 @@ export function Jobs({
   const lost = useRef(false);
   const hasRows = useRef(false);
   const search = useRef<HTMLInputElement>(null);
+  /** Retry was pressed from the banner: once the banner goes, focus goes to the heading (not on a quiet recovery). */
+  const retryFocused = useRef(false);
   /** When the last good answer came, and when the last answer of any kind came (for "data from N min ago"). */
   const [at, setAt] = useState(0);
   const [now, setNow] = useState(0);
@@ -116,6 +118,7 @@ export function Jobs({
           setError(null);
         } else {
           fails.current++;
+          retryFocused.current = false; // that Retry is over: a later recovery must not pull focus
           const e =
             r.error instanceof AppError
               ? r.error
@@ -168,7 +171,10 @@ export function Jobs({
       render: (r) => (jobBucket(r.state) === 'finished' ? '—' : uptime(r.duration)),
     },
   ];
-  const retry = () => setRound((n) => n + 1);
+  const retry = () => {
+    retryFocused.current = true;
+    setRound((n) => n + 1);
+  };
   // With rows on screen, a lost cluster is CONN-LOST (or API-TIMEOUT) over the kept rows (§4); an API answer
   // (401, 404, shape…) keeps its own code. Before any rows, the error itself, with a Retry of our own.
   const s = Math.round(nextDelay(POLL.jobs.everyMs, pollFails) / 1000);
@@ -190,7 +196,9 @@ export function Jobs({
   // A banner whose button had focus went away (Retry now worked): focus goes to the heading, not <body>.
   const bannerUp = !!banner;
   useEffect(() => {
-    if (!bannerUp && document.activeElement === document.body) h1.current?.focus();
+    if (bannerUp || !retryFocused.current) return;
+    retryFocused.current = false;
+    if (document.activeElement === document.body || !document.activeElement) h1.current?.focus();
   }, [bannerUp, h1]);
   return (
     <main className="flex min-h-screen flex-col gap-5 bg-surface px-8 py-7">
@@ -259,30 +267,27 @@ export function Jobs({
         <>
           {stale && <p className="m-0 text-[13px] text-muted">Not answering. Showing data from {since}.</p>}
           <Table label="Jobs" columns={columns} rows={shown} rowKey={(r) => r.jid} />
-          {/* Mounted empty, so the words are announced when they come (a region born full often is not). */}
-          <div
-            data-testid="jobs-match"
-            role="status"
-            className="flex items-center gap-3 text-[14px] text-muted"
-          >
-            {shown.length === 0 && filtered && (
-              <>
-                No jobs match this search or filter.
-                <Button
-                  size="sm"
-                  onClick={() => {
-                    setQ('');
-                    setBucket(undefined);
-                    search.current?.focus();
-                  }}
-                >
-                  Clear search and filter
-                </Button>
-              </>
-            )}
-          </div>
         </>
       )}
+      {/* Mounted empty, so the words are announced when they come (a region born full often is not). Outside the rows
+      branch: search and chips work while loading too. */}
+      <div data-testid="jobs-match" role="status" className="flex items-center gap-3 text-[14px] text-muted">
+        {!!rows?.length && shown.length === 0 && filtered && (
+          <>
+            No jobs match this search or filter.
+            <Button
+              size="sm"
+              onClick={() => {
+                setQ('');
+                setBucket(undefined);
+                search.current?.focus();
+              }}
+            >
+              Clear search and filter
+            </Button>
+          </>
+        )}
+      </div>
     </main>
   );
 }

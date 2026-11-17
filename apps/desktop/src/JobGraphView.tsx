@@ -16,11 +16,14 @@ import { TONE, word } from './Jobs';
  */
 export function JobGraphView({
   graph,
+  note,
   backpressure = {},
 }: {
   graph: JobGraph;
   /** Per vertex id; null or missing is no reading. */
   backpressure?: Record<string, Backpressure | null | undefined>;
+  /** Under the title, e.g. "Backpressure from 2 min ago." when the readings are stale (§4). */
+  note?: string;
 }) {
   const byId = new Map(graph.nodes.map((n) => [n.id, n]));
   const layers = graphLayers(graph);
@@ -30,6 +33,7 @@ export function JobGraphView({
       <h3 id={titleId} className="m-0 text-[16px] font-semibold">
         Job graph
       </h3>
+      {note && <p className="m-0 text-[13px] text-muted">{note}</p>}
       {/* A scroll region the keyboard can reach (WebKit does not focus scrollers by itself), as Table does. */}
       <div
         role="region"

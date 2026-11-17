@@ -9,7 +9,7 @@ import {
 } from '@sl/flink';
 import { Button, Drawer, EmptyState, Loading, Skeleton, StatusBadge, Table, type Column } from '@sl/ui';
 import { LayoutGrid, ListChecks, Server } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { ENV } from './Connections';
 import { useScreenHeading } from './focus';
 import { size } from './format';
@@ -78,7 +78,24 @@ export function Cluster({
   const { value, stale, since, banner } = usePolled(c, transport, readCluster, h1);
   // D05c: the TaskManager whose detail drawer is open (by id: the row data refreshes under it).
   const [openTm, setOpenTm] = useState<string | null>(null);
+  const opener = useRef<HTMLElement | null>(null);
   const tm = openTm ? value?.tms.find((t) => t.id === openTm) : undefined;
+  // It left the cluster: the drawer is done, and must not reopen by itself if it comes back. Adjusted during
+  // render (React's pattern for state that follows data), counted so the effect below can move focus.
+  const [left, setLeft] = useState(0);
+  if (openTm && value && !tm) {
+    setOpenTm(null);
+    setLeft((n) => n + 1);
+  }
+  // Closed by us, not the user: Radix gives no close-focus event here, and its row is gone. Once the drawer is
+  // down, focus that fell to <body> goes to the heading.
+  useEffect(() => {
+    if (!left) return;
+    const f = setTimeout(() => {
+      if (document.activeElement === document.body || !document.activeElement) h1.current?.focus();
+    }, 0);
+    return () => clearTimeout(f);
+  }, [left, h1]);
   const s: Up | undefined = value?.s;
   const used = s ? s.slotsTotal - s.slotsFree : 0;
   return (
@@ -135,7 +152,10 @@ export function Cluster({
               rows={value.tms}
               rowKey={(t) => t.id}
               selectedKey={openTm}
-              onSelect={(t) => setOpenTm(t.id)}
+              onSelect={(t) => {
+                opener.current = document.activeElement as HTMLElement | null;
+                setOpenTm(t.id);
+              }}
             />
           ) : (
             <EmptyState icon={Server} title="No TaskManagers registered" level={3}>
@@ -146,7 +166,13 @@ export function Cluster({
         </>
       )}
       {/* D05c: TaskManager detail. Gone from the list (it left the cluster): the drawer closes. */}
-      <Drawer open={!!tm} onOpenChange={(o) => !o && setOpenTm(null)} title={tm?.id ?? ''}>
+      <Drawer
+        open={!!tm}
+        onOpenChange={(o) => !o && setOpenTm(null)}
+        title={tm?.id ?? ''}
+        // Back to its row, or to the heading when the row is gone (the TaskManager left): never <body>.
+        returnFocusTo={() => (opener.current?.isConnected ? opener.current : h1.current)}
+      >
         {tm && (
           <div className="flex flex-col gap-4">
             <p className="m-0 text-[14px] text-muted">

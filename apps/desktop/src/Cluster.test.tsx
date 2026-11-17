@@ -3,6 +3,7 @@ import { ToastProvider, TooltipProvider } from '@sl/ui';
 import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
+import { act } from '@testing-library/react';
 import { Cluster } from './Cluster';
 
 globalThis.requestAnimationFrame = (cb) => setTimeout(() => cb(performance.now()), 0) as unknown as number;
@@ -140,5 +141,32 @@ describe('FLEET-02 · Cluster overview and TaskManagers (boards D05, D05b)', () 
     await userEvent.keyboard('{Escape}');
     expect(screen.queryByRole('dialog')).toBeNull();
     expect(row).toHaveFocus();
+  });
+
+  it('audit D05c #1: the TaskManager leaves: the drawer closes, focus goes to the heading, and it does not reopen', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      let tms = [tm(1, 0), tm(2, 2, true)];
+      show(async (req) =>
+        req.path === '/taskmanagers'
+          ? { status: 200, headers: {}, url: '', body: JSON.stringify({ taskmanagers: tms }) }
+          : healthy(req),
+      );
+      const row = within(await screen.findByRole('table', { name: 'TaskManagers' })).getAllByRole('row')[1]!;
+      row.focus();
+      await userEvent.keyboard('{Enter}');
+      const d = await screen.findByRole('dialog', { name: 'tm1-6d1f0c' });
+      within(d).getAllByRole('button')[0]!.focus();
+      tms = [tm(2, 2, true)]; // tm1 leaves
+      await act(async () => vi.advanceTimersByTimeAsync(6_000));
+      await act(async () => vi.advanceTimersByTimeAsync(10)); // the close's focus move, scheduled after it
+      expect(screen.queryByRole('dialog')).toBeNull();
+      expect(screen.getByRole('heading', { level: 1 })).toHaveFocus();
+      tms = [tm(1, 0), tm(2, 2, true)]; // and comes back
+      await act(async () => vi.advanceTimersByTimeAsync(6_000));
+      expect(screen.queryByRole('dialog')).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

@@ -1005,6 +1005,36 @@ describe('JOB-02 · Job overview (board D08)', () => {
     }
   });
 
+  it(
+    'audit bp3: hung backpressure reads: the round ends within one interval and the graph says its readings are old',
+    { timeout: 20_000 },
+    async () => {
+      vi.useFakeTimers({ shouldAdvanceTime: true });
+      try {
+        let hang = false;
+        show(async (req) => {
+          if (req.path.endsWith('/backpressure')) {
+            if (hang) await new Promise(() => {}); // never answers (the transport's own timeout is the cap)
+            return {
+              status: 200,
+              headers: {},
+              url: '',
+              body: JSON.stringify({ status: 'ok', backpressureLevel: 'high', subtasks: [{ ratio: 0.97 }] }),
+            };
+          }
+          return answer(200, detail)(req);
+        });
+        await screen.findAllByText('backpressured 97%');
+        hang = true;
+        for (let t = 0; t < 30; t++) await act(async () => vi.advanceTimersByTimeAsync(1_000));
+        const g = screen.getByRole('region', { name: 'Job graph' }).parentElement!;
+        expect(within(g).getByText(/Backpressure from .* ago/)).toBeInTheDocument();
+      } finally {
+        vi.useRealTimers();
+      }
+    },
+  );
+
   it('lists the operators with parallelism and status', async () => {
     show(answer(200, detail));
     const table = await screen.findByRole('table', { name: 'Operators' });

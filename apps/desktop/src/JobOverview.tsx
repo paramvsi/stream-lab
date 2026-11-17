@@ -138,6 +138,16 @@ function ReadError({
   );
 }
 
+/** A read that does not answer in 2 s is a miss here, whatever the transport does with its own timeout. */
+const within2s = <T,>(p: Promise<T>) =>
+  new Promise<T>((resolve, reject) => {
+    const t = setTimeout(() => reject(new Error('no answer in 2 s')), 2_000);
+    p.then(
+      (v) => (clearTimeout(t), resolve(v)),
+      (e: unknown) => (clearTimeout(t), reject(e)),
+    );
+  });
+
 type Failures = { n: number; more: boolean };
 type Ckpt =
   { off: true } | { off: false; last: FlinkCheckpoint | null; failed: Failures; stats: FlinkCheckpointStats };
@@ -230,6 +240,14 @@ export function JobOverview({
   const bpLast = useRef<Record<string, Backpressure | null>>({});
   const bpMisses = useRef(new Map<string, number>());
   const vids = j ? j.vertices.map((v) => v.id).join(',') : '';
+  // Bumped when the backpressure read's world changes (state, vertices, page): an older round stops at once.
+  const bpGen = useRef(0);
+  useEffect(() => {
+    const g = bpGen;
+    return () => {
+      g.current++;
+    };
+  }, [running, vids]);
   const bp = usePolled(
     c,
     transport,
@@ -239,13 +257,24 @@ export function JobOverview({
       // One vertex at a time: one slot of the connection's 6, so the job poll never waits behind a burst, and a
       // screen left behind leaves at most one request queued.
       const rs: PromiseSettledResult<Backpressure | null>[] = [];
-      for (const v of ids)
+      // Bounded: each read at most 2 s, the round at most one interval (vertices not reached are a miss), and it
+      // stops as soon as the page moves on (another job state, other vertices, or gone).
+      const gen = bpGen.current;
+      const until = Date.now() + POLL.checkpoints.everyMs;
+      const late = { status: 'rejected' as const, reason: new Error('not read this round') };
+      for (const v of ids) {
+        if (bpGen.current !== gen) throw new Error('stopped');
+        if (Date.now() > until) {
+          rs.push(late);
+          continue;
+        }
         rs.push(
-          await getBackpressure(http, conn, jid, v, j.state, t).then(
+          await within2s(getBackpressure(http, conn, jid, v, j.state, Math.min(t, 2_000))).then(
             (value) => ({ status: 'fulfilled' as const, value }),
             (reason: unknown) => ({ status: 'rejected' as const, reason }),
           ),
         );
+      }
       // §4: every vertex failing is a failed read (the poll keeps the last badges and counts it), not "nothing
       // to show". One vertex failing keeps its last reading for at most 2 misses in a row, then has none: never
       // an old reading that looks current.
@@ -423,7 +452,11 @@ export function JobOverview({
                         <Kpi label="Last checkpoint" value="None yet" />
                       )}
                     </div>
-                    <JobGraphView graph={jobGraph(j)} backpressure={bpShown} />
+                    <JobGraphView
+                      graph={jobGraph(j)}
+                      backpressure={bpShown}
+                      {...(running && bp.stale ? { note: `Backpressure from ${bp.since}.` } : {})}
+                    />
                     <Table label="Operators" columns={columns} rows={j.vertices} rowKey={(v) => v.id} />
                   </div>
                 </ErrorBoundary>

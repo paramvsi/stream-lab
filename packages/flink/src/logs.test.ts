@@ -1,6 +1,15 @@
 import { describe, expect, it } from 'vitest';
 import type { FlinkRequest } from './http';
-import { filterLines, getJmLog, LOG_TAIL_LINES, listJmLogs, tail, tooLarge } from './logs';
+import {
+  filterLines,
+  getJmLog,
+  getTmLog,
+  LOG_TAIL_LINES,
+  listJmLogs,
+  listTmLogs,
+  tail,
+  tooLarge,
+} from './logs';
 
 const reply = (status: number, body: string) => async () => ({ status, headers: {}, url: '', body });
 
@@ -63,5 +72,22 @@ describe('OPS-01 · logs (D18)', () => {
     expect(() => filterLines(lines, '(unclosed', true)).toThrow(
       expect.objectContaining({ code: 'LOG-REGEX' }),
     );
+  });
+
+  it('TaskManager logs: /taskmanagers/:id/logs (list) and /logs/:filename (file), ids and names encoded', async () => {
+    const paths: string[] = [];
+    const l = await listTmLogs(
+      async (r) => (
+        paths.push(r.path),
+        reply(200, JSON.stringify({ logs: [{ name: 'taskmanager.log', size: 5, mtime: 1 }] }))()
+      ),
+      'prod',
+      'tm 1',
+    );
+    expect(l).toEqual([{ name: 'taskmanager.log', size: 5, mtime: 1 }]);
+    expect(
+      await getTmLog(async (r) => (paths.push(r.path), reply(200, 'x')()), 'prod', 'tm 1', 'taskmanager.log'),
+    ).toBe('x');
+    expect(paths).toEqual(['/taskmanagers/tm%201/logs', '/taskmanagers/tm%201/logs/taskmanager.log']);
   });
 });

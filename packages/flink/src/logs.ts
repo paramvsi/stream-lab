@@ -10,8 +10,8 @@ import { fromTransport, httpStatusError, TransportError, type FlinkHttp } from '
  * is not there is 404.
  * FLINK: https://github.com/apache/flink/blob/release-1.20/flink-runtime/src/main/java/org/apache/flink/runtime/rest/messages/LogListInfo.java
  * FLINK: https://github.com/apache/flink/blob/release-1.20/flink-runtime/src/main/java/org/apache/flink/runtime/rest/handler/cluster/AbstractJobManagerFileHandler.java
- * ponytail: TaskManager logs are next: /taskmanagers/:taskmanagerid/logs and /taskmanagers/:taskmanagerid/logs/:filename
- * (TaskManagerCustomLogHeaders, release-1.20).
+ * TaskManager logs: /taskmanagers/:taskmanagerid/logs and /taskmanagers/:taskmanagerid/logs/:filename
+ * (TaskManagerLogListHeaders, TaskManagerCustomLogHeaders, release-1.20).
  */
 const LogList = z.looseObject({
   logs: z.array(z.looseObject({ name: z.string(), size: z.number(), mtime: z.number() })),
@@ -31,15 +31,14 @@ export async function listJmLogs(http: FlinkHttp, conn: string, timeoutMs = 10_0
 }
 
 /** One JobManager log file's text (the whole file: Flink has no partial read). */
-export async function getJmLog(
-  http: FlinkHttp,
-  conn: string,
-  name: string,
-  timeoutMs = 30_000,
-): Promise<string> {
+export const getJmLog = (http: FlinkHttp, conn: string, name: string, timeoutMs = 30_000) =>
+  getText(http, conn, `/jobmanager/logs/${encodeURIComponent(name)}`, timeoutMs);
+
+/** A plain-text GET in catalog words (transport and HTTP errors as getJson gives them). */
+async function getText(http: FlinkHttp, conn: string, path: string, timeoutMs: number): Promise<string> {
   let r;
   try {
-    r = await http({ method: 'GET', path: `/jobmanager/logs/${encodeURIComponent(name)}`, timeoutMs });
+    r = await http({ method: 'GET', path, timeoutMs });
   } catch (e) {
     if (e instanceof TransportError) throw fromTransport(e.failure, e);
     if (e instanceof AppError) throw e;
@@ -48,6 +47,27 @@ export async function getJmLog(
   if (r.status >= 400) throw httpStatusError(r, conn, 'reading a log');
   return r.body;
 }
+
+/** A TaskManager's log files, newest first (/taskmanagers/:taskmanagerid/logs, the same LogListInfo). */
+export async function listTmLogs(
+  http: FlinkHttp,
+  conn: string,
+  tm: string,
+  timeoutMs = 10_000,
+): Promise<LogFile[]> {
+  const r = await getJson(
+    http,
+    conn,
+    { method: 'GET', path: `/taskmanagers/${encodeURIComponent(tm)}/logs`, timeoutMs },
+    LogList,
+    'listing its logs',
+  );
+  return r.logs.map(({ name, size, mtime }) => ({ name, size, mtime })).sort((a, b) => b.mtime - a.mtime);
+}
+
+/** One TaskManager log file's text (/taskmanagers/:taskmanagerid/logs/:filename). */
+export const getTmLog = (http: FlinkHttp, conn: string, tm: string, name: string, timeoutMs = 30_000) =>
+  getText(http, conn, `/taskmanagers/${encodeURIComponent(tm)}/logs/${encodeURIComponent(name)}`, timeoutMs);
 
 /** LOG-TOO-LARGE: over 50 MB, only the last lines are shown. */
 export const LOG_TOO_LARGE_BYTES = 50 * 1024 * 1024;

@@ -4,6 +4,7 @@ import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 import { Logs } from './Logs';
+import { answerFilter, type FilterWorker } from './logFilter';
 
 const conn = {
   id: 'c1',
@@ -19,11 +20,23 @@ const text = [
 const ok = (status: number, body: string) => ({ status, headers: {}, url: '', body });
 const list = (logs: { name: string; size: number; mtime: number }[]) => ok(200, JSON.stringify({ logs }));
 
+/** jsdom has no Worker: one that answers as the real one does (answerFilter). */
+const worker = (): FilterWorker => {
+  const w: FilterWorker = {
+    onmessage: null,
+    onerror: null,
+    onmessageerror: null,
+    postMessage: (d) =>
+      queueMicrotask(() => w.onmessage?.({ data: answerFilter(d as { lines: string[]; pattern: string }) })),
+    terminate: () => {},
+  };
+  return w;
+};
 const show = (http: FlinkHttp, onCluster?: () => void) =>
   render(
     <TooltipProvider>
       <ToastProvider>
-        <Logs c={conn} transport={() => http} {...(onCluster ? { onCluster } : {})} />
+        <Logs c={conn} transport={() => http} makeWorker={worker} {...(onCluster ? { onCluster } : {})} />
       </ToastProvider>
     </TooltipProvider>,
   );
@@ -207,5 +220,26 @@ describe('OPS-01 · Logs (D18, D18b)', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Reload' }));
     await screen.findByText('old');
     expect(asked.at(-1)).toBe('/jobmanager/logs/jobmanager.log.1');
+  });
+
+  it('D18b regex: "Regex" searches by pattern (through the worker); an invalid one is LOG-REGEX on the field', async () => {
+    show(async (r) =>
+      r.path === '/jobmanager/logs' ? list([{ name: 'jobmanager.log', size: 1, mtime: 1 }]) : ok(200, text),
+    );
+    const t = await screen.findByRole('table', { name: 'Log lines' });
+    await userEvent.click(screen.getByRole('checkbox', { name: 'Regex' }));
+    await userEvent.type(screen.getByRole('searchbox', { name: 'Search logs' }), '^Buffer|^Null');
+    await screen.findByText(/Buffer pool usage/);
+    await vi.waitFor(() =>
+      expect(
+        within(screen.getByRole('table', { name: 'Log lines' }))
+          .getAllByRole('row')
+          .slice(1),
+      ).toHaveLength(2),
+    );
+    expect(t.isConnected).toBe(true); // the same table: no flicker to a skeleton while it searched
+    await userEvent.clear(screen.getByRole('searchbox', { name: 'Search logs' }));
+    await userEvent.type(screen.getByRole('searchbox', { name: 'Search logs' }), '(unclosed');
+    expect(await screen.findByText(/That pattern is not valid/)).toBeInTheDocument();
   });
 });

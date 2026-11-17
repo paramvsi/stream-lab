@@ -1,4 +1,4 @@
-import { AppError, ErrorBanner } from '@sl/errors';
+import { AppError, ErrorBanner, present } from '@sl/errors';
 import {
   atLeast,
   getJmLog,
@@ -12,11 +12,12 @@ import {
   type LogEntry,
   type LogFile,
 } from '@sl/flink';
-import { Button, Input, Loading, Skeleton, StatusBadge, Table, type Column } from '@sl/ui';
+import { Button, Field, Input, Loading, Skeleton, StatusBadge, Table, type Column } from '@sl/ui';
 import { RotateCw, Server } from 'lucide-react';
 import { useCallback, useDeferredValue, useEffect, useId, useMemo, useRef, useState } from 'react';
 import { useScreenHeading } from './focus';
 import { size } from './format';
+import { filterLinesBounded, makeFilterWorker, type FilterWorker } from './logFilter';
 
 type Level = 'all' | 'warn' | 'error';
 const LEVELS: { value: Level; label: string }[] = [
@@ -55,18 +56,21 @@ const asAppError = (e: unknown, conn: string) =>
  * without the list), its entries (parseLog: Flink's default layout; a stack trace stays with its entry), the level
  * filter (All / Warn / Error) and a plain-text search. Over 50 MB: LOG-TOO-LARGE and the last 5,000 lines. A file
  * gone between list and read: LOG-GONE.
- * ponytail: regex search (through logFilter's worker), Follow (re-read every 2 s: Flink has no partial read),
- * TaskManager tabs and Download are next slices.
+ * Regex search goes through logFilter's bounded worker (LOG-REGEX on the field; LOG-FILTER-FAILED if it breaks).
+ * ponytail: Follow (re-read every 2 s: Flink has no partial read), TaskManager tabs and Download are next slices.
  */
 export function Logs({
   c,
   transport,
   onCluster,
+  makeWorker = makeFilterWorker,
 }: {
   c: Connection;
   transport: (c: Connection) => FlinkHttp;
   /** Back to the cluster page. */
   onCluster?: () => void;
+  /** The regex search's worker (tests pass one: jsdom has none). */
+  makeWorker?: () => FilterWorker;
 }) {
   const h1 = useScreenHeading();
   const http = useMemo(() => transport(c), [transport, c]);
@@ -80,6 +84,14 @@ export function Logs({
   const q = useDeferredValue(query);
   const levelName = useId();
   const fileId = useId();
+  // D18b regex search: through the bounded worker (a catastrophic pattern can not block the UI). Its answer is
+  // kept with the search it answers, and used only while that search and that file are still the ones shown.
+  const [regex, setRegex] = useState(false);
+  const [found, setFound] = useState<{
+    key: string;
+    hits: Set<string> | null;
+    error: AppError | null;
+  } | null>(null);
 
   // One load, in order: the list, then the file (the wanted one if still listed, else the newest). A file is never
   // read without a fresh list, a list that fails is not overwritten by a read, and a later load drops an earlier
@@ -122,13 +134,35 @@ export function Logs({
     const { lines, cut } = tail(text, LOG_TAIL_LINES);
     return { cut, entries: parseLog(lines).map((e, i): Row => ({ ...e, i })) };
   }, [text]);
+  const joined = (e: LogEntry) => [e.message, ...e.more].join('\n');
+  const searchKey = `${name}|${q}|${parsed ? parsed.entries.length : -1}`;
+  useEffect(() => {
+    if (!regex || !q || !parsed) return;
+    let live = true;
+    const key = searchKey;
+    filterLinesBounded(parsed.entries.map(joined), q, true, makeWorker).then(
+      (lines) => live && setFound({ key, hits: new Set(lines), error: null }),
+      (e: unknown) =>
+        live && setFound({ key, hits: null, error: e instanceof AppError ? e : asAppError(e, c.name) }),
+    );
+    return () => {
+      live = false;
+    };
+  }, [regex, q, parsed, searchKey, makeWorker, c.name]);
+  const answer = regex && q ? (found?.key === searchKey ? found : null) : null;
   const shown = useMemo(() => {
     if (!parsed) return null;
+    const byLevel = parsed.entries.filter(atLeast(level));
+    if (regex && q) {
+      // While this search runs, the last answer stays on screen (no flicker to a skeleton on each key).
+      const hits = answer ? answer.hits : (found?.hits ?? null);
+      if (answer && !answer.hits) return [];
+      return hits ? byLevel.filter((e) => hits.has(joined(e))) : byLevel;
+    }
     const lq = q.toLowerCase();
-    return parsed.entries
-      .filter(atLeast(level))
-      .filter((e) => !lq || [e.message, ...e.more].some((l) => l.toLowerCase().includes(lq)));
-  }, [parsed, level, q]);
+    return byLevel.filter((e) => !lq || [e.message, ...e.more].some((l) => l.toLowerCase().includes(lq)));
+  }, [parsed, level, q, regex, answer, found]);
+  const searchError = answer?.error ?? null;
 
   return (
     <main className="flex min-h-screen flex-col gap-5 bg-surface px-8 py-7">
@@ -186,14 +220,25 @@ export function Logs({
               </div>
             )}
             <div className="w-72">
-              <Input
-                type="search"
-                aria-label="Search logs"
-                placeholder="Search logs"
-                value={query}
-                onChange={(e) => setQuery(e.target.value)}
-              />
+              <Field label="Search" {...(searchError ? { error: present(searchError).message } : {})}>
+                <Input
+                  type="search"
+                  aria-label="Search logs"
+                  placeholder="Search logs"
+                  value={query}
+                  onChange={(e) => setQuery(e.target.value)}
+                />
+              </Field>
             </div>
+            <label className="flex items-center gap-2 pb-2 text-[13px]">
+              <input
+                type="checkbox"
+                checked={regex}
+                onChange={(e) => setRegex(e.target.checked)}
+                className="sl-focus size-4 accent-rose-600"
+              />
+              Regex
+            </label>
             <fieldset className="m-0 flex gap-1 rounded-md border border-line p-0.5">
               <legend className="sr-only">Level</legend>
               {LEVELS.map((l) => (

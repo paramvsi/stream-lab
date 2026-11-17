@@ -43,7 +43,7 @@ export const uptime = (ms: number) =>
       ? `${Math.floor(ms / 3_600_000)} h`
       : `${Math.floor(ms / 86_400_000)} d`;
 
-const CHIPS: { bucket?: JobBucket; label: string; key: 'all' | JobBucket }[] = [
+export const CHIPS: { bucket?: JobBucket; label: string; key: 'all' | JobBucket }[] = [
   { key: 'all', label: 'All' },
   { key: 'running', bucket: 'running', label: 'Running' },
   { key: 'failing', bucket: 'failing', label: 'Failing' },
@@ -55,7 +55,8 @@ const CHIPS: { bucket?: JobBucket; label: string; key: 'all' | JobBucket }[] = [
  * /jobs/overview, polled every 5 s (POLL.jobs: back-off, paused while hidden, a banner after 3 failures in a row;
  * the rows stay). Chips by state, Name-or-ID search, sort by a column header.
  * ponytail: Warning, Parallelism, Records in and Trend need each job's detail and metrics (JOB-02's calls), and
- * D07c's Submit JAR / Open SQL editor need those screens; Saved views is v1 (JOB-09).
+ * D07c's Submit JAR / Open SQL editor need those screens. Saved views (JOB-11, MVP) are on the all-connections
+ * list (AllJobs).
  */
 export function Jobs({
   c,

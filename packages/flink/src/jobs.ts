@@ -43,7 +43,7 @@ const key: Record<JobSort, (r: FlinkJobRow) => string | number> = {
 };
 
 /** Filter, search and sort the list (JOB-01). A new array; the rows are not changed. */
-export function queryJobs(rows: readonly FlinkJobRow[], q: JobQuery): FlinkJobRow[] {
+export function queryJobs<T extends FlinkJobRow>(rows: readonly T[], q: JobQuery): T[] {
   const needle = q.q?.trim().toLowerCase() ?? '';
   const out = rows.filter(
     (r) =>

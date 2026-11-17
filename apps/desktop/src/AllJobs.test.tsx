@@ -115,4 +115,29 @@ describe('JOB-11 · jobs across connections (board X18)', () => {
     show(() => async () => ok({ jobs: [] }));
     expect(await screen.findByRole('heading', { name: 'No jobs on any connection yet' })).toBeInTheDocument();
   });
+
+  it('JOB-11 slice 2a: status chips (with counts) and Search filter the list across connections', async () => {
+    show(
+      (c) => async () =>
+        ok({
+          jobs:
+            c.id === 'p'
+              ? [row('a1', 'fraud-scoring', 'RESTARTING'), row('a2', 'refund-matcher', 'RUNNING')]
+              : [row('b1', 'card-velocity', 'FAILED')],
+        }),
+    );
+    const t = await screen.findByRole('table', { name: 'Jobs on all connections' });
+    await vi.waitFor(() => expect(within(t).getAllByRole('row')).toHaveLength(4));
+    const names = () =>
+      within(screen.getByRole('table', { name: 'Jobs on all connections' }))
+        .queryAllByRole('button')
+        .map((b) => b.textContent);
+    // FAILED is done (Finished, as on the fleet and the Jobs list); RESTARTING is Failing.
+    await userEvent.click(screen.getByRole('button', { name: /^Failing 1$/ }));
+    expect(names()).toEqual(['fraud-scoring']);
+    expect(screen.getByRole('button', { name: /^Failing 1$/ })).toHaveAttribute('aria-pressed', 'true');
+    await userEvent.click(screen.getByRole('button', { name: /^All 3$/ }));
+    await userEvent.type(screen.getByRole('searchbox', { name: 'Search jobs' }), 'card');
+    expect(names()).toEqual(['card-velocity']);
+  });
 });

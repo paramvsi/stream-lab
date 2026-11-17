@@ -1,10 +1,18 @@
 import { AppError, ErrorBanner } from '@sl/errors';
-import { listJobs, type Connection, type FlinkHttp, type FlinkJobRow } from '@sl/flink';
-import { Button, EmptyState, StatusBadge, Table, type Column } from '@sl/ui';
+import {
+  bucketCounts,
+  listJobs,
+  queryJobs,
+  type Connection,
+  type FlinkHttp,
+  type FlinkJobRow,
+  type JobBucket,
+} from '@sl/flink';
+import { Button, EmptyState, Field, Input, StatusBadge, Table, type Column } from '@sl/ui';
 import { Inbox, LayoutGrid } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useScreenHeading } from './focus';
-import { TONE, word } from './Jobs';
+import { CHIPS, TONE, word } from './Jobs';
 import { gateFor } from './usePolled';
 
 type Row = FlinkJobRow & { conn: Connection };
@@ -60,7 +68,12 @@ export function AllJobs({
     };
   }, [connections, readOne]);
 
-  const rows: Row[] = connections.flatMap((c) => (read[c.id]?.rows ?? []).map((j) => ({ ...j, conn: c })));
+  const all: Row[] = connections.flatMap((c) => (read[c.id]?.rows ?? []).map((j) => ({ ...j, conn: c })));
+  // The Jobs list's own chips and search (D07b), across connections.
+  const [bucket, setBucket] = useState<JobBucket | undefined>();
+  const [q, setQ] = useState('');
+  const counts = bucketCounts(all);
+  const rows = queryJobs(all, { ...(bucket ? { bucket } : {}), q });
   const down = connections.filter((c) => read[c.id]?.error);
   const reading = connections.filter((c) => !read[c.id]).length;
   const retry = () => {
@@ -97,7 +110,7 @@ export function AllJobs({
             Jobs
           </h1>
           <p className="m-0 text-[14px] text-muted">
-            All connections · {rows.length} {rows.length === 1 ? 'job' : 'jobs'}
+            All connections · {all.length} {all.length === 1 ? 'job' : 'jobs'}
           </p>
         </div>
         {onFleet && (
@@ -113,10 +126,28 @@ export function AllJobs({
           onAction={retry}
         />
       )}
+      <div className="flex flex-wrap items-end gap-3">
+        <Field label="Search jobs" className="w-[280px]">
+          <Input type="search" placeholder="Name or ID" value={q} onChange={(e) => setQ(e.target.value)} />
+        </Field>
+        <div className="inline-flex gap-0.5 rounded-[9px] border border-line bg-subtle p-0.5">
+          {CHIPS.map((ch) => (
+            <Button
+              key={ch.key}
+              size="sm"
+              variant={bucket === ch.bucket ? 'secondary' : 'ghost'}
+              aria-pressed={bucket === ch.bucket}
+              onClick={() => setBucket(ch.bucket)}
+            >
+              {`${ch.label} ${counts[ch.key]}`}
+            </Button>
+          ))}
+        </div>
+      </div>
       <p role="status" className={reading ? 'm-0 text-[13px] text-muted' : 'sr-only'}>
         {reading ? `Reading the jobs of ${reading} connection${reading === 1 ? '' : 's'}…` : ''}
       </p>
-      {!reading && !rows.length && !down.length ? (
+      {!reading && !all.length && !down.length ? (
         <EmptyState icon={Inbox} title="No jobs on any connection yet" />
       ) : (
         <Table

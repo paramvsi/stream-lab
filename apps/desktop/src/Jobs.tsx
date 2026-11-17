@@ -94,12 +94,15 @@ export function Jobs({
    */
   const focusInBanner = useRef(false);
   const bannerBox = useRef<HTMLDivElement>(null);
-  // A press anywhere outside the banner leaves it too, even on text that takes no focus (blur then has no
+  // A press that takes focus out of the banner leaves it, even onto text that takes no focus (blur then has no
   // relatedTarget, the same as the banner's removal).
   useEffect(() => {
-    const down = (e: PointerEvent) => {
-      if (!bannerBox.current?.contains(e.target as Node)) focusInBanner.current = false;
-    };
+    // After the press has done its default (moved focus, or not: a scrollbar), look where focus is.
+    const down = () =>
+      setTimeout(() => {
+        if (bannerBox.current && !bannerBox.current.contains(document.activeElement))
+          focusInBanner.current = false;
+      }, 0);
     document.addEventListener('pointerdown', down, true);
     return () => document.removeEventListener('pointerdown', down, true);
   }, []);

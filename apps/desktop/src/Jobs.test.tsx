@@ -1,6 +1,6 @@
 import { TransportError, type Connection, type FlinkHttp } from '@sl/flink';
 import { ToastProvider, TooltipProvider } from '@sl/ui';
-import { act, render, screen, waitFor, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 import { Jobs, uptime } from './Jobs';
@@ -376,6 +376,31 @@ describe('audit 5 of 04ddce8', () => {
       await tick(30_000);
       await waitFor(() => expect(screen.queryByText(/Lost contact/)).toBeNull());
       expect(document.activeElement).toBe(document.body);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
+
+describe('audit 6 of c92c91e', () => {
+  it('a press that moves no focus (a scrollbar) keeps the banner flag: recovery still goes to the heading', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      const f = flaky();
+      show(f.http);
+      await screen.findByRole('table', { name: 'Jobs' });
+      f.st.down = true;
+      for (const ms of [5_000, 10_000, 20_000]) await tick(ms);
+      await screen.findByText(/Lost contact with payments-prod/);
+      const retry = screen.getByRole('button', { name: 'Retry now' });
+      retry.focus();
+      fireEvent.pointerDown(screen.getByRole('table', { name: 'Jobs' }).parentElement!);
+      await tick(10);
+      expect(retry).toHaveFocus();
+      f.st.down = false;
+      await tick(30_000);
+      await waitFor(() => expect(screen.queryByText(/Lost contact/)).toBeNull());
+      expect(screen.getByRole('heading', { level: 1, name: 'Jobs' })).toHaveFocus();
     } finally {
       vi.useRealTimers();
     }

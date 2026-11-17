@@ -1,4 +1,4 @@
-import { AppError, ErrorBanner, ErrorBoundary, ErrorPage, present } from '@sl/errors';
+import { AppError, cleanCause, ErrorBanner, ErrorBoundary, ErrorPage, present } from '@sl/errors';
 import {
   checkpointingOff,
   getCheckpoints,
@@ -235,11 +235,36 @@ export function JobOverview({
   const store = history ?? own;
   const last = useRef<FlinkJobDetail | null>(null);
   const [recorded, setRecorded] = useState(0);
+  // A write that fails says so (HISTORY-IO on the tab) and the read it came from stays the baseline, so the next
+  // read finds the same change again and the write is tried again: nothing is dropped.
+  const [saveError, setSaveError] = useState<AppError | null>(null);
+  const saving = useRef(false);
   useEffect(() => {
-    if (!j || j === last.current) return;
+    if (!j || j === last.current || saving.current) return;
     const events = diffJob(last.current, j, Date.now());
-    last.current = j;
-    if (events.length) void store.append(c.id, jid, events).then(() => setRecorded((n) => n + 1));
+    if (!events.length) {
+      last.current = j;
+      return;
+    }
+    saving.current = true;
+    store.append(c.id, jid, events).then(
+      () => {
+        saving.current = false;
+        last.current = j;
+        setSaveError(null);
+        setRecorded((n) => n + 1);
+      },
+      (e: unknown) => {
+        saving.current = false;
+        setSaveError(
+          new AppError(
+            'HISTORY-IO',
+            { action: 'saved', reason: cleanCause(e instanceof Error ? e.message : String(e)) },
+            e,
+          ),
+        );
+      },
+    );
   }, [j, store, c.id, jid]);
   // Checkpoints on their own poll (5 s, FLINK_API) and their own failures: one widget never blanks the page
   // (ERRORS_AND_ALERTS: "one broken widget does not blank the page"). Its banner is not shown; the KPI says it.
@@ -524,7 +549,13 @@ export function JobOverview({
               label: 'History',
               content: (
                 <ErrorBoundary resetKey={jid}>
-                  <JobHistory history={store} conn={c.id} jid={jid} version={recorded} />
+                  <JobHistory
+                    history={store}
+                    conn={c.id}
+                    jid={jid}
+                    version={recorded}
+                    saveError={saveError}
+                  />
                 </ErrorBoundary>
               ),
             },

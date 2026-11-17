@@ -1718,6 +1718,50 @@ describe('JOB-02 · Job overview (board D08)', () => {
     },
   );
 
+  it(
+    'audit hist #1 #2 #4: a store that fails says HISTORY-IO (never a blank tab) and the event is tried again',
+    { timeout: 20_000 },
+    async () => {
+      vi.useFakeTimers({ shouldAdvanceTime: true });
+      try {
+        const base = memoryHistory();
+        let fail = true;
+        let tries = 0;
+        const history: HistoryStore = {
+          ...base,
+          append: async (...a) => {
+            tries++;
+            if (fail) throw new Error('database is locked');
+            return base.append(...a);
+          },
+        };
+        let p2 = 4;
+        show(
+          async (req) =>
+            answer(200, {
+              ...detail,
+              vertices: detail.vertices.map((v) => (v.id === 'v2' ? { ...v, parallelism: p2 } : v)),
+            })(req),
+          { history },
+        );
+        await screen.findByRole('table', { name: 'Operators' });
+        p2 = 8;
+        for (let t = 0; t < 3; t++) await act(async () => vi.advanceTimersByTimeAsync(1_000));
+        await userEvent.click(screen.getByRole('tab', { name: 'History' }));
+        expect(await screen.findByText(/local history could not be saved/)).toBeInTheDocument();
+        expect(screen.getByRole('heading', { name: 'Timeline', level: 3 })).toBeInTheDocument();
+        fail = false;
+        for (let t = 0; t < 3; t++) await act(async () => vi.advanceTimersByTimeAsync(1_000));
+        expect(tries).toBeGreaterThan(1);
+        const t = await screen.findByRole('table', { name: 'Timeline' });
+        expect(within(t).getAllByRole('row').slice(1)[0]!.textContent).toMatch(/Rescaled/);
+        expect(screen.queryByText(/could not be saved/)).toBeNull();
+      } finally {
+        vi.useRealTimers();
+      }
+    },
+  );
+
   it('lists the operators with parallelism and status', async () => {
     show(answer(200, detail));
     const table = await screen.findByRole('table', { name: 'Operators' });

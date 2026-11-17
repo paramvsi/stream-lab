@@ -59,7 +59,7 @@ interface JobShape {
  * - A restart: the time Flink says the job last entered RESTARTING moved (default scheduler: caught even when
  *   no read landed in RESTARTING), at that time. Several restarts between two reads are one event.
  *   ponytail: under the adaptive scheduler that time never moves, so a restart is caught only when a read lands
- *   in RESTARTING; a short one between two reads is missed. Candidate rule (RUNNING moved while RESTARTING did
+ *   in RESTARTING (recorded as it leaves); a short one between two reads is missed. Candidate rule (RUNNING moved while RESTARTING did
  *   not) is unverified against Flink: see MORNING.md.
  * - An operator's parallelism changed: a rescale. A restart that changed parallelism is one rescale (the adaptive
  *   scheduler rescales through a restart), not a restart as well.
@@ -79,10 +79,11 @@ export function diffJob(prev: JobShape | null, next: JobShape, at: number): Hist
   const r0 = prev.timestamps?.RESTARTING ?? 0;
   const r1 = next.timestamps?.RESTARTING ?? 0;
   if (r1 > r0) return [{ at: r1, kind: 'restart', detail: 'Job restarted' }];
-  // The adaptive scheduler's Restarting only reports RESTARTING (it cancels the graph; the timestamp stays 0), and
-  // an old Flink may send no timestamps: entering RESTARTING between two reads is then the sign.
+  // No RESTARTING time from Flink (the adaptive scheduler's Restarting only reports RESTARTING: it cancels the
+  // graph and the time stays 0; or an old Flink sends none): the restart is recorded when the job leaves
+  // RESTARTING, so one that ends at a new parallelism is the rescale above, once.
   // FLINK: https://github.com/apache/flink/blob/release-1.20/flink-runtime/src/main/java/org/apache/flink/runtime/scheduler/adaptive/Restarting.java
-  if (next.state === 'RESTARTING' && prev.state !== 'RESTARTING')
+  if (!r1 && prev.state === 'RESTARTING' && next.state !== 'RESTARTING')
     return [{ at, kind: 'restart', detail: 'Job restarted' }];
   return [];
 }

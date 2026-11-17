@@ -25,12 +25,19 @@ describe('JOB-06 · local history (D10)', () => {
     expect(diffJob(null, a, 13)).toEqual([]); // the first read is a baseline, not an event
   });
 
-  it('audit h2: the adaptive scheduler never moves timestamps.RESTARTING: a read in RESTARTING is still a Restart', () => {
+  it('audit h2 + hist #3: with no RESTARTING time from Flink (adaptive scheduler), the restart is recorded on leaving RESTARTING', () => {
     // FLINK: Restarting cancels the graph and only reports RESTARTING; the timestamp stays 0 (Restarting.java).
-    expect(diffJob(job('RUNNING', { v1: 4 }), job('RESTARTING', { v1: 4 }, 0), 40)).toEqual([
-      { at: 40, kind: 'restart', detail: 'Job restarted' },
-    ]);
+    expect(diffJob(job('RUNNING', { v1: 4 }), job('RESTARTING', { v1: 4 }, 0), 40)).toEqual([]);
     expect(diffJob(job('RESTARTING', { v1: 4 }, 0), job('RESTARTING', { v1: 4 }, 0), 41)).toEqual([]);
+    expect(diffJob(job('RESTARTING', { v1: 4 }, 0), job('RUNNING', { v1: 4 }, 0), 42)).toEqual([
+      { at: 42, kind: 'restart', detail: 'Job restarted' },
+    ]);
+    // A rescale through that restart: one Rescaled, when it leaves (not a Restart first).
+    expect(diffJob(job('RESTARTING', { v1: 4 }, 0), job('RUNNING', { v1: 8 }, 0), 43)).toEqual([
+      { at: 43, kind: 'rescale', detail: 'op v1: parallelism 4 → 8' },
+    ]);
+    // The default scheduler's moved time is the restart, once: leaving RESTARTING adds nothing.
+    expect(diffJob(job('RESTARTING', { v1: 4 }, 10), job('RUNNING', { v1: 4 }, 10), 44)).toEqual([]);
   });
 
   it('audit h #2: a restart that changed parallelism is one Rescaled, not a Restart as well', () => {

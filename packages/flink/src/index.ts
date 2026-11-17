@@ -10,3 +10,4 @@ export * from './fleet';
 export * from './capabilities';
 export * from './endpoints/jobs';
 export * from './jobs';
+export * from './taskmanagers';

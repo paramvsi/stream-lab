@@ -49,13 +49,17 @@ export function App({
   const add = () => setScreen({ name: 'kind', kind: null });
   const home = () => setScreen({ name: 'home' });
 
-  // APP-01 / board G01: ⌘K (Ctrl+K) anywhere but the connection steps, where a jump would drop what is typed.
+  // APP-01 / board G01: ⌘K (Ctrl+K) anywhere but the connection steps (a jump would drop what is typed) and over
+  // another dialog.
   const [palette, setPalette] = useState(false);
   const inSteps = screen.name === 'form' || screen.name === 'kind';
   useEffect(() => {
     if (inSteps) return;
     const onKey = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && !e.altKey && !e.shiftKey && e.key.toLowerCase() === 'k') {
+        // Not over another dialog: a jump would get around its own lock (a Stop or Cancel that is sending), drop
+        // what is typed in it (type-to-confirm, a folder), or leave it open in state for later (Import).
+        if (document.querySelector('[role="dialog"], [role="alertdialog"]')) return;
         e.preventDefault();
         setPalette(true);
       }

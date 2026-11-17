@@ -309,4 +309,15 @@ describe('APP-01 · command palette (board G01)', () => {
     await userEvent.keyboard('{ArrowDown}{Enter}');
     expect(await screen.findByRole('heading', { level: 1, name: 'Jobs' })).toBeTruthy();
   });
+
+  it('audit of 37b8316: ⌘K does nothing while another dialog is open (a Stop that is sending, Import, type-to-confirm)', async () => {
+    await withOne();
+    await userEvent.click(screen.getByRole('button', { name: 'Connections' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Import' }));
+    const importing = screen.getByRole('dialog', { name: 'Import connections' });
+    (document.activeElement as HTMLElement).blur();
+    await userEvent.keyboard('{Meta>}k{/Meta}');
+    expect(screen.queryByRole('dialog', { name: 'Commands' })).toBeNull();
+    expect(importing.isConnected).toBe(true);
+  });
 });

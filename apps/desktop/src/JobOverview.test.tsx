@@ -225,6 +225,7 @@ describe('JOB-02 · Job overview (board D08)', () => {
       await waitFor(() => expect(k).toHaveTextContent(/Not answering/));
       expect(k).toHaveTextContent('Failed');
       expect(k).not.toHaveTextContent('3.4 s');
+      expect(within(k).getByText(/Not answering/).className).toMatch(/text-danger-600/); // still red
     } finally {
       vi.useRealTimers();
     }
@@ -238,9 +239,51 @@ describe('JOB-02 · Job overview (board D08)', () => {
     expect(k).not.toHaveTextContent('Failed');
   });
 
+  it('audit 4 #3: a completed savepoint inside a run of failed checkpoints does not end it', async () => {
+    const f = (id: number) => ({ ...ckpt.latest.completed, id, status: 'FAILED' });
+    const sp = { ...ckpt.latest.completed, id: 12, status: 'COMPLETED', is_savepoint: true };
+    show(answer(200, detail, { ...ckpt, history: [f(14), f(13), sp, f(11), ckpt.latest.completed] }));
+    const k = await screen.findByRole('group', { name: 'Last checkpoint' });
+    await waitFor(() => expect(k).toHaveTextContent('3 failures in a row'));
+  });
+
+  it('audit 4 #1: a new job whose first checkpoints all failed (nothing dropped) is exact: "3", not "3+"', async () => {
+    const f = (id: number) => ({ ...ckpt.latest.completed, id, status: 'FAILED' });
+    show(
+      answer(200, detail, {
+        counts: { completed: 0, failed: 3, in_progress: 0, restored: 0, total: 3 },
+        latest: {},
+        history: [f(3), f(2), f(1)],
+      }),
+    );
+    const k = await screen.findByRole('group', { name: 'Last checkpoint' });
+    await waitFor(() => expect(k).toHaveTextContent('3 failures in a row'));
+    expect(k).not.toHaveTextContent('3+');
+  });
+
+  it('audit 4 #2: a full history with a savepoint in it, all checkpoints failed, is "9+"', async () => {
+    const f = (id: number) => ({ ...ckpt.latest.completed, id, status: 'FAILED' });
+    const sp = { ...ckpt.latest.completed, id: 30, status: 'COMPLETED', is_savepoint: true };
+    show(
+      answer(200, detail, {
+        ...ckpt,
+        counts: { ...ckpt.counts, failed: 25, total: 40 },
+        history: [sp, ...Array.from({ length: 9 }, (_, i) => f(29 - i))],
+      }),
+    );
+    const k = await screen.findByRole('group', { name: 'Last checkpoint' });
+    await waitFor(() => expect(k).toHaveTextContent('9+ failures in a row'));
+  });
+
   it('audit 3 #3: a run longer than the history says "10+", not "10"', async () => {
     const f = (id: number) => ({ ...ckpt.latest.completed, id, status: 'FAILED' });
-    show(answer(200, detail, { ...ckpt, history: Array.from({ length: 10 }, (_, i) => f(60 - i)) }));
+    show(
+      answer(200, detail, {
+        ...ckpt,
+        counts: { ...ckpt.counts, failed: 60, total: 70 },
+        history: Array.from({ length: 10 }, (_, i) => f(60 - i)),
+      }),
+    );
     const k = await screen.findByRole('group', { name: 'Last checkpoint' });
     await waitFor(() => expect(k).toHaveTextContent('10+ failures in a row'));
   });

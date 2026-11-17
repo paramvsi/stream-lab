@@ -64,16 +64,18 @@ type Ckpt = { off: true } | { off: false; last: FlinkCheckpoint | null; failed: 
  * Board D08c "3 failures in a row": FAILED checkpoints since the last completed one, newest first. Savepoints
  * are left out (a failed stop-with-savepoint is not a checkpoint failure; latest.completed holds checkpoints
  * only), as is one in progress. Flink keeps only the last web.checkpoints.history entries (10 by default): a run
- * that fills the whole history is "10+".
+ * that reaches the oldest entry kept, when Flink has dropped older ones (counts.total > entries kept), is "N+";
+ * a short history (a new job) is exact.
  */
-const failedInRow = (h: readonly FlinkCheckpoint[]): Failures => {
+const failedInRow = (h: readonly FlinkCheckpoint[], total: number): Failures => {
   let n = 0;
   for (const c of [...h].filter((c) => !c.is_savepoint).sort((a, b) => b.id - a.id)) {
     if (c.status === 'IN_PROGRESS') continue;
     if (c.status !== 'FAILED') return { n, more: false };
     n++;
   }
-  return { n, more: n > 0 && n === h.length };
+  // The whole kept history is this run: older entries may be failures too, if any were dropped.
+  return { n, more: n > 0 && total > h.length };
 };
 const failedNote = (f: Failures) =>
   `${f.n}${f.more ? '+' : ''} failure${f.n === 1 && !f.more ? '' : 's'} in a row`;
@@ -86,7 +88,7 @@ async function readCkpt(http: FlinkHttp, conn: string, jid: string, t: number): 
   try {
     const s = await getCheckpoints(http, conn, jid, t);
     if (s.counts.total === 0 && (await checkpointingOff(http, conn, jid, t))) return { off: true };
-    return { off: false, last: lastCompleted(s), failed: failedInRow(s.history) };
+    return { off: false, last: lastCompleted(s), failed: failedInRow(s.history, s.counts.total) };
   } catch (e) {
     if (e instanceof AppError && e.code === 'JOB-CKPT-NONE') return { off: true };
     throw e;

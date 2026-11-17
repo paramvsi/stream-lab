@@ -53,9 +53,11 @@ function recording(http: FlinkHttp) {
   return { h, last };
 }
 /**
- * A 404 on a job's checkpoint endpoints: the job has no checkpoint settings at all is JOB-CKPT-NONE; anything else
+ * A 404 on /checkpoints or /checkpoints/config: the job has no checkpoint settings at all is JOB-CKPT-NONE; anything else
  * is the job gone (API-404-JOB). Each handler words it its own way: /checkpoints says "Checkpointing has not been
  * enabled.", /checkpoints/config "Checkpointing is not enabled for this job (<jid>)." (1.20 and 2.3 alike).
+ * ponytail: /checkpoints/details/:cid (not called yet) says "Checkpointing was not enabled for job <jid>." and, for
+ * a checkpoint gone from the stats, "Could not find checkpointing statistics…": add both when it is wired.
  * FLINK: https://github.com/apache/flink/blob/release-1.20/flink-runtime/src/main/java/org/apache/flink/runtime/rest/handler/job/checkpoints/CheckpointingStatisticsHandler.java
  * FLINK: https://github.com/apache/flink/blob/release-1.20/flink-runtime/src/main/java/org/apache/flink/runtime/rest/handler/job/checkpoints/CheckpointConfigHandler.java
  */

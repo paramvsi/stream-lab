@@ -10,7 +10,8 @@ import { fromTransport, httpStatusError, TransportError, type FlinkHttp } from '
  * is not there is 404.
  * FLINK: https://github.com/apache/flink/blob/release-1.20/flink-runtime/src/main/java/org/apache/flink/runtime/rest/messages/LogListInfo.java
  * FLINK: https://github.com/apache/flink/blob/release-1.20/flink-runtime/src/main/java/org/apache/flink/runtime/rest/handler/cluster/AbstractJobManagerFileHandler.java
- * ponytail: TaskManager logs (/taskmanagers/:id/logs, its file route not yet confirmed in source) are next.
+ * ponytail: TaskManager logs are next: /taskmanagers/:taskmanagerid/logs and /taskmanagers/:taskmanagerid/logs/:filename
+ * (TaskManagerCustomLogHeaders, release-1.20).
  */
 const LogList = z.looseObject({
   logs: z.array(z.looseObject({ name: z.string(), size: z.number(), mtime: z.number() })),
@@ -61,7 +62,11 @@ export function tail(text: string, n: number): { lines: string[]; cut: number } 
   return { lines: all.slice(cut), cut };
 }
 
-/** D18 filter: plain text matches case-insensitively; as a regex, an invalid pattern is LOG-REGEX (field). */
+/**
+ * D18 filter: plain text matches case-insensitively; as a regex, an invalid pattern is LOG-REGEX (field).
+ * ponytail: synchronous, so a user regex with catastrophic backtracking ("(a+)+$") can block for seconds per line.
+ * The D18 screen must run it in a Worker with a time limit (not on the UI thread); recorded for that slice.
+ */
 export function filterLines(lines: readonly string[], pattern: string, regex: boolean): string[] {
   if (!pattern) return [...lines];
   if (!regex) {

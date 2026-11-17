@@ -1,13 +1,25 @@
 import { AppError } from '@sl/errors';
 import { z } from 'zod';
-import { getJson } from './fleet';
-import { fromTransport, httpStatusError, TransportError, type FlinkHttp, type FlinkRequest } from './http';
+import {
+  fromTransport,
+  httpStatusError,
+  TransportError,
+  type FlinkHttp,
+  type FlinkRequest,
+  type FlinkResponse,
+} from './http';
 
 /**
  * ACT-01 / ACT-02 (FLINK_API "Savepoint", "Stop", "Cancel"). Each call is one request, never retried (CLAUDE.md:
- * no automatic retry of a POST; after a timeout the caller reads the job's state first).
- * FLINK: https://github.com/apache/flink/blob/release-1.20/flink-runtime/src/main/java/org/apache/flink/runtime/rest/messages/job/savepoints/SavepointTriggerRequestBody.java
- * FLINK: https://github.com/apache/flink/blob/release-1.20/flink-runtime/src/main/java/org/apache/flink/runtime/rest/messages/job/savepoints/stop/StopWithSavepointRequestBody.java
+ * no automatic retry of a POST; after a timeout the caller reads the job's state first). Trigger, stop and cancel
+ * answer 202.
+ * Conflicts (API-409, ERROR_CATALOG: "HTTP 409 or Flink 'already in progress' message"): the savepoint handlers
+ * send no 409; a conflict comes as "already in progress" text (an error body, or the operation's failure cause).
+ * Cancel's own 409 is "the job has already reached another terminal state (X)". A trigger or stop with no folder
+ * and no state.savepoints.dir is a 400 naming that key: SP-DIR-MISSING (the dialog checks /jobmanager/config
+ * first; this is the backstop).
+ * FLINK: https://github.com/apache/flink/blob/release-1.20/flink-runtime/src/main/java/org/apache/flink/runtime/rest/handler/job/savepoints/SavepointHandlers.java
+ * FLINK: https://github.com/apache/flink/blob/release-1.20/flink-runtime/src/main/java/org/apache/flink/runtime/rest/handler/job/JobCancellationHandler.java
  * FLINK: https://github.com/apache/flink/blob/release-1.20/flink-runtime/src/main/java/org/apache/flink/runtime/rest/messages/job/savepoints/SavepointInfo.java
  */
 const Trigger = z.looseObject({ 'request-id': z.string() });
@@ -25,19 +37,47 @@ const Status = z.looseObject({
     .optional(),
 });
 
-/** 409: another operation holds the job (a savepoint or stop already running). */
-const conflict = (e: unknown, job: string) =>
-  e instanceof AppError && e.code === 'API-4XX' && e.params.status === 409
-    ? new AppError('API-409', { job, state: 'busy with another savepoint or stop' }, e)
-    : e;
+const IN_PROGRESS = /already in progress/i;
+const busy = (job: string, cause: unknown) =>
+  new AppError('API-409', { job, state: 'busy with another savepoint or stop' }, cause);
 
-const post = async (http: FlinkHttp, conn: string, job: string, req: FlinkRequest, verb: string) => {
+/** One request; transport failures and HTTP errors in catalog words (as getJson), the body kept for its text. */
+async function send(
+  http: FlinkHttp,
+  conn: string,
+  req: FlinkRequest,
+  verb: string,
+  onError?: (r: FlinkResponse) => AppError | null,
+) {
+  let r: FlinkResponse;
   try {
-    return (await getJson(http, conn, req, Trigger, verb))['request-id'];
+    r = await http(req);
   } catch (e) {
-    throw conflict(e, job);
+    if (e instanceof TransportError) throw fromTransport(e.failure, e);
+    if (e instanceof AppError) throw e;
+    throw new AppError('CONN-IO', { host: conn, reason: 'the request failed' }, e);
   }
-};
+  if (r.status >= 400) throw onError?.(r) ?? httpStatusError(r, conn, verb);
+  return r;
+}
+
+async function post(http: FlinkHttp, conn: string, job: string, req: FlinkRequest, verb: string) {
+  const r = await send(http, conn, req, verb, (r) => {
+    if (IN_PROGRESS.test(r.body)) return busy(job, r.body);
+    if (r.status === 400 && r.body.includes('state.savepoints.dir'))
+      return new AppError('SP-DIR-MISSING', {}, r.body);
+    return null;
+  });
+  let body: unknown;
+  try {
+    body = JSON.parse(r.body);
+  } catch (e) {
+    throw new AppError('API-SHAPE', {}, e);
+  }
+  const p = Trigger.safeParse(body);
+  if (!p.success) throw new AppError('API-SHAPE', {}, p.error);
+  return p.data['request-id'];
+}
 
 /** Trigger a savepoint, the job keeps running. No folder: the cluster's default (state.savepoints.dir). */
 export const triggerSavepoint = (
@@ -95,30 +135,43 @@ export async function savepointStatus(
   conn: string,
   jid: string,
   rid: string,
+  job = jid,
 ): Promise<SavepointState> {
-  const s = await getJson(
+  const r = await send(
     http,
     conn,
     { method: 'GET', path: `/jobs/${encodeURIComponent(jid)}/savepoints/${encodeURIComponent(rid)}` },
-    Status,
     'reading the savepoint',
   );
+  let body: unknown;
+  try {
+    body = JSON.parse(r.body);
+  } catch (e) {
+    throw new AppError('API-SHAPE', {}, e);
+  }
+  const p = Status.safeParse(body);
+  if (!p.success) throw new AppError('API-SHAPE', {}, p.error);
+  const s = p.data;
   if (s.status.id === 'IN_PROGRESS') return { done: false };
   const op = s.operation;
   if (op?.location) return { done: true, location: op.location };
   const cause = op?.['failure-cause'] ?? {};
+  if (IN_PROGRESS.test(cause['stack-trace'] ?? '')) return { done: true, error: busy(job, cause) };
   return { done: true, error: new AppError('SP-FAILED', { reason: causeText(cause) }, cause) };
 }
 
 /** Cancel (no savepoint), behind stop; prod needs type-to-confirm (CANCEL-PROD) in the dialog. */
-export async function cancelJob(http: FlinkHttp, conn: string, jid: string): Promise<void> {
-  let r;
-  try {
-    r = await http({ method: 'PATCH', path: `/jobs/${encodeURIComponent(jid)}`, query: { mode: 'cancel' } });
-  } catch (e) {
-    if (e instanceof TransportError) throw fromTransport(e.failure, e);
-    if (e instanceof AppError) throw e;
-    throw new AppError('CONN-IO', { host: conn, reason: 'the request failed' }, e);
-  }
-  if (r.status >= 400) throw httpStatusError(r, conn, 'cancelling the job');
+export async function cancelJob(http: FlinkHttp, conn: string, jid: string, job: string): Promise<void> {
+  await send(
+    http,
+    conn,
+    { method: 'PATCH', path: `/jobs/${encodeURIComponent(jid)}`, query: { mode: 'cancel' } },
+    'cancelling the job',
+    (r) => {
+      if (r.status !== 409) return null;
+      // "…has already reached another terminal state (FINISHED)."
+      const state = /terminal state \((\w+)\)/.exec(r.body)?.[1];
+      return new AppError('API-409', { job, state: state ? state.toLowerCase() : 'ended' }, r.body);
+    },
+  );
 }

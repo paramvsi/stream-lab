@@ -263,12 +263,15 @@ test('DATA-03 audit: a tab still open on the old database version does not hang 
   context,
 }) => {
   const old = await context.newPage();
-  await old.goto('/favicon.svg'); // same origin, no app code: an old deploy's tab holding a version 1 connection
+  // Same origin, no app code: an old deploy's tab holding a version 1 connection. A real static file: a missing one
+  // falls back to index.html, whose app opens version 2 first, and this open then fails.
+  await old.goto('/logo-mark.svg');
   await old.evaluate(
     () =>
-      new Promise<void>((ok) => {
+      new Promise<void>((ok, fail) => {
         const r = indexedDB.open('streamlab', 1);
         r.onupgradeneeded = () => r.result.createObjectStore('pipelines', { keyPath: 'id' });
+        r.onerror = () => fail(r.error);
         r.onsuccess = () => {
           (window as unknown as { keep: IDBDatabase }).keep = r.result;
           ok();

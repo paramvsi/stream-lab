@@ -412,4 +412,16 @@ describe('APP-01 · command palette (board G01)', () => {
     fireEvent.keyDown(document.body, { key: 'ن', code: 'KeyK', metaKey: true });
     expect(screen.getByRole('dialog', { name: 'Commands' })).toBeInTheDocument();
   });
+
+  it('audit of ef86fcc: a Latin layout goes by its labels (Dvorak ⌘ + "t" on the physical K is not ⌘K)', async () => {
+    await withOne();
+    (document.activeElement as HTMLElement).blur();
+    fireEvent.keyDown(document.body, { key: 't', code: 'KeyK', metaKey: true }); // Dvorak ⌘T
+    expect(screen.queryByRole('dialog', { name: 'Commands' })).toBeNull();
+    fireEvent.keyDown(document.body, { key: 'i', code: 'KeyG' }); // Dvorak i, then h
+    fireEvent.keyDown(document.body, { key: 'h', code: 'KeyJ' });
+    expect(screen.getByRole('heading', { level: 1, name: 'Fleet' })).toBeTruthy();
+    fireEvent.keyDown(document.body, { key: 'k', code: 'KeyV', metaKey: true }); // Dvorak's labelled K
+    expect(screen.getByRole('dialog', { name: 'Commands' })).toBeInTheDocument();
+  });
 });

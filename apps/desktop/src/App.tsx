@@ -66,11 +66,15 @@ export function App({
       !!(e.target as HTMLElement | null)?.closest?.(
         'input, textarea, select, [contenteditable=""], [contenteditable="true"]',
       );
-    // A letter or digit by the character typed or by the physical key: AZERTY's ⌘ + "1/&" gives "&", an Arabic or
-    // Cyrillic layout gives its own letters; Dvorak keeps its labelled letters. ("?" is by character: it moves.)
+    // A letter or digit by the character typed; by the physical key only when the character is not a Latin letter
+    // or digit: AZERTY's ⌘ + "1/&" gives "&", an Arabic or Cyrillic layout gives its own letters. A Latin layout
+    // (Dvorak, Colemak) goes by its labels. ("?" is by character: it moves.)
+    const latin = (e: KeyboardEvent) => /^[a-z0-9]$/i.test(e.key);
     const is = (e: KeyboardEvent, ch: string) =>
-      e.key.toLowerCase() === ch || e.code === (/\d/.test(ch) ? `Digit${ch}` : `Key${ch.toUpperCase()}`);
-    const digit = (e: KeyboardEvent) => /^[1-9]$/.exec(e.key)?.[0] ?? /^Digit([1-9])$/.exec(e.code)?.[1];
+      e.key.toLowerCase() === ch ||
+      (!latin(e) && e.code === (/\d/.test(ch) ? `Digit${ch}` : `Key${ch.toUpperCase()}`));
+    const digit = (e: KeyboardEvent) =>
+      /^[1-9]$/.exec(e.key)?.[0] ?? (latin(e) ? undefined : /^Digit([1-9])$/.exec(e.code)?.[1]);
     const onKey = (e: KeyboardEvent) => {
       const mod = (e.metaKey || e.ctrlKey) && !e.altKey && !e.shiftKey;
       const plain = !e.metaKey && !e.ctrlKey && !e.altKey;

@@ -470,3 +470,27 @@ describe('audit 8 of 6755d70', () => {
     }
   });
 });
+
+describe('audit 9 of 90d6c1c', () => {
+  it('the window loses focus while on Retry now (activeElement stays on it): recovery still goes to the heading', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      const f = flaky();
+      show(f.http);
+      await screen.findByRole('table', { name: 'Jobs' });
+      f.st.down = true;
+      for (const ms of [5_000, 10_000, 20_000]) await tick(ms);
+      await screen.findByText(/Lost contact with payments-prod/);
+      const retry = screen.getByRole('button', { name: 'Retry now' });
+      retry.focus();
+      fireEvent.blur(retry); // a window blur: the event, but focus stays on the button
+      expect(retry).toHaveFocus();
+      f.st.down = false;
+      await tick(30_000);
+      await waitFor(() => expect(screen.queryByText(/Lost contact/)).toBeNull());
+      expect(screen.getByRole('heading', { level: 1, name: 'Jobs' })).toHaveFocus();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});

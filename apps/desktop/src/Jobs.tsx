@@ -207,11 +207,10 @@ export function Jobs({
           onFocus={() => (focusInBanner.current = true)}
           onBlur={(e) => {
             // Decided now, not later (a later check races the recovery). React delivers no blur for its own
-            // removal of the banner, so a blur here is the user leaving, unless focus stays inside (a move
-            // between its buttons) or the window lost focus (activeElement stays on the button).
+            // removal of the banner, so a blur here is the user leaving, unless the window lost focus
+            // (activeElement stays on the button). A move between its buttons: onFocus sets it again.
             const box = e.currentTarget;
-            if (!box.contains(e.relatedTarget as Node | null) && !box.contains(document.activeElement))
-              focusInBanner.current = false;
+            if (!box.contains(document.activeElement)) focusInBanner.current = false;
           }}
         >
           <ErrorBanner

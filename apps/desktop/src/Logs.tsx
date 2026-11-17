@@ -13,7 +13,7 @@ import {
   type LogFile,
 } from '@sl/flink';
 import { Button, Input, Loading, Skeleton, StatusBadge, Table, type Column } from '@sl/ui';
-import { Server } from 'lucide-react';
+import { RotateCw, Server } from 'lucide-react';
 import { useDeferredValue, useEffect, useId, useMemo, useState } from 'react';
 import { useScreenHeading } from './focus';
 import { size } from './format';
@@ -78,6 +78,13 @@ export function Logs({
   const [query, setQuery] = useState('');
   // Typing stays quick: the filter over up to 5,000 rows follows the typed text a beat behind.
   const q = useDeferredValue(query);
+  // Reload: the list again (a file may have rolled over) and the picked file read again.
+  const [round, setRound] = useState(0);
+  const reload = () => {
+    setText(null);
+    setError(null);
+    setRound((n) => n + 1);
+  };
   const levelName = useId();
   const fileId = useId();
 
@@ -88,27 +95,32 @@ export function Logs({
       (fs) => {
         if (!live) return;
         setFiles(fs);
-        setName(fs[0]?.name ?? null);
+        // Keep the picked file if it is still listed; otherwise the newest.
+        setName((n) => (n && fs.some((f) => f.name === n) ? n : (fs[0]?.name ?? null)));
       },
       (e: unknown) => live && setError(asAppError(e, c.name)),
     );
     return () => {
       live = false;
     };
-  }, [http, c.name]);
+  }, [http, c.name, round]);
 
   // The picked file (picked again from the list after LOG-GONE).
   useEffect(() => {
     if (!name) return;
     let live = true;
     getJmLog(http, c.name, name).then(
-      (t) => live && setText(t),
+      (t) => {
+        if (!live) return;
+        setText(t);
+        setError(null);
+      },
       (e: unknown) => live && setError(asAppError(e, c.name)),
     );
     return () => {
       live = false;
     };
-  }, [http, c.name, name]);
+  }, [http, c.name, name, round]);
 
   const file = files?.find((f) => f.name === name) ?? null;
   // Split and parsed once per file; filtered per level and search.
@@ -155,7 +167,7 @@ export function Logs({
             </p>
           )}
           <div className="flex flex-wrap items-end gap-4">
-            {files && files.length > 1 && (
+            {files && files.length > 0 && (
               <div className="flex flex-col gap-1">
                 <label htmlFor={fileId} className="text-[13px] font-medium">
                   Log file
@@ -178,6 +190,9 @@ export function Logs({
                 </select>
               </div>
             )}
+            <Button icon={<RotateCw size={16} aria-hidden="true" />} onClick={reload}>
+              Reload
+            </Button>
             <div className="w-72">
               <Input
                 type="search"

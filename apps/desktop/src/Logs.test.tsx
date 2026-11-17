@@ -139,4 +139,17 @@ describe('OPS-01 · Logs (D18, D18b)', () => {
       expect(back).toHaveBeenCalled();
     },
   );
+
+  it('audit logs2: with one file that rolled over, Reload lists and reads again, and the LOG-GONE banner goes', async () => {
+    let reads = 0;
+    show(async (r) => {
+      if (r.path === '/jobmanager/logs') return list([{ name: 'jobmanager.log', size: 1, mtime: 1 }]);
+      return ++reads === 1 ? ok(404, '{"errors":["gone"]}') : ok(200, text);
+    });
+    expect(await screen.findByText(/jobmanager\.log is no longer there/)).toBeInTheDocument();
+    expect(screen.getByRole('combobox', { name: 'Log file' })).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: 'Reload' }));
+    expect(await screen.findByRole('table', { name: 'Log lines' })).toBeInTheDocument();
+    expect(screen.queryByText(/is no longer there/)).toBeNull();
+  });
 });

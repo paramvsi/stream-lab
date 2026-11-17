@@ -1,6 +1,7 @@
+import { AppError, present } from '@sl/errors';
 import { groupExceptions, rootCauseLine, type FlinkException } from '@sl/flink';
-import { Button, EmptyState } from '@sl/ui';
-import { CircleCheck } from 'lucide-react';
+import { Button, EmptyState, useToastOptional } from '@sl/ui';
+import { CircleCheck, Copy } from 'lucide-react';
 import { Fragment, useId, useState } from 'react';
 
 /** Board X20 "09:12": the viewer's local clock, hours and minutes. */
@@ -12,7 +13,8 @@ const plural = (n: number, w: string) => `${n} ${w}${n === 1 ? '' : 's'}`;
 /**
  * JOB-08 / board X20: a job's failures collapsed by root cause type and message (groupExceptions), most frequent
  * first, with count and first / last seen; "Show N" expands to each occurrence (newest first: time, task, cause).
- * ponytail: the "Explain this" hint (J-09) and the full trace with Copy (D11b) are next slices.
+ * Open, a group also shows its newest full stack trace with Copy (D11b).
+ * ponytail: D11b's summary line and the "Explain this" hint (J-09) are next slices.
  */
 export function ExceptionGroups({
   entries,
@@ -109,6 +111,7 @@ export function ExceptionGroups({
                             </li>
                           ))}
                         </ul>
+                        <Trace e={g.entries[0]!} />
                       </td>
                     </tr>
                   )}
@@ -117,6 +120,49 @@ export function ExceptionGroups({
             })}
           </tbody>
         </table>
+      </div>
+    </div>
+  );
+}
+
+/** D11b: Java's printStackTrace, one line per item (its "... N more" kept), and Copy for the whole of it. */
+function Trace({ e }: { e: FlinkException }) {
+  const toast = useToastOptional();
+  const copy = () => {
+    const failed = () => {
+      const p = present(new AppError('COPY-FAILED'));
+      toast?.({ severity: p.severity, message: p.message });
+    };
+    const clip = typeof navigator === 'undefined' ? undefined : navigator.clipboard;
+    if (!clip) return failed();
+    clip
+      .writeText(e.stacktrace)
+      .then(() => toast?.({ severity: 'success', message: 'Stack trace copied' }), failed);
+  };
+  return (
+    <div className="mt-3 flex flex-col gap-2">
+      <div>
+        <Button size="sm" variant="secondary" icon={<Copy size={14} aria-hidden="true" />} onClick={copy}>
+          Copy stack trace
+        </Button>
+      </div>
+      {/* A scroller the keyboard can reach (as Table does). */}
+      <div
+        role="region"
+        aria-label="Stack trace"
+        tabIndex={0}
+        className="sl-focus max-h-64 overflow-auto rounded-md border border-line bg-surface p-3"
+      >
+        <ol
+          aria-label="Stack trace (newest)"
+          className="m-0 list-decimal pl-8 font-mono text-[12px] text-ink"
+        >
+          {e.stacktrace.split('\n').map((l, i) => (
+            <li key={i} className="whitespace-pre-wrap break-all">
+              {l.replace(/^\t+/, '')}
+            </li>
+          ))}
+        </ol>
       </div>
     </div>
   );

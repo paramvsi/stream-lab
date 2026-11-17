@@ -1,6 +1,7 @@
 import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { describe, expect, it } from 'vitest';
+import { ToastProvider } from '@sl/ui';
+import { describe, expect, it, vi } from 'vitest';
 import { clock, ExceptionGroups } from './ExceptionGroups';
 
 const ex = (ts: number, cause: string, task = 'Window aggregate (2/4)') => ({
@@ -74,5 +75,32 @@ describe('JOB-08 · grouped exceptions (board X20)', () => {
   it('no exceptions: says so', () => {
     render(<ExceptionGroups entries={[]} />);
     expect(screen.getByRole('heading', { name: 'No exceptions' })).toBeInTheDocument();
+  });
+
+  it('D11b: an open group shows its newest full stack trace, line by line, with Copy (says copied, or COPY-FAILED)', async () => {
+    const writeText = vi.fn().mockResolvedValueOnce(undefined).mockRejectedValueOnce(new Error('denied'));
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
+    render(
+      <ToastProvider>
+        <ExceptionGroups entries={entries} />
+      </ToastProvider>,
+    );
+    await userEvent.click(screen.getByRole('button', { name: 'Show 3' }));
+    const trace = screen.getByRole('list', { name: 'Stack trace (newest)' });
+    expect(
+      within(trace)
+        .getAllByRole('listitem')
+        .map((l) => l.textContent),
+    ).toEqual([
+      'java.lang.RuntimeException: wrapped',
+      'at a',
+      'Caused by: java.util.concurrent.TimeoutException: Kafka describeTopics',
+      'at b',
+    ]);
+    await userEvent.click(screen.getByRole('button', { name: 'Copy stack trace' }));
+    expect(writeText).toHaveBeenCalledWith(entries[0]!.stacktrace);
+    expect(await screen.findByText('Stack trace copied')).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: 'Copy stack trace' }));
+    expect(await screen.findByText(/Could not copy to the clipboard/)).toBeInTheDocument();
   });
 });

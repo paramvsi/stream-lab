@@ -372,7 +372,7 @@ describe('JOB-02 · Job overview (board D08)', () => {
     expect(await screen.findByText(/internal error while reading the exceptions/)).toBeInTheDocument();
   });
 
-  it('audit #3: 20 kept failures, all recent (Flink keeps at most 20 here): "20+ times"', async () => {
+  it('20 kept failures, all recent (a cluster that keeps more than the default 16): "20+ times"', async () => {
     const many = {
       exceptionHistory: {
         entries: Array.from({ length: 20 }, (_, i) => npe(detail.now - i * 30_000)),
@@ -425,14 +425,58 @@ describe('JOB-02 · Job overview (board D08)', () => {
   });
 
   it('audit 2 #4: a 404 on the exceptions read is not a "no longer exists" banner over a job on screen', async () => {
+    let asked = 0;
     show(async (req) =>
       req.path.endsWith('/exceptions')
-        ? { status: 404, headers: {}, url: '', body: JSON.stringify({ errors: ['Job x not found'] }) }
+        ? (asked++,
+          { status: 404, headers: {}, url: '', body: JSON.stringify({ errors: ['Job x not found'] }) })
         : answer(200, { ...detail, state: 'FAILED' })(req),
     );
     await screen.findByRole('table', { name: 'Operators' });
-    await new Promise((r) => setTimeout(r, 100));
+    await waitFor(() => expect(asked).toBeGreaterThan(0)); // the read did happen, and failed
     expect(screen.queryByText(/no longer exists/)).toBeNull();
+  });
+
+  it('audit 3 #1: exceptions that keep timing out while the job reads fine are said, not hidden for good', async () => {
+    show(async (req) => {
+      if (req.path.endsWith('/exceptions'))
+        throw new TransportError({ kind: 'timeout', host: 'payments-prod.example.com', timeoutS: 10 });
+      return answer(200, { ...detail, state: 'FAILED' })(req);
+    });
+    await screen.findByRole('table', { name: 'Operators' });
+    expect(await screen.findByText(/payments-prod\.example\.com/)).toBeInTheDocument();
+  });
+
+  it('audit 3 #1: a 404 on the exceptions read that persists (3 in a row) is said as the HTTP refusal', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      show(async (req) =>
+        req.path.endsWith('/exceptions')
+          ? { status: 404, headers: {}, url: '', body: JSON.stringify({ errors: ['x'] }) }
+          : answer(200, { ...detail, state: 'FAILED' })(req),
+      );
+      await screen.findByRole('table', { name: 'Operators' });
+      await act(async () => vi.advanceTimersByTimeAsync(40_000));
+      expect(await screen.findByText(/refused this request \(HTTP 404\)/)).toBeInTheDocument();
+      expect(screen.queryByText(/no longer exists/)).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('audit 3 #3: 15 recent failures under the cap are exact ("15", no "+")', async () => {
+    const some = {
+      exceptionHistory: {
+        entries: Array.from({ length: 15 }, (_, i) => npe(detail.now - i * 30_000)),
+        truncated: false,
+      },
+    };
+    show(async (req) =>
+      req.path.endsWith('/exceptions')
+        ? { status: 200, headers: {}, url: '', body: JSON.stringify(some) }
+        : answer(200, { ...detail, state: 'RESTARTING' })(req),
+    );
+    expect(await screen.findByText(/restarted 15 times in/)).toBeInTheDocument();
   });
 
   it('audit 2 #6: the cause keeps its message, even one that starts with a class name; never a bare "Class:"', () => {
@@ -442,6 +486,7 @@ describe('JOB-02 · Job overview (board D08)', () => {
     expect(causeText('java.lang.NullPointerException: merchant_id is null')).toBe('merchant_id is null');
     expect(causeText('java.lang.NullPointerException')).toBe('NullPointerException');
     expect(causeText('java.lang.IllegalStateException:')).toBe('IllegalStateException');
+    expect(causeText('com.acme.ZahlungsFehlerÄ: kaputt')).toBe('kaputt'); // audit 3 #2: Unicode class names
   });
 
   it('JOB-05: a running job neither asks for exceptions nor shows a status banner', async () => {

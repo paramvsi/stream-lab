@@ -82,7 +82,8 @@ const KEPT = 16;
  */
 export const causeText = (line: string) => {
   // A qualified class, then ": message" or nothing. Anything else (plain text) is kept as it is.
-  const m = /^(?:[\w$]+\.)*([\w$]+)(?:\s*:\s*(.*))?$/.exec(line.trim());
+  // Java identifiers may be any letter (u flag: \p{L}, not ASCII-only \w).
+  const m = /^(?:[\p{L}\p{N}_$]+\.)*([\p{L}\p{N}_$]+)(?:\s*:\s*(.*))?$/u.exec(line.trim());
   if (!m) return line.trim();
   return (m[2] ?? '').replace(/\.$/, '').trim() || m[1]!;
 };
@@ -221,16 +222,18 @@ export function JobOverview({
     if (document.activeElement === document.body || !document.activeElement) h1.current?.focus();
   }, [isGone, h1]);
   const p = j ? Math.max(0, ...j.vertices.map((v) => v.parallelism)) : 0;
-  // A failed exceptions read says so, once: not when the job poll's banner already speaks for the connection,
-  // and never as API-404-JOB (a full-page code; a lone 404 is an HA blip, as for the job itself).
+  // A failed exceptions read says so, once: not while the job poll's banner speaks for the connection (the job
+  // reads fine otherwise, so even a CONN-* here is its own problem). A 404 waits for 3 in a row (a lone one is an
+  // HA blip, as for the job) and is then said as the HTTP refusal it wraps, never API-404-JOB over a job on screen.
+  const exGone = ex.error?.code === 'API-404-JOB';
   const failedRead =
     !gone &&
     troubled &&
     !banner &&
     !ex.value &&
     !!ex.error &&
-    !ex.error.code.startsWith('CONN-') &&
-    ex.error.code !== 'API-404-JOB';
+    (!exGone || ex.failures >= POLL.jobs.bannerAfter);
+  const exCause = exGone && ex.error?.cause instanceof AppError ? ex.error.cause : null;
   // When it goes while holding focus (the code changed, or the job recovered), focus goes to the heading.
   useEffect(() => {
     if (!failedRead && (document.activeElement === document.body || !document.activeElement))
@@ -269,7 +272,7 @@ export function JobOverview({
       {/* JOB-05: below the job header (D08c). A failed exceptions read says so rather than nothing; losing the
           cluster is the job poll's banner, not a second one. */}
       {!gone && status && <ErrorBanner error={status} handles={new Set()} />}
-      {failedRead && ex.banner}
+      {failedRead && (exCause ? <ErrorBanner error={exCause} handles={new Set()} /> : ex.banner)}
       {gone ? (
         <ErrorPage error={gone} icon={SearchX} {...(onJobs ? { onAction: () => onJobs() } : {})} />
       ) : !j ? (

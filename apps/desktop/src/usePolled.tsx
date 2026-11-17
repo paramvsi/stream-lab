@@ -19,7 +19,15 @@ export function usePolled<T>(
   everyMs: number = POLL.jobs.everyMs,
   /** A second poll on one screen (its banner not shown): no "Back in contact" of its own, so the screen says it once. */
   opts: { quiet?: boolean; restartOn?: string | number | boolean } = {},
-): { value: T | null; error: AppError | null; stale: boolean; since: string; banner: ReactNode } {
+): {
+  value: T | null;
+  error: AppError | null;
+  /** Failures in a row (across Retries). */
+  failures: number;
+  stale: boolean;
+  since: string;
+  banner: ReactNode;
+} {
   const toast = useToast();
   const [value, setValue] = useState<T | null>(null);
   const [error, setError] = useState<AppError | null>(null);
@@ -126,5 +134,5 @@ export function usePolled<T>(
       )}
     </div>
   );
-  return { value, error, stale: has && !!error && failures >= POLL.jobs.staleAfter, since, banner };
+  return { value, error, failures, stale: has && !!error && failures >= POLL.jobs.staleAfter, since, banner };
 }

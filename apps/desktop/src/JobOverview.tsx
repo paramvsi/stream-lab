@@ -4,6 +4,7 @@ import {
   getCheckpoints,
   getJob,
   lastCompleted,
+  POLL,
   type Connection,
   type FlinkCheckpoint,
   type FlinkHttp,
@@ -26,20 +27,36 @@ export const ago = (ms: number) =>
       ? `${plural(Math.floor(ms / 3_600_000), 'hour')} ago`
       : `${plural(Math.floor(ms / 86_400_000), 'day')} ago`;
 
-/** "3.4 s", "820 ms", "2 min 5 s". */
-export const duration = (ms: number) =>
-  ms < 1_000
-    ? `${Math.round(ms)} ms`
-    : ms < 60_000
-      ? `${(ms / 1_000).toFixed(1)} s`
-      : `${Math.floor(ms / 60_000)} min ${Math.round((ms % 60_000) / 1_000)} s`;
-/** "220 MB", "512 KB", "1.4 GB" (binary units, as Flink's own UI). */
-export const size = (b: number) =>
-  b < 1024 ** 2
-    ? `${Math.round(b / 1024)} KB`
-    : b < 1024 ** 3
-      ? `${Math.round(b / 1024 ** 2)} MB`
-      : `${(b / 1024 ** 3).toFixed(1)} GB`;
+/** "820 ms", "3.4 s", "2 min 5 s": rounded first, so 59.95 s is "1 min 0 s", never "60.0 s" or "1 min 60 s". */
+export const duration = (ms: number) => {
+  if (ms < 999.5) return `${Math.round(ms)} ms`;
+  const tenths = Math.round(ms / 100) / 10;
+  if (tenths < 60) return `${tenths.toFixed(1)} s`;
+  const s = Math.round(ms / 1_000);
+  return `${Math.floor(s / 60)} min ${s % 60} s`;
+};
+/** "500 B", "220 MB", "1.4 GB" (binary units, as Flink's own UI); a size Flink did not send is "—", not 0. */
+export const size = (b: number | undefined) => {
+  if (b === undefined) return '—';
+  if (b < 1024) return `${Math.round(b)} B`;
+  const units = ['KB', 'MB', 'GB', 'TB'] as const;
+  // Shown as whole KB / MB, one decimal from GB: carry when the shown value would read 1024.
+  const shown = (v: number, i: number) => (i >= 2 ? Math.round(v * 10) / 10 : Math.round(v));
+  let v = b / 1024;
+  let i = 0;
+  while (i < units.length - 1 && shown(v, i) >= 1024) {
+    v /= 1024;
+    i++;
+  }
+  return i >= 2 ? `${v.toFixed(1)} ${units[i]}` : `${Math.round(v)} ${units[i]}`;
+};
+/** Board D08 KPI note "2 min ago": the short form. */
+const shortAgo = (ms: number) =>
+  ms < 3_600_000
+    ? `${Math.max(1, Math.floor(ms / 60_000))} min ago`
+    : ms < 86_400_000
+      ? `${Math.floor(ms / 3_600_000)} h ago`
+      : `${Math.floor(ms / 86_400_000)} d ago`;
 
 type Ckpt = { off: true } | { off: false; last: FlinkCheckpoint | null };
 /**
@@ -56,10 +73,6 @@ async function readCkpt(http: FlinkHttp, conn: string, jid: string, t: number): 
     throw e;
   }
 }
-const readAll = async (http: FlinkHttp, conn: string, jid: string, t: number) => {
-  const [job, cp] = await Promise.all([getJob(http, conn, jid, t), readCkpt(http, conn, jid, t)]);
-  return { job, cp };
-};
 
 const columns: Column<FlinkVertex>[] = [
   { key: 'name', header: 'Operator', render: (v) => v.name },
@@ -92,15 +105,21 @@ export function JobOverview({
   onJobs?: () => void;
 }) {
   const h1 = useScreenHeading();
-  const { value, error, banner } = usePolled(
+  const {
+    value: j,
+    error,
+    banner,
+  } = usePolled(c, transport, (http, conn, t) => getJob(http, conn, jid, t), h1, 2_000);
+  // Checkpoints on their own poll (5 s, FLINK_API) and their own failures: one widget never blanks the page
+  // (ERRORS_AND_ALERTS: "one broken widget does not blank the page"). Its banner is not shown; the KPI says it.
+  const ck = usePolled(
     c,
     transport,
-    (http, conn, t) => readAll(http, conn, jid, t),
+    (http, conn, t) => readCkpt(http, conn, jid, t),
     h1,
-    2_000,
+    POLL.checkpoints.everyMs,
   );
-  const j = value?.job;
-  const cp = value?.cp;
+  const cp = ck.value;
   // §4: a single 404 over a job on screen is a blip (HA failover); the page goes only once the banner would.
   const gone = error?.code === 'API-404-JOB' && (!j || !!banner) ? error : null;
   useEffect(() => {
@@ -152,7 +171,9 @@ export function JobOverview({
       ) : (
         <>
           <div className="grid grid-cols-[repeat(auto-fill,minmax(220px,1fr))] gap-4">
-            {cp?.off ? (
+            {!cp && ck.error ? (
+              <Kpi label="Last checkpoint" value="—" note={present(ck.error).message} />
+            ) : cp?.off ? (
               <Kpi
                 label="Last checkpoint"
                 value="Off"
@@ -161,8 +182,9 @@ export function JobOverview({
             ) : cp?.last ? (
               <Kpi
                 label="Last checkpoint"
-                value={`${duration(cp.last.end_to_end_duration)} · ${size(cp.last.checkpointed_size ?? 0)}`}
-                note={ago(j.now - cp.last.latest_ack_timestamp)}
+                value={`${duration(cp.last.end_to_end_duration)} · ${size(cp.last.checkpointed_size)}`}
+                note={shortAgo(j.now - cp.last.latest_ack_timestamp)}
+                tone="success"
               />
             ) : (
               <Kpi label="Last checkpoint" value="None yet" />

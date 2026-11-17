@@ -3,7 +3,7 @@ import { ToastProvider, TooltipProvider } from '@sl/ui';
 import { act, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
-import { JobOverview } from './JobOverview';
+import { duration, JobOverview, size } from './JobOverview';
 
 globalThis.requestAnimationFrame = (cb) => setTimeout(() => cb(performance.now()), 0) as unknown as number;
 globalThis.cancelAnimationFrame = (id) => clearTimeout(id);
@@ -93,7 +93,7 @@ describe('JOB-02 · Job overview (board D08)', () => {
     show(answer(200, detail));
     const k = await screen.findByRole('group', { name: 'Last checkpoint' });
     await waitFor(() => expect(k).toHaveTextContent('3.4 s · 220 MB'));
-    expect(k).toHaveTextContent('2 minutes ago');
+    expect(k).toHaveTextContent('2 min ago'); // the board's short form
   });
 
   it('none completed yet (checkpointing on): says so', async () => {
@@ -109,7 +109,47 @@ describe('JOB-02 · Job overview (board D08)', () => {
     expect(k).toHaveTextContent(
       'Checkpointing is off for this job, so it cannot recover state after a failure.',
     );
+  });
+
+  it('audit #2: checkpoints failing (500) degrade the KPI alone; the job still shows', async () => {
+    show(async (req) =>
+      req.path.endsWith('/checkpoints')
+        ? { status: 500, headers: {}, url: '', body: '' }
+        : answer(200, detail)(req),
+    );
+    expect(await screen.findByRole('heading', { level: 1, name: 'refund-matcher' })).toBeInTheDocument();
     expect(screen.getByRole('table', { name: 'Operators' })).toBeInTheDocument();
+    const k = screen.getByRole('group', { name: 'Last checkpoint' });
+    await waitFor(() => expect(k).toHaveTextContent('—'));
+    expect(screen.queryByRole('alert')).toBeNull(); // no page banner for one widget
+  });
+
+  it('audit #1: checkpoints are polled every 5 s (FLINK_API), the job every 2 s', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      const calls: string[] = [];
+      show(async (req) => (calls.push(req.path), answer(200, detail)(req)));
+      await screen.findByRole('table', { name: 'Operators' });
+      calls.length = 0;
+      await act(async () => vi.advanceTimersByTimeAsync(10_000));
+      const n = (end: string) => calls.filter((p) => p.endsWith(end)).length;
+      expect(n(detail.jid)).toBeGreaterThanOrEqual(4); // ~5 in 10 s
+      expect(n('/checkpoints')).toBeLessThanOrEqual(2); // ~2 in 10 s, not ~5
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('audit #3/#4: duration and size carry at unit edges; a missing size is "—"', () => {
+    expect(duration(59_950)).toBe('1 min 0 s');
+    expect(duration(119_600)).toBe('2 min 0 s');
+    expect(duration(999.6)).toBe('1.0 s');
+    expect(duration(3_400)).toBe('3.4 s');
+    expect(size(1024 ** 2 - 1)).toBe('1 MB');
+    expect(size(1024 ** 3 - 1)).toBe('1.0 GB');
+    expect(size(500)).toBe('500 B');
+    expect(size(220 * 1024 ** 2)).toBe('220 MB');
+    expect(size(undefined)).toBe('—');
   });
 
   it('checkpointing off on a streaming job (zero counts, interval Long.MAX_VALUE) is Off too, not "None yet"', async () => {

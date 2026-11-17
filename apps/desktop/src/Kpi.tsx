@@ -1,7 +1,18 @@
 import type { ReactNode } from 'react';
 
 /** A KPI card (boards D05, D08): a named group, so a screen reader hears its label with the value. */
-export function Kpi({ label, value, note }: { label: string; value: ReactNode; note?: ReactNode }) {
+export function Kpi({
+  label,
+  value,
+  note,
+  tone,
+}: {
+  label: string;
+  value: ReactNode;
+  note?: ReactNode;
+  /** Board D08: a healthy note is green (with words, never colour alone). */
+  tone?: 'success';
+}) {
   return (
     <div
       role="group"
@@ -10,7 +21,11 @@ export function Kpi({ label, value, note }: { label: string; value: ReactNode; n
     >
       <span className="text-[13px] text-muted">{label}</span>
       <span className="text-[22px] font-semibold">{value}</span>
-      {note && <span className="text-[13px] text-muted">{note}</span>}
+      {note && (
+        <span className={`text-[13px] ${tone === 'success' ? 'text-success-600' : 'text-muted'}`}>
+          {note}
+        </span>
+      )}
     </div>
   );
 }

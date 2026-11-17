@@ -7,6 +7,7 @@ const fake = (hang = false) => {
     terminated: false,
     onmessage: null,
     onerror: null,
+    onmessageerror: null,
     postMessage(d) {
       if (hang) return;
       // The worker's own handling (answerFilter), so the message contract is the real one.
@@ -73,6 +74,24 @@ describe('OPS-01 · log filter off the UI thread, with a time limit', () => {
       code: 'LOG-FILTER-FAILED',
       params: { reason: 'Refused to create a worker' },
     });
+    expect(w.terminated).toBe(true);
+  });
+
+  it('audit lf2: a Worker that can not even be created (WebKit throws SecurityError on a CSP refusal) is LOG-FILTER-FAILED', async () => {
+    const blocked = () => {
+      throw Object.assign(new Error('Refused to create a worker'), { name: 'SecurityError' });
+    };
+    await expect(filterLinesBounded(['a'], 'a+', true, blocked, 1_000)).rejects.toMatchObject({
+      code: 'LOG-FILTER-FAILED',
+      params: { reason: 'Refused to create a worker' },
+    });
+  });
+
+  it('audit lf2: an answer that can not be read (messageerror) is LOG-FILTER-FAILED at once, not "too slow"', async () => {
+    const w = fake(true);
+    const p = filterLinesBounded(['a'], 'a+', true, () => w, 1_000);
+    w.onmessageerror?.({});
+    await expect(p).rejects.toMatchObject({ code: 'LOG-FILTER-FAILED' });
     expect(w.terminated).toBe(true);
   });
 });

@@ -7,6 +7,8 @@ export interface FilterWorker {
   onmessage: ((e: { data: unknown }) => void) | null;
   /** Blocked (CSP), failed to load, or crashed: the app's fault, not the pattern's. */
   onerror: ((e: { message?: string }) => void) | null;
+  /** An answer that could not be read (structured clone failed). */
+  onmessageerror: ((e: unknown) => void) | null;
   terminate(): void;
 }
 
@@ -37,7 +39,13 @@ export async function filterLinesBounded(
 ): Promise<string[]> {
   if (!regex || !pattern) return filterLines(lines, pattern, regex);
   filterLines([], pattern, true); // throws LOG-REGEX for an invalid pattern (it compiles it), before any worker
-  const w = makeWorker();
+  const failed = (reason: string, cause?: unknown) => new AppError('LOG-FILTER-FAILED', { reason }, cause);
+  let w: FilterWorker;
+  try {
+    w = makeWorker(); // WebKit throws here (SecurityError) when a CSP refuses the worker
+  } catch (e) {
+    throw failed(e instanceof Error ? e.message : String(e), e);
+  }
   return new Promise<string[]>((resolve, reject) => {
     const t = setTimeout(() => {
       w.terminate();
@@ -53,7 +61,12 @@ export async function filterLinesBounded(
     w.onerror = (e) => {
       clearTimeout(t);
       w.terminate();
-      reject(new AppError('LOG-FILTER-FAILED', { reason: e.message || 'the search could not start' }, e));
+      reject(failed(e.message || 'the search could not start', e));
+    };
+    w.onmessageerror = (e) => {
+      clearTimeout(t);
+      w.terminate();
+      reject(failed('its answer could not be read', e));
     };
     w.postMessage({ lines, pattern });
   });

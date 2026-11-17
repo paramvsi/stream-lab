@@ -1,4 +1,5 @@
-import { graphLayers, type JobGraph } from '@sl/flink';
+import { AppError, present } from '@sl/errors';
+import { graphLayers, type Backpressure, type JobGraph } from '@sl/flink';
 import { StatusBadge } from '@sl/ui';
 import { ArrowRight } from 'lucide-react';
 import { useId } from 'react';
@@ -13,7 +14,14 @@ import { TONE, word } from './Jobs';
  * ponytail: no drawn edges or crossing layout; a wide or crossing-heavy graph wants elkjs + @xyflow/react. The
  * Busy / Backpressure / Skew colouring and per-operator rec/s and busy % need vertex metrics (JOB-03).
  */
-export function JobGraphView({ graph }: { graph: JobGraph }) {
+export function JobGraphView({
+  graph,
+  backpressure = {},
+}: {
+  graph: JobGraph;
+  /** Per vertex id; null or missing is no reading. */
+  backpressure?: Record<string, Backpressure | null | undefined>;
+}) {
   const byId = new Map(graph.nodes.map((n) => [n.id, n]));
   const layers = graphLayers(graph);
   const titleId = useId();
@@ -44,6 +52,22 @@ export function JobGraphView({ graph }: { graph: JobGraph }) {
                     >
                       <h4 className="m-0 text-[14px] font-semibold">{n.name}</h4>
                       <span className="font-mono text-[12px] text-muted">p {n.parallelism}</span>
+                      {backpressure[id]?.level === 'high' && (
+                        // JOB-BACKPRESSURE (D08b): an object badge on the operator; HIGH is the catalog's trigger.
+                        <StatusBadge
+                          tone="warning"
+                          reason={
+                            present(
+                              new AppError('JOB-BACKPRESSURE', {
+                                operator: n.name,
+                                pct: backpressure[id]!.pct,
+                              }),
+                            ).message
+                          }
+                        >
+                          Backpressure {backpressure[id]!.pct}%
+                        </StatusBadge>
+                      )}
                       {n.status !== 'RUNNING' && (
                         <StatusBadge tone={TONE[n.status] ?? 'neutral'}>{word(n.status)}</StatusBadge>
                       )}

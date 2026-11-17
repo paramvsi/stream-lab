@@ -862,6 +862,28 @@ describe('JOB-02 · Job overview (board D08)', () => {
     ).toEqual(['Source: payments', 'Window aggregate', 'Sink: alerts']);
   });
 
+  it("JOB-BACKPRESSURE: a running job reads each operator's backpressure and badges the HIGH one", async () => {
+    const bp = (v: string) => ({
+      status: 'ok',
+      backpressureLevel: v === 'v2' ? 'high' : 'ok',
+      subtasks: [{ ratio: v === 'v2' ? 0.97 : 0.02 }],
+    });
+    show(async (req) => {
+      const m = /\/vertices\/(v\d)\/backpressure$/.exec(req.path);
+      if (m) return { status: 200, headers: {}, url: '', body: JSON.stringify(bp(m[1]!)) };
+      return answer(200, detail)(req);
+    });
+    expect(await screen.findByText('Backpressure 97%')).toBeInTheDocument();
+  });
+
+  it('JOB-BACKPRESSURE: a job that is not running asks for no backpressure', async () => {
+    const paths: string[] = [];
+    show(async (req) => (paths.push(req.path), answer(200, { ...detail, state: 'FINISHED' })(req)));
+    await screen.findByRole('list', { name: 'Job graph' });
+    await new Promise((r) => setTimeout(r, 100));
+    expect(paths.some((p) => p.endsWith('/backpressure'))).toBe(false);
+  });
+
   it('lists the operators with parallelism and status', async () => {
     show(answer(200, detail));
     const table = await screen.findByRole('table', { name: 'Operators' });

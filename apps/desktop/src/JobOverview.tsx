@@ -2,6 +2,7 @@ import { AppError, ErrorBanner, ErrorBoundary, ErrorPage, present } from '@sl/er
 import {
   checkpointingOff,
   getCheckpoints,
+  getBackpressure,
   getExceptions,
   getJob,
   jobGraph,
@@ -12,6 +13,7 @@ import {
   splitCause,
   type FlinkExceptions,
   type Connection,
+  type Backpressure,
   type FlinkCheckpoint,
   type FlinkCheckpointStats,
   type FlinkHttp,
@@ -222,6 +224,23 @@ export function JobOverview({
     { quiet: true },
   );
   const cp = ck.value;
+  // JOB-BACKPRESSURE: each operator of a RUNNING job, on its own quiet 5 s poll (a sample per vertex). One
+  // vertex that can not be read is no reading for it alone; Flink's values for a job not running are not read.
+  const running = j?.state === 'RUNNING';
+  const vids = j ? j.vertices.map((v) => v.id).join(',') : '';
+  const bp = usePolled(
+    c,
+    transport,
+    async (http, conn, t) => {
+      if (!running || !vids) return {} as Record<string, Backpressure | null>;
+      const ids = vids.split(',');
+      const rs = await Promise.allSettled(ids.map((v) => getBackpressure(http, conn, jid, v, 'RUNNING', t)));
+      return Object.fromEntries(ids.map((v, i) => [v, rs[i]!.status === 'fulfilled' ? rs[i]!.value : null]));
+    },
+    h1,
+    POLL.checkpoints.everyMs,
+    { quiet: true, restartOn: running ? vids : '' },
+  );
   // JOB-05: exceptions only while the job is in trouble (no extra call for a healthy job), on their own quiet poll.
   const troubled = !!j && TROUBLED.has(j.state);
   const [tab, setTab] = useState('overview');
@@ -371,7 +390,7 @@ export function JobOverview({
                         <Kpi label="Last checkpoint" value="None yet" />
                       )}
                     </div>
-                    <JobGraphView graph={jobGraph(j)} />
+                    <JobGraphView graph={jobGraph(j)} backpressure={running ? (bp.value ?? {}) : {}} />
                     <Table label="Operators" columns={columns} rows={j.vertices} rowKey={(v) => v.id} />
                   </div>
                 </ErrorBoundary>

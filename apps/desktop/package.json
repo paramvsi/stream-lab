@@ -12,6 +12,7 @@
     "tailwindcss": "^4.3.5"
   },
   "dependencies": {
+    "@sl/course": "workspace:*",
     "@sl/errors": "workspace:*",
     "@sl/flink": "workspace:*",
     "@sl/ui": "workspace:*",

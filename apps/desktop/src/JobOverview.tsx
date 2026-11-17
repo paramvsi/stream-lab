@@ -35,6 +35,7 @@ import { JobHistory } from './JobHistory';
 import { CancelDialog } from './CancelDialog';
 import { StopDialog } from './StopDialog';
 import { useTriggerSavepoint } from './useTriggerSavepoint';
+import { Explain } from './Explain';
 import { OperatorPanel } from './OperatorPanel';
 import { Kpi } from './Kpi';
 import { TONE, uptime, word } from './Jobs';
@@ -645,6 +646,12 @@ export function JobOverview({
                         <Kpi label="Last checkpoint" value="None yet" />
                       )}
                     </div>
+                    {/* JOB-10 / D08f: the warning signal's explanation, while an operator is backpressured (HIGH). */}
+                    {Object.values(bpShown).some((b) => b?.level === 'high') && (
+                      <div className="flex justify-end">
+                        <Explain term="backpressure" label="Explain backpressure" />
+                      </div>
+                    )}
                     <JobGraphView
                       graph={jobGraph(j)}
                       selected={openOp}

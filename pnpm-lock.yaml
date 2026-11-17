@@ -80,6 +80,9 @@ importers:
 
   apps/desktop:
     dependencies:
+      '@sl/course':
+        specifier: workspace:*
+        version: link:../../packages/course
       '@sl/errors':
         specifier: workspace:*
         version: link:../../packages/errors

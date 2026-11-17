@@ -88,6 +88,12 @@ const answers: Record<string, unknown> = {
       },
     ],
   },
+  // Window aggregate backpressured: its badge and the Explain button (JOB-10 / D08f) render.
+  '/jobs/a1/vertices/v1/backpressure': {
+    status: 'ok',
+    backpressureLevel: 'high',
+    subtasks: [{ ratio: 0.97 }],
+  },
   '/jobs/a1/exceptions': { exceptionHistory: { entries: [], truncated: false } },
   '/taskmanagers': { taskmanagers: [tm] },
   '/jobmanager/logs': { logs: [{ name: 'jobmanager.log', size: 200, mtime: 1 }] },
@@ -173,7 +179,13 @@ describe('M11 · A11Y · desktop screens', () => {
     await userEvent.click(screen.getByRole('button', { name: 'refund-matcher' }));
     const ops = await screen.findByRole('table', { name: 'Operators' });
     await screen.findByRole('button', { name: 'Stop with savepoint' });
+    await screen.findByText('backpressured 97%');
     await check('Job overview (D08)');
+    await userEvent.click(screen.getByRole('button', { name: 'Explain backpressure' }));
+    const explain = await screen.findByRole('dialog', { name: 'Backpressure' });
+    await check('Explain this (D08f)');
+    await userEvent.keyboard('{Escape}');
+    await gone(explain);
     within(ops).getAllByRole('row')[1]!.focus();
     await userEvent.keyboard('{Enter}');
     await screen.findByRole('table', { name: 'Subtasks' });

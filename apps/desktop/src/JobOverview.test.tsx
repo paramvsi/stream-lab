@@ -5,6 +5,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testi
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 import { causeText, duration, JobOverview, size } from './JobOverview';
+import { CHAPTERS, termById } from '@sl/course';
 
 globalThis.requestAnimationFrame = (cb) => setTimeout(() => cb(performance.now()), 0) as unknown as number;
 globalThis.cancelAnimationFrame = (id) => clearTimeout(id);
@@ -2161,5 +2162,48 @@ describe('APP-01 · a palette pick on the job page', () => {
     expect(await screen.findByRole('dialog', { name: /with a savepoint\?/ })).toBeInTheDocument();
     expect(taken).toHaveBeenCalledWith(7);
     expect(taken).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('JOB-10 · Explain this (board D08f)', () => {
+  const bp = (high: boolean) => async (req: Parameters<FlinkHttp>[0]) => {
+    const m = /\/vertices\/(v\d)\/backpressure$/.exec(req.path);
+    if (m)
+      return {
+        status: 200,
+        headers: {},
+        url: '',
+        body: JSON.stringify({
+          status: 'ok',
+          backpressureLevel: high && m[1] === 'v2' ? 'high' : 'ok',
+          subtasks: [{ ratio: high && m[1] === 'v2' ? 0.97 : 0.02 }],
+        }),
+      };
+    return answer(200, detail)(req);
+  };
+
+  it('with an operator backpressured, "Explain backpressure" opens the course concept, its chapter and the Flink docs', async () => {
+    show(bp(true));
+    await userEvent.click(await screen.findByRole('button', { name: 'Explain backpressure' }));
+    const d = await screen.findByRole('dialog', { name: 'Backpressure' });
+    const term = termById('backpressure')!;
+    expect(within(d).getByText('Concept · from the course')).toBeInTheDocument();
+    expect(within(d).getByText(term.body)).toBeInTheDocument();
+    // The course teaches no chapter on it yet (term.chapter unset): no chapter line, not an invented one.
+    if (term.chapter)
+      expect(
+        within(d).getByText(CHAPTERS.find((c) => c.id === term.chapter)!.title, { exact: false }),
+      ).toBeInTheDocument();
+    else expect(within(d).queryByText(/In the course:/)).toBeNull();
+    expect(within(d).getByRole('link', { name: /Flink docs/ })).toHaveAttribute('href', term.docs);
+    await userEvent.keyboard('{Escape}');
+    expect(screen.getByRole('button', { name: 'Explain backpressure' })).toHaveFocus();
+  });
+
+  it('with no operator backpressured, there is nothing to explain', async () => {
+    show(bp(false));
+    await screen.findAllByText(/backpressured 2%|Window aggregate/);
+    await new Promise((r) => setTimeout(r, 200));
+    expect(screen.queryByRole('button', { name: 'Explain backpressure' })).toBeNull();
   });
 });

@@ -72,6 +72,8 @@ const answers: Record<string, unknown> = {
         checkpointed_size: 220 * 1024 * 1024,
         num_subtasks: 4,
         num_acknowledged_subtasks: 2,
+        failure_timestamp: 53_400,
+        failure_message: 'Checkpoint expired before completing.',
       },
       {
         id: 1,
@@ -189,6 +191,7 @@ describe('M11 · A11Y · desktop screens', () => {
       if (tab === 'Checkpoints') {
         const t = await screen.findByRole('table', { name: ready });
         await vi.waitFor(() => expect(within(t).getAllByRole('row').length).toBe(3)); // header + 2 checkpoints
+        await screen.findByText(/^Checkpoint 2 failed after/); // the failure banner (JOB-CKPT-FAIL) is on the page
       } else await screen.findByRole('heading', { name: ready });
       await check(`Job overview · ${tab}`);
     }

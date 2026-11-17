@@ -1,17 +1,16 @@
 import { describe, expect, it, vi } from 'vitest';
-import { filterLinesBounded, type FilterWorker } from './logFilter';
+import { answerFilter, filterLinesBounded, type FilterWorker } from './logFilter';
 
 /** A fake worker: answers like the real one (filterLines), or never (a catastrophic pattern). */
 const fake = (hang = false) => {
   const w: FilterWorker & { terminated: boolean } = {
     terminated: false,
     onmessage: null,
+    onerror: null,
     postMessage(d) {
       if (hang) return;
-      const { lines, pattern } = d as { lines: string[]; pattern: string };
-      queueMicrotask(() =>
-        w.onmessage?.({ data: { ok: true, lines: lines.filter((l) => l.includes(pattern)) } }),
-      );
+      // The worker's own handling (answerFilter), so the message contract is the real one.
+      queueMicrotask(() => w.onmessage?.({ data: answerFilter(d as { lines: string[]; pattern: string }) }));
     },
     terminate() {
       w.terminated = true;
@@ -56,5 +55,24 @@ describe('OPS-01 · log filter off the UI thread, with a time limit', () => {
       code: 'LOG-REGEX',
     });
     expect(make).not.toHaveBeenCalled();
+  });
+
+  it('audit lf #2: the worker runs the regex (not a substring), and its own failure says ok:false with the reason', async () => {
+    const w = fake();
+    expect(
+      await filterLinesBounded(['WARN a', 'x WARN', 'ERROR b'], '^(WARN|ERROR)', true, () => w, 1_000),
+    ).toEqual(['WARN a', 'ERROR b']);
+    expect(answerFilter({ lines: ['a'], pattern: '(' })).toMatchObject({ ok: false });
+  });
+
+  it('audit lf #1: a worker that fails (blocked, did not load, crashed) is LOG-FILTER-FAILED, not "your pattern is slow"', async () => {
+    const w = fake(true);
+    const p = filterLinesBounded(['a'], 'a+', true, () => w, 1_000);
+    w.onerror?.({ message: 'Refused to create a worker' });
+    await expect(p).rejects.toMatchObject({
+      code: 'LOG-FILTER-FAILED',
+      params: { reason: 'Refused to create a worker' },
+    });
+    expect(w.terminated).toBe(true);
   });
 });

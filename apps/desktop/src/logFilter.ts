@@ -5,8 +5,13 @@ import { filterLines } from '@sl/flink';
 export interface FilterWorker {
   postMessage(data: unknown): void;
   onmessage: ((e: { data: unknown }) => void) | null;
+  /** Blocked (CSP), failed to load, or crashed: the app's fault, not the pattern's. */
+  onerror: ((e: { message?: string }) => void) | null;
   terminate(): void;
 }
+
+export { answerFilter } from './logFilterCore';
+import type { FilterAnswer } from './logFilterCore';
 
 /** The real one: a module worker running filterLines (./logFilter.worker.ts). */
 export const makeFilterWorker = (): FilterWorker =>
@@ -41,9 +46,14 @@ export async function filterLinesBounded(
     w.onmessage = (e) => {
       clearTimeout(t);
       w.terminate();
-      const d = e.data as { ok: true; lines: string[] } | { ok: false; reason: string };
+      const d = e.data as FilterAnswer;
       if (d.ok) resolve(d.lines);
       else reject(new AppError('LOG-REGEX', { reason: d.reason }));
+    };
+    w.onerror = (e) => {
+      clearTimeout(t);
+      w.terminate();
+      reject(new AppError('LOG-FILTER-FAILED', { reason: e.message || 'the search could not start' }, e));
     };
     w.postMessage({ lines, pattern });
   });

@@ -6,6 +6,22 @@ import { useEffect, useMemo, useRef, useState, type ReactNode, type RefObject } 
 import { shortAddress } from './Connections';
 
 /**
+ * Codes that mean the host can not be reached at all: the job poll's banner says those. A timeout or a reset
+ * (CONN-IO) can hit one large response while small ones succeed, so on the exceptions read they are its own.
+ */
+export const HOST_DOWN = new Set([
+  'CONN-DNS',
+  'CONN-REFUSED',
+  'CONN-TLS-UNTRUSTED',
+  'CONN-CERT-CHANGED',
+  'CONN-PROXY',
+  'CONN-SSH-AUTH',
+  'CONN-SSH-HOSTKEY',
+  'CONN-K8S-CONTEXT',
+  'CONN-OFFLINE',
+]);
+
+/**
  * One limiter per connection, shared by every poll on it (FLINK_API: at most 6 requests in flight per connection;
  * polls share a scheduler). A screen with several polls (job, checkpoints, exceptions, backpressure) stays under it.
  * ponytail: never dropped; one small object per connection ever opened.

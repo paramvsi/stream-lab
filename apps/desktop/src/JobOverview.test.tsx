@@ -1377,28 +1377,41 @@ describe('JOB-02 · Job overview (board D08)', () => {
     expect(within(p).queryByText('2,410/s')).toBeNull();
   });
 
-  it("audit op #2 #4: a job not running sends no subtask reads; a connection error is the page's to say, not a second banner", async () => {
-    let reads = 0;
-    let state = 'FINISHED';
-    show(async (req) => {
-      if (/\/subtasks\/\d\/metrics$/.test(req.path)) {
-        reads++;
-        throw new TransportError({ kind: 'refused', host: 'payments-prod.example.com', port: 8081 });
-      }
-      return answer(200, { ...detail, state })(req);
-    });
-    const ops = await screen.findByRole('table', { name: 'Operators' });
-    await userEvent.click(within(ops).getAllByRole('row')[2]!);
-    const p = await screen.findByRole('region', { name: 'Window aggregate' });
-    await new Promise((r) => setTimeout(r, 300));
-    expect(reads).toBe(0);
-    state = 'RUNNING';
-    await waitFor(() => expect(reads).toBeGreaterThan(0), { timeout: 5_000 });
-    await new Promise((r) => setTimeout(r, 300));
-    // The job itself answers, so the page has no banner: the panel says it (never a skeleton forever).
-    expect(await within(p).findByText(/Subtasks could not be read/)).toBeInTheDocument();
-    expect(within(p).queryByRole('button', { name: /Retry/ })).toBeNull();
-  });
+  it(
+    "audit op #2 #4: a job not running sends no subtask reads; a host down is the page's to say, a timeout the panel's",
+    { timeout: 25_000 },
+    async () => {
+      let reads = 0;
+      let state = 'FINISHED';
+      let kind: 'refused' | 'timeout' = 'refused';
+      show(async (req) => {
+        if (/\/subtasks\/\d\/metrics$/.test(req.path)) {
+          reads++;
+          throw kind === 'refused'
+            ? new TransportError({ kind: 'refused', host: 'payments-prod.example.com', port: 8081 })
+            : new TransportError({ kind: 'timeout', host: 'payments-prod.example.com', timeoutS: 2 });
+        }
+        return answer(200, { ...detail, state })(req);
+      });
+      const ops = await screen.findByRole('table', { name: 'Operators' });
+      await userEvent.click(within(ops).getAllByRole('row')[2]!);
+      const p = await screen.findByRole('region', { name: 'Window aggregate' });
+      await new Promise((r) => setTimeout(r, 300));
+      expect(reads).toBe(0);
+      state = 'RUNNING';
+      await waitFor(() => expect(reads).toBeGreaterThan(0), { timeout: 5_000 });
+      await new Promise((r) => setTimeout(r, 300));
+      // A host refusing is the job poll's to say (as for the exceptions and checkpoint reads), also around an
+      // outage while this read still holds its error: the panel is silent.
+      expect(within(p).queryByText(/could not be read/)).toBeNull();
+      // A timeout can hit this one read while the job answers: the panel says it (never a skeleton forever).
+      kind = 'timeout';
+      expect(
+        await within(p).findByText(/Subtasks could not be read/, {}, { timeout: 15_000 }),
+      ).toBeInTheDocument();
+      expect(within(p).queryByRole('button', { name: /Retry/ })).toBeNull();
+    },
+  );
 
   it(
     "audit op #3: switching operators ends the last one's round: no more reads for it",

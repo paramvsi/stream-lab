@@ -10,7 +10,7 @@ import {
 import { Loading, Skeleton, Table, type Column } from '@sl/ui';
 import { CircleAlert } from 'lucide-react';
 import { useEffect, useId, useRef, type ReactNode, type RefObject } from 'react';
-import { usePolled } from './usePolled';
+import { HOST_DOWN, usePolled } from './usePolled';
 
 const columns: Column<SubtaskLoad>[] = [
   { key: 'i', header: '#', mono: true, render: (l) => l.index },
@@ -86,7 +86,9 @@ function Subtasks({ c, transport, jid, vertex, heading, pageBanner }: Props) {
   );
   const v = sub.value;
   const sk = v && !v.failed && v.loads.length === v.total ? skew(v.loads) : null;
-  const err = !v && sub.error && !pageBanner ? sub.error : null;
+  // As the exceptions and checkpoint reads: a host down is the job poll's to say, also around its banner (before
+  // it is up, after it goes while this read still holds the outage); a timeout or reset on this read is its own.
+  const err = !v && sub.error && !pageBanner && !HOST_DOWN.has(sub.error.code) ? sub.error : null;
   return (
     <div className="flex flex-col gap-3">
       {!v ? (

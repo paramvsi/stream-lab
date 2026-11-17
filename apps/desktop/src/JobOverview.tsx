@@ -31,7 +31,7 @@ import { JobGraphView } from './JobGraphView';
 import { OperatorPanel } from './OperatorPanel';
 import { Kpi } from './Kpi';
 import { TONE, uptime, word } from './Jobs';
-import { usePolled } from './usePolled';
+import { HOST_DOWN, usePolled } from './usePolled';
 
 /**
  * The states with a JOB-05 banner. FAILING is a job that has failed for good and is still cancelling its tasks:
@@ -39,21 +39,6 @@ import { usePolled } from './usePolled';
  * FLINK: https://github.com/apache/flink/blob/release-1.20/flink-runtime/src/main/java/org/apache/flink/runtime/executiongraph/DefaultExecutionGraph.java
  * FLINK: https://github.com/apache/flink/blob/release-1.20/flink-runtime/src/main/java/org/apache/flink/runtime/scheduler/adaptive/Failing.java
  */
-/**
- * Codes that mean the host can not be reached at all: the job poll's banner says those. A timeout or a reset
- * (CONN-IO) can hit one large response while small ones succeed, so on the exceptions read they are its own.
- */
-const HOST_DOWN = new Set([
-  'CONN-DNS',
-  'CONN-REFUSED',
-  'CONN-TLS-UNTRUSTED',
-  'CONN-CERT-CHANGED',
-  'CONN-PROXY',
-  'CONN-SSH-AUTH',
-  'CONN-SSH-HOSTKEY',
-  'CONN-K8S-CONTEXT',
-  'CONN-OFFLINE',
-]);
 const TROUBLED = new Set(['RESTARTING', 'FAILING', 'FAILED']);
 /**
  * Flink keeps web.exception-history-size failures per job, 16 by default.

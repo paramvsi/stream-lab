@@ -670,6 +670,67 @@ describe('JOB-02 · Job overview (board D08)', () => {
     expect(await screen.findByText(/internal error while reading the exceptions/)).toBeInTheDocument();
   });
 
+  it('audit tab M2: with the Exceptions tab open and the cluster down, one banner says it (no CONN copy in the tab)', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      let down = false;
+      show(async (req) => {
+        if (down)
+          throw new TransportError({ kind: 'refused', host: 'payments-prod.example.com', port: 8081 });
+        return answer(200, detail)(req);
+      });
+      await screen.findByRole('table', { name: 'Operators' });
+      down = true;
+      await userEvent.click(screen.getByRole('tab', { name: /Exceptions/ }));
+      for (let t = 0; t < 40; t++) await act(async () => vi.advanceTimersByTimeAsync(1_000));
+      expect(screen.getByText(/Lost contact with payments-prod/)).toBeInTheDocument();
+      expect(screen.queryByText(/Nothing is listening/)).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('audit tab M3: a FAILED job with the Exceptions tab open shows the read error in the tab, once, not "Loading"', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      show(async (req) =>
+        req.path.endsWith('/exceptions')
+          ? { status: 500, headers: {}, url: '', body: '' }
+          : answer(200, { ...detail, state: 'FAILED' })(req),
+      );
+      await screen.findByRole('table', { name: 'Operators' });
+      await userEvent.click(screen.getByRole('tab', { name: /Exceptions/ }));
+      for (let t = 0; t < 40; t++) await act(async () => vi.advanceTimersByTimeAsync(1_000));
+      expect(screen.getAllByText(/internal error while reading the exceptions/)).toHaveLength(1);
+      expect(screen.queryByRole('status', { name: 'Loading exceptions' })).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('audit tab M4: Retry in the tab that works leaves focus on the heading, not <body>', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      let bad = true;
+      show(async (req) =>
+        req.path.endsWith('/exceptions') && bad
+          ? { status: 500, headers: {}, url: '', body: '' }
+          : answer(200, detail)(req),
+      );
+      await screen.findByRole('table', { name: 'Operators' });
+      await userEvent.click(screen.getByRole('tab', { name: /Exceptions/ }));
+      await act(async () => vi.advanceTimersByTimeAsync(1_000));
+      const retry = await screen.findByRole('button', { name: 'Retry' });
+      bad = false;
+      await userEvent.click(retry);
+      await act(async () => vi.advanceTimersByTimeAsync(1_000));
+      await screen.findByRole('table', { name: 'Exceptions' });
+      expect(screen.getByRole('heading', { level: 1 })).toHaveFocus();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('lists the operators with parallelism and status', async () => {
     show(answer(200, detail));
     const table = await screen.findByRole('table', { name: 'Operators' });

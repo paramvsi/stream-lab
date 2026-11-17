@@ -17,7 +17,7 @@ import {
 } from '@sl/flink';
 import { Button, Loading, Skeleton, StatusBadge, Table, Tabs, type Column } from '@sl/ui';
 import { ListChecks, SearchX } from 'lucide-react';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type RefObject } from 'react';
 import { useScreenHeading } from './focus';
 import { ExceptionGroups } from './ExceptionGroups';
 import { Kpi } from './Kpi';
@@ -125,6 +125,49 @@ function statusError(j: { name: string; state: string; now: number }, ex: FlinkE
     period: uptime(j.now - oldest),
     cause,
   });
+}
+
+/**
+ * A failed exceptions read, said in one element whatever the code (a change of error keeps it). When it goes, or
+ * its code changes (its buttons differ: Retry or not) while focus was in it, the focused button may be gone:
+ * focus goes to the heading. Only then: a banner arriving, or one the user never entered, moves nothing.
+ */
+function ReadError({
+  error,
+  onRetry,
+  heading,
+}: {
+  error: AppError;
+  onRetry: () => void;
+  heading: RefObject<HTMLHeadingElement | null>;
+}) {
+  const box = useRef<HTMLDivElement>(null);
+  const inside = useRef(false);
+  const lost = () => document.activeElement === document.body || !document.activeElement;
+  useEffect(() => {
+    const was = inside.current;
+    inside.current = !!box.current?.contains(document.activeElement); // still in it: keep tracking
+    if (was && lost()) heading.current?.focus();
+  }, [error.code, heading]);
+  useEffect(
+    () => () => {
+      // Unmounted (removed from the DOM by now): focus was in it and fell to <body>.
+      if (inside.current && lost()) heading.current?.focus();
+    },
+    [heading],
+  );
+  return (
+    <div
+      ref={box}
+      onFocus={() => (inside.current = true)}
+      onBlur={(e) => {
+        // A blur React sees is the user leaving (none for its own removal), unless the window lost focus.
+        if (!e.currentTarget.contains(document.activeElement)) inside.current = false;
+      }}
+    >
+      <ErrorBanner error={error} handles={new Set(['Retry', 'Retry now'])} onAction={onRetry} />
+    </div>
+  );
 }
 
 type Failures = { n: number; more: boolean };
@@ -248,28 +291,12 @@ export function JobOverview({
   // is its own problem (a large history) and is said. A 404 is said as the HTTP refusal it wraps.
   const exErr =
     ex.error?.code === 'API-404-JOB' && ex.error.cause instanceof AppError ? ex.error.cause : ex.error;
-  const failedRead =
-    !gone &&
-    troubled &&
-    !banner &&
-    !ex.value &&
-    !!exErr &&
-    !HOST_DOWN.has(exErr.code) &&
-    ex.failures >= POLL.jobs.bannerAfter;
-  // When the failed-read banner goes, or the code it shows changes (its buttons differ: Retry or not), and focus
-  // was in it, the focused button may have gone with it: focus goes to the heading. Only then (as usePolled's own
-  // banner): a banner arriving, or one the user never entered, moves nothing.
-  const shownCode = failedRead ? (exErr?.code ?? null) : null;
-  const focusInFailedRead = useRef(false);
-  const failedReadBox = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    // Cleared on every change (as usePolled): another effect (the 404 page) may already have moved focus, and a
-    // flag left set would pull focus on a later change the user never entered.
-    const was = focusInFailedRead.current;
-    // Still in it (a change that kept the focused button): keep tracking; otherwise cleared.
-    focusInFailedRead.current = !!failedReadBox.current?.contains(document.activeElement);
-    if (was && (document.activeElement === document.body || !document.activeElement)) h1.current?.focus();
-  }, [shownCode, h1]);
+  // The exceptions read's own error, when it is its own (not the connection: the job poll's banner, or a host
+  // that can not be reached, says that). Shown once: in the Exceptions tab while it is open (at once: the user is
+  // waiting for it), else on the page for a troubled job after 3 in a row (§4).
+  const readError = !gone && !banner && !ex.value && exErr && !HOST_DOWN.has(exErr.code) ? exErr : null;
+  const onExceptionsTab = tab === 'exceptions';
+  const failedRead = !!readError && !onExceptionsTab && troubled && ex.failures >= POLL.jobs.bannerAfter;
   return (
     <main className="flex min-h-screen flex-col gap-5 bg-surface px-8 py-7">
       {!gone && banner}
@@ -303,19 +330,7 @@ export function JobOverview({
       {/* JOB-05: below the job header (D08c). A failed exceptions read says so rather than nothing; losing the
           cluster is the job poll's banner, not a second one. */}
       {!gone && status && <ErrorBanner error={status} handles={new Set()} />}
-      {/* One element whatever the code, so a change of error never drops focus. */}
-      {failedRead && exErr && (
-        <div
-          ref={failedReadBox}
-          onFocus={() => (focusInFailedRead.current = true)}
-          onBlur={(e) => {
-            // A blur React sees is the user leaving (none for its own removal), unless the window lost focus.
-            if (!e.currentTarget.contains(document.activeElement)) focusInFailedRead.current = false;
-          }}
-        >
-          <ErrorBanner error={exErr} handles={new Set(['Retry', 'Retry now'])} onAction={ex.retry} />
-        </div>
-      )}
+      {failedRead && readError && <ReadError error={readError} onRetry={ex.retry} heading={h1} />}
       {gone ? (
         <ErrorPage error={gone} icon={SearchX} {...(onJobs ? { onAction: () => onJobs() } : {})} />
       ) : !j ? (
@@ -392,13 +407,8 @@ export function JobOverview({
                   <div className="pt-5">
                     {ex.value ? (
                       <ExceptionGroups entries={ex.value.entries} capped={exCapped} />
-                    ) : exErr && !failedRead ? (
-                      // The page banner says it when the job is in trouble; here it is the tab's own answer.
-                      <ErrorBanner
-                        error={exErr}
-                        handles={new Set(['Retry', 'Retry now'])}
-                        onAction={ex.retry}
-                      />
+                    ) : readError ? (
+                      <ReadError error={readError} onRetry={ex.retry} heading={h1} />
                     ) : (
                       <Loading label="Loading exceptions">
                         <Skeleton height={46} />

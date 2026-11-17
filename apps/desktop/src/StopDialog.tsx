@@ -2,6 +2,7 @@ import { AppError, ErrorBanner, present } from '@sl/errors';
 import { getSavepointDir, savepointStatus, stopWithSavepoint, type FlinkHttp } from '@sl/flink';
 import { Button, Dialog, Field, Input, Loading, Skeleton, useToastOptional } from '@sl/ui';
 import { useEffect, useId, useRef, useState, type RefObject } from 'react';
+import { duration } from './format';
 
 type Step =
   | { name: 'confirm' }
@@ -18,6 +19,8 @@ const LOST =
 /** How often a running stop is asked about: one GET each (the stop itself is never sent again); slower when a read fails. */
 const EVERY_MS = 1_000;
 const AFTER_FAIL_MS = 5_000;
+/** SP-TIMEOUT (catalog): a savepoint still IN_PROGRESS after 10 min says so. */
+export const SP_TIMEOUT_MS = 10 * 60_000;
 
 const asAppError = (e: unknown, conn: string) =>
   e instanceof AppError ? e : new AppError('CONN-IO', { host: conn, reason: 'the request failed' }, e);
@@ -30,7 +33,7 @@ const asAppError = (e: unknown, conn: string) =>
  * runs, the stop goes on and its result comes as a toast. Each opening starts at the question (a stop that is
  * still running shows its progress).
  * ponytail: D15b's bytes / % and per-operator progress (needs checkpoint stats), the "Cancel without a savepoint
- * instead" link (D15e) and SP-TIMEOUT's threshold are next slices; after a timed-out POST the job's state should
+ * instead" link (D15e) are next slices; after a timed-out POST the job's state should
  * be read before anything else is offered.
  */
 export function StopDialog({
@@ -139,6 +142,19 @@ export function StopDialog({
     };
   }, [opening, http, conn]);
 
+  // SP-TIMEOUT: still running 10 min after it was sent, the dialog says so once (Keep waiting hides it; Close
+  // closes the dialog: the stop goes on and its result comes as a toast, as any running stop closed).
+  const [started, setStarted] = useState<number | null>(null);
+  const [slow, setSlow] = useState<{ dur: string } | 'dismissed' | null>(null);
+  useEffect(() => {
+    if (step.name !== 'running' || started === null || slow) return;
+    const t = setTimeout(
+      () => setSlow({ dur: duration(Date.now() - started) }),
+      Math.max(0, started + SP_TIMEOUT_MS - Date.now()),
+    );
+    return () => clearTimeout(t);
+  }, [step.name, started, slow]);
+
   // A running stop: one status read at a time until it is done, open or not (closed: the result is a toast).
   useEffect(() => {
     if (step.name !== 'running' || !rid) return;
@@ -204,6 +220,8 @@ export function StopDialog({
         setSending(false);
         setRid(r);
         setStep({ name: 'running' });
+        setStarted(Date.now());
+        setSlow(null);
       },
       (e: unknown) => {
         setSending(false);
@@ -228,6 +246,13 @@ export function StopDialog({
   if (step.name === 'running')
     return (
       <Dialog {...shared} title={`Stopping ${job}`}>
+        {slow && slow !== 'dismissed' && (
+          <ErrorBanner
+            error={new AppError('SP-TIMEOUT', { dur: slow.dur })}
+            handles={new Set(['Keep waiting', 'Close'])}
+            onAction={(a) => (a === 'Keep waiting' ? setSlow('dismissed') : close())}
+          />
+        )}
         <Loading label="Writing savepoint">
           <p className="m-0 text-[14px]">Writing savepoint…</p>
           <Skeleton className="mt-3 h-2 w-full" />

@@ -331,3 +331,53 @@ describe('ACT-01 · stop with savepoint (D15, D15b, D15c, D15d)', () => {
       ).toHaveTextContent('A stop sent earlier may still be running on the cluster.');
     }));
 });
+
+describe('SP-TIMEOUT (catalog: still IN_PROGRESS after 10 min, board D15b)', () => {
+  const slow =
+    (posts: FlinkRequest[]): FlinkHttp =>
+    async (r) => {
+      if (r.path === '/jobmanager/config') return cfg('s3://sp');
+      if (r.method === 'POST') return (posts.push(r), ok(202, { 'request-id': 'r1' }));
+      return ok(200, { status: { id: 'IN_PROGRESS' } });
+    };
+  const start = async () => {
+    const d = await screen.findByRole('dialog');
+    await within(d).findByDisplayValue('s3://sp');
+    await userEvent.click(within(d).getByRole('button', { name: 'Stop with savepoint' }));
+    return screen.findByRole('dialog', { name: 'Stopping refund-matcher' });
+  };
+
+  it('after 10 min still in progress, says so (not before); Keep waiting hides it and the stop goes on', () =>
+    run(async () => {
+      const posts: FlinkRequest[] = [];
+      render(<Harness http={slow(posts)} />);
+      await start();
+      await vi.advanceTimersByTimeAsync(590_000);
+      expect(screen.queryByText(/taking longer than usual/)).toBeNull();
+      await vi.advanceTimersByTimeAsync(11_000);
+      await vi.waitFor(() =>
+        expect(screen.getByRole('dialog', { name: 'Stopping refund-matcher' })).toHaveTextContent(
+          /The savepoint is taking longer than usual \(10 min \d+ s\)\. You can keep waiting or close this; it continues on the cluster\./,
+        ),
+      );
+      await userEvent.click(screen.getByRole('button', { name: 'Keep waiting' }), {
+        advanceTimers: vi.advanceTimersByTime,
+      });
+      expect(screen.queryByText(/taking longer than usual/)).toBeNull();
+      expect(screen.getByRole('dialog', { name: 'Stopping refund-matcher' })).toBeInTheDocument();
+      expect(posts).toHaveLength(1); // nothing re-sent
+    }));
+
+  it('Close closes the dialog; the stop goes on (no second POST)', () =>
+    run(async () => {
+      const posts: FlinkRequest[] = [];
+      render(<Harness http={slow(posts)} />);
+      await start();
+      await vi.advanceTimersByTimeAsync(601_000);
+      await userEvent.click(await screen.findByRole('button', { name: 'Close' }), {
+        advanceTimers: vi.advanceTimersByTime,
+      });
+      expect(screen.queryByRole('dialog')).toBeNull();
+      expect(posts).toHaveLength(1);
+    }));
+});

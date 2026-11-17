@@ -28,6 +28,7 @@ import { ExceptionGroups } from './ExceptionGroups';
 import { ago, duration, shortAgo, size } from './format';
 export { duration, size } from './format';
 import { JobGraphView } from './JobGraphView';
+import { OperatorPanel } from './OperatorPanel';
 import { Kpi } from './Kpi';
 import { TONE, uptime, word } from './Jobs';
 import { usePolled } from './usePolled';
@@ -307,6 +308,9 @@ export function JobOverview({
   // JOB-05: exceptions only while the job is in trouble (no extra call for a healthy job), on their own quiet poll.
   const troubled = !!j && TROUBLED.has(j.state);
   const [tab, setTab] = useState('overview');
+  // JOB-03: the operator whose panel is open (by id: the job refreshes under it; gone from the job, it closes).
+  const [openOp, setOpenOp] = useState<string | null>(null);
+  const op = openOp ? j?.vertices.find((v) => v.id === openOp) : undefined;
   // Exceptions are read while the job is in trouble (JOB-05) or the Exceptions tab is open (JOB-08): never for a
   // healthy job nobody is looking at.
   const wantExceptions = troubled || tab === 'exceptions';
@@ -462,7 +466,24 @@ export function JobOverview({
                           }
                         : {})}
                     />
-                    <Table label="Operators" columns={columns} rows={j.vertices} rowKey={(v) => v.id} />
+                    <Table
+                      label="Operators"
+                      columns={columns}
+                      rows={j.vertices}
+                      rowKey={(v) => v.id}
+                      selectedKey={openOp}
+                      onSelect={(v) => setOpenOp(v.id)}
+                    />
+                    {op && (
+                      <OperatorPanel
+                        c={c}
+                        transport={transport}
+                        jid={jid}
+                        vertex={op}
+                        running={running}
+                        heading={h1}
+                      />
+                    )}
                   </div>
                 </ErrorBoundary>
               ),

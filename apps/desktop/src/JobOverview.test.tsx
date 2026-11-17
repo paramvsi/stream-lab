@@ -1300,6 +1300,61 @@ describe('JOB-02 · Job overview (board D08)', () => {
     },
   );
 
+  it('JOB-03 / D09c: an operator row opens its panel: subtasks with records in and busy, the skew line, failures said', async () => {
+    const rec = [2410, 820, 860, 790];
+    show(async (req) => {
+      const m = /\/vertices\/v2\/subtasks\/(\d)\/metrics$/.exec(req.path);
+      if (m) {
+        const i = Number(m[1]);
+        if (i === 3) return { status: 500, headers: {}, url: '', body: '' };
+        return {
+          status: 200,
+          headers: {},
+          url: '',
+          body: JSON.stringify([
+            { id: 'numRecordsInPerSecond', value: String(rec[i]) },
+            { id: 'busyTimeMsPerSecond', value: String([990, 340, 360, 330][i]) },
+          ]),
+        };
+      }
+      return answer(200, detail)(req);
+    });
+    const ops = await screen.findByRole('table', { name: 'Operators' });
+    const row = within(ops).getAllByRole('row')[2]!; // Window aggregate
+    row.focus();
+    await userEvent.keyboard('{Enter}');
+    const panel = await screen.findByRole('region', { name: 'Window aggregate' });
+    const t = await within(panel).findByRole('table', { name: 'Subtasks' });
+    const rows = within(t)
+      .getAllByRole('row')
+      .slice(1)
+      .map((r) => r.textContent);
+    expect(rows[0]).toMatch(/^0.*2,410\/s.*99%/);
+    expect(rows[3]).toMatch(/^3.*—.*—/);
+    expect(within(panel).getByText(/1 subtask could not be read/)).toBeInTheDocument();
+    // 3 of 4 read: no skew claim from a partial table
+    expect(within(panel).queryByText(/× the records/)).toBeNull();
+  });
+
+  it('JOB-03 / D09c: over a complete table, a skewed operator says which subtask gets how much more', async () => {
+    const rec = [2410, 820, 860, 790];
+    show(async (req) => {
+      const m = /\/vertices\/v2\/subtasks\/(\d)\/metrics$/.exec(req.path);
+      if (m)
+        return {
+          status: 200,
+          headers: {},
+          url: '',
+          body: JSON.stringify([{ id: 'numRecordsInPerSecond', value: String(rec[Number(m[1])]) }]),
+        };
+      return answer(200, detail)(req);
+    });
+    const ops = await screen.findByRole('table', { name: 'Operators' });
+    await userEvent.click(within(ops).getAllByRole('row')[2]!);
+    const panel = await screen.findByRole('region', { name: 'Window aggregate' });
+    expect(await within(panel).findByText('Subtask 0 gets 2.9× the records')).toBeInTheDocument();
+  });
+
   it('lists the operators with parallelism and status', async () => {
     show(answer(200, detail));
     const table = await screen.findByRole('table', { name: 'Operators' });

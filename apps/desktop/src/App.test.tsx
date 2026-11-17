@@ -353,4 +353,15 @@ describe('APP-01 · command palette (board G01)', () => {
     expect(box).toHaveValue('?');
     expect(screen.queryByRole('dialog', { name: 'Keyboard shortcuts' })).toBeNull();
   });
+
+  it('audit of 5559d61: the sheet has the board\'s "Done", which closes it and gives focus back', async () => {
+    await withOne();
+    const manage = screen.getByRole('button', { name: 'Connections' });
+    manage.focus();
+    await userEvent.keyboard('?');
+    const sheet = screen.getByRole('dialog', { name: 'Keyboard shortcuts' });
+    await userEvent.click(within(sheet).getByRole('button', { name: 'Done' }));
+    expect(screen.queryByRole('dialog', { name: 'Keyboard shortcuts' })).toBeNull();
+    expect(manage).toHaveFocus();
+  });
 });

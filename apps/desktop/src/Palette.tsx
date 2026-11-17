@@ -1,4 +1,4 @@
-import { Dialog } from '@sl/ui';
+import { Button, Dialog } from '@sl/ui';
 import { useEffect, useId, useMemo, useRef, useState } from 'react';
 
 export interface Command {
@@ -109,7 +109,17 @@ export const SHORTCUTS: [string, string][] = [
 /** APP-01 / board G02: the keyboard shortcuts sheet ("?" or the palette). */
 export function ShortcutsSheet({ onClose }: { onClose: () => void }) {
   return (
-    <Dialog open onOpenChange={(o) => !o && onClose()} title="Keyboard shortcuts" width={480}>
+    <Dialog
+      open
+      onOpenChange={(o) => !o && onClose()}
+      title="Keyboard shortcuts"
+      width={620}
+      footer={
+        <Button variant="primary" onClick={onClose}>
+          Done
+        </Button>
+      }
+    >
       <table className="w-full border-collapse text-[14px] text-ink">
         <caption className="sr-only">Keyboard shortcuts</caption>
         <tbody>

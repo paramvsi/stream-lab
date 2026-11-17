@@ -53,6 +53,7 @@ export async function getSubtaskLoads(
 ): Promise<SubtaskLoads> {
   const out: SubtaskLoad[] = [];
   let failed: SubtaskLoads['failed'] = null;
+  let answered = false;
   const n = Math.min(parallelism, MAX_SUBTASKS);
   for (let index = 0; index < n; index++) {
     const ms = await getJson(
@@ -69,16 +70,14 @@ export async function getSubtaskLoads(
     ).catch((e: unknown) => {
       // The whole connection is down or refused (CONN-*, 401, 403): every other subtask would fail the same way,
       // one timeout each. Stop now.
-      if (
-        !(e instanceof AppError) ||
-        e.code.startsWith('CONN-') ||
-        e.code === 'API-401' ||
-        e.code === 'API-403'
-      )
-        throw e;
+      // (Only before anything answered: a timeout after good reads is one slow subtask, counted below.)
+      if (!(e instanceof AppError)) throw e;
+      const whole = e.code.startsWith('CONN-') || e.code === 'API-401' || e.code === 'API-403';
+      if (whole && !answered) throw e;
       failed = { count: (failed?.count ?? 0) + 1, error: failed?.error ?? e };
       return null;
     });
+    if (ms) answered = true;
     // One subtask that can not be read is no reading for it alone.
     if (!ms) {
       out.push({ index, recIn: null, busy: null });

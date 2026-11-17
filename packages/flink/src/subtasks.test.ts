@@ -101,6 +101,22 @@ describe('JOB-03 · subtask loads (D09c)', () => {
     }
   });
 
+  it('a connection error after the cluster has answered is one failed subtask, not a lost table', async () => {
+    const l = await getSubtaskLoads(
+      async (r) => {
+        if (r.path.includes('/subtasks/1/'))
+          throw new TransportError({ kind: 'timeout', host: 'h', timeoutS: 10 });
+        return ok([{ id: 'numRecordsInPerSecond', value: '5' }]);
+      },
+      'prod',
+      'j',
+      'v',
+      3,
+    );
+    expect(l.loads.map((x) => x.recIn)).toEqual([5, null, 5]);
+    expect(l.failed).toMatchObject({ count: 1, error: { code: 'CONN-TIMEOUT' } });
+  });
+
   it('skew: the busiest subtask against the mean of the others; none below 2 subtasks or no traffic', () => {
     const at = (...r: (number | null)[]) => r.map((recIn, index) => ({ index, recIn, busy: null }));
     expect(skew(at(2410, 820, 860, 790))).toEqual({ index: 0, times: 2.9 });

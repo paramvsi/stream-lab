@@ -1856,6 +1856,22 @@ describe('JOB-02 · Job overview (board D08)', () => {
     },
   );
 
+  it('ACT-01 / D15: a running job on a writable connection has Stop with savepoint, which opens the stop dialog; read-only has none', async () => {
+    show(async (req) =>
+      req.path === '/jobmanager/config'
+        ? { status: 200, headers: {}, url: '', body: '[]' }
+        : answer(200, detail)(req),
+    );
+    await userEvent.click(await screen.findByRole('button', { name: 'Stop with savepoint' }));
+    expect(
+      await screen.findByRole('dialog', { name: 'Stop refund-matcher with a savepoint?' }),
+    ).toBeInTheDocument();
+    cleanup();
+    show(answer(200, detail), {}, { ...conn, readOnly: true });
+    await screen.findByRole('table', { name: 'Operators' });
+    expect(screen.queryByRole('button', { name: 'Stop with savepoint' })).toBeNull();
+  });
+
   it('lists the operators with parallelism and status', async () => {
     show(answer(200, detail));
     const table = await screen.findByRole('table', { name: 'Operators' });

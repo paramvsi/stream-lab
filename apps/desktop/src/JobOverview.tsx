@@ -22,8 +22,8 @@ import {
   type FlinkVertex,
 } from '@sl/flink';
 import { Button, Loading, Skeleton, StatusBadge, Table, Tabs, type Column } from '@sl/ui';
-import { ListChecks, SearchX } from 'lucide-react';
-import { useEffect, useRef, useState, type RefObject } from 'react';
+import { ListChecks, SearchX, Square } from 'lucide-react';
+import { useEffect, useMemo, useRef, useState, type RefObject } from 'react';
 import { useScreenHeading } from './focus';
 import { Checkpoints } from './Checkpoints';
 import { ExceptionGroups } from './ExceptionGroups';
@@ -32,6 +32,7 @@ export { duration, size } from './format';
 import { diffJob, memoryHistory, type HistoryEvent, type HistoryStore } from './history';
 import { JobGraphView } from './JobGraphView';
 import { JobHistory } from './JobHistory';
+import { StopDialog } from './StopDialog';
 import { OperatorPanel } from './OperatorPanel';
 import { Kpi } from './Kpi';
 import { TONE, uptime, word } from './Jobs';
@@ -225,6 +226,9 @@ export function JobOverview({
   history?: HistoryStore;
 }) {
   const h1 = useScreenHeading();
+  // ACT-01: the stop dialog, and the transport its one POST goes through (not the polls' shared limiter queue).
+  const [stopping, setStopping] = useState(false);
+  const actionHttp = useMemo(() => transport(c), [transport, c]);
   const {
     value: j,
     error,
@@ -445,12 +449,31 @@ export function JobOverview({
             )}
           </p>
         </div>
-        {onJobs && (
-          <Button icon={<ListChecks size={16} aria-hidden="true" />} onClick={onJobs}>
-            Jobs
-          </Button>
-        )}
+        <div className="flex flex-wrap items-center gap-2">
+          {/* ACT-01: stop with savepoint, the default stop, for a running job on a writable connection. A
+              read-only connection hides it (JOB-READONLY above; hidden vs disabled is a pending ruling). */}
+          {j && !gone && !c.readOnly && j.state === 'RUNNING' && (
+            <Button icon={<Square size={16} aria-hidden="true" />} onClick={() => setStopping(true)}>
+              Stop with savepoint
+            </Button>
+          )}
+          {onJobs && (
+            <Button icon={<ListChecks size={16} aria-hidden="true" />} onClick={onJobs}>
+              Jobs
+            </Button>
+          )}
+        </div>
       </div>
+      {j && !c.readOnly && (
+        <StopDialog
+          open={stopping}
+          onOpenChange={setStopping}
+          http={actionHttp}
+          conn={c.name}
+          jid={jid}
+          job={j.name}
+        />
+      )}
       {/* JOB-05: below the job header (D08c). A failed exceptions read says so rather than nothing; losing the
           cluster is the job poll's banner, not a second one. */}
       {!gone && status && <ErrorBanner error={status} handles={new Set()} />}

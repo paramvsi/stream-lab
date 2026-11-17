@@ -90,11 +90,9 @@ export function Jobs({
   const search = useRef<HTMLInputElement>(null);
   /**
    * Focus is on the banner or its Retry. When they go (however the cluster came back), focus would fall to
-   * <body>: it goes to the heading instead. Leaving is told from removal on blur, once it has settled: the banner
-   * still there and focus not in it = the user left (any pointer, keyboard or tap); the banner gone = removal.
+   * <body>: it goes to the heading instead. Leaving is told from removal on blur (see onBlur below).
    */
   const focusInBanner = useRef(false);
-  const bannerBox = useRef<HTMLDivElement>(null);
   /** When the last good answer came, and when the last answer of any kind came (for "data from N min ago"). */
   const [at, setAt] = useState(0);
   const [now, setNow] = useState(0);
@@ -205,15 +203,16 @@ export function Jobs({
     <main className="flex min-h-screen flex-col gap-5 bg-surface px-8 py-7">
       {banner && (
         <div
-          ref={bannerBox}
           className="flex flex-col gap-3"
           onFocus={() => (focusInBanner.current = true)}
-          onBlur={() =>
-            setTimeout(() => {
-              if (bannerBox.current && !bannerBox.current.contains(document.activeElement))
-                focusInBanner.current = false;
-            }, 0)
-          }
+          onBlur={(e) => {
+            // Decided now, not later (a later check races the recovery). React delivers no blur for its own
+            // removal of the banner, so a blur here is the user leaving, unless focus stays inside (a move
+            // between its buttons) or the window lost focus (activeElement stays on the button).
+            const box = e.currentTarget;
+            if (!box.contains(e.relatedTarget as Node | null) && !box.contains(document.activeElement))
+              focusInBanner.current = false;
+          }}
         >
           <ErrorBanner
             error={banner}

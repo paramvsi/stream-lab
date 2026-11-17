@@ -430,3 +430,43 @@ describe('audit 7 of 0e34d0a', () => {
     }
   });
 });
+
+describe('audit 8 of 6755d70', () => {
+  it('blur to <body> and the recovery in the same task: focus is not moved (no pending-timer race)', async () => {
+    vi.useFakeTimers();
+    try {
+      const st = { down: true, release: null as null | (() => void) };
+      const ok = { status: 200, headers: {}, body: JSON.stringify({ jobs: list }), url: '' };
+      let first = true;
+      const http: FlinkHttp = async () => {
+        if (first) {
+          first = false;
+          return ok;
+        }
+        if (st.down)
+          throw new TransportError({ kind: 'refused', host: 'payments-prod.example.com', port: 8081 });
+        return new Promise((res) => (st.release = () => res(ok))); // held: answered by hand
+      };
+      show(http);
+      await act(async () => vi.advanceTimersByTimeAsync(0));
+      // Until the 3rd failure shows the banner (filled on the next frame).
+      for (let i = 0; i < 10 && !screen.queryByText(/Lost contact/); i++)
+        await act(async () => vi.advanceTimersByTimeAsync(5_000));
+      expect(screen.getByText(/Lost contact with payments-prod/)).toBeTruthy();
+      st.down = false;
+      await act(async () => vi.advanceTimersByTimeAsync(30_000)); // the next poll is in flight, held
+      expect(st.release).not.toBeNull();
+      const retry = screen.getByRole('button', { name: 'Retry now' });
+      retry.focus();
+      await act(async () => {
+        retry.blur(); // the user left…
+        st.release!(); // …and the good answer lands before any 0 ms timer runs
+        for (let i = 0; i < 10; i++) await Promise.resolve();
+      });
+      expect(screen.queryByText(/Lost contact/)).toBeNull();
+      expect(document.activeElement).toBe(document.body);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});

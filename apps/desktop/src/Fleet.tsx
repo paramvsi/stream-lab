@@ -66,6 +66,7 @@ function FleetCard({
   now,
   onState,
   initial,
+  onOpen,
 }: {
   c: Connection;
   transport: (c: Connection) => FlinkHttp;
@@ -74,6 +75,7 @@ function FleetCard({
   onState: (id: string, s: CardState) => void;
   /** What this card knew last time the fleet was open (back from the connection list). */
   initial?: CardState;
+  onOpen?: (c: Connection) => void;
 }) {
   const toast = useToast();
   const [s, setS] = useState<CardState>(() => initial ?? { failures: 0 });
@@ -236,7 +238,13 @@ function FleetCard({
             </Button>
           )}
         </span>
-        <Button size="sm" disabledReason="Cluster pages come with the next milestone (M7).">
+        <Button
+          size="sm"
+          aria-label={`Open ${c.name}`}
+          {...(onOpen
+            ? { onClick: () => onOpen(c) }
+            : { disabledReason: 'Cluster pages are not built yet.' })}
+        >
           Open
         </Button>
       </div>
@@ -261,8 +269,8 @@ function FleetCard({
  * 6 in flight). A card keeps its last data through failures: 1 is silent, 2 mark it Stale, 3 show the catalog
  * message with Retry (and "Back in contact" once it answers again). Offline, cards keep their data under
  * CONN-OFFLINE and ask nothing.
- * ponytail: no "Needs attention" table yet (it needs each job's restarts and backpressure: M7), Open waits for the
- * cluster pages (M7), and API-401's Reconnect / Disconnect wait for the keychain (Retry for now).
+ * ponytail: no "Needs attention" table yet (it needs each job's restarts and backpressure: M7), Open goes to the
+ * jobs list (the cluster overview, D05, is still to come), and API-401's Reconnect / Disconnect wait for the keychain (Retry for now).
  */
 export function Fleet({
   connections,
@@ -270,6 +278,7 @@ export function Fleet({
   onAdd,
   onManage,
   cache,
+  onOpen,
 }: {
   connections: Connection[];
   transport: (c: Connection) => FlinkHttp;
@@ -277,6 +286,7 @@ export function Fleet({
   onManage: () => void;
   /** Kept by the app across visits to the connection list, so the cards keep their data. */
   cache?: Map<string, CardState>;
+  onOpen?: (c: Connection) => void;
 }) {
   const h1 = useScreenHeading();
   useEffect(() => {
@@ -333,6 +343,7 @@ export function Fleet({
             online={online}
             now={now}
             onState={onState}
+            {...(onOpen ? { onOpen } : {})}
             {...(cache?.get(c.id) ? { initial: cache.get(c.id)! } : {})}
           />
         ))}

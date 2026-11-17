@@ -96,6 +96,62 @@ describe('FLEET-01 home', () => {
   });
 });
 
+describe('JOB-01 · Open on a fleet card', () => {
+  it("opens that cluster's jobs (D07); Fleet goes back", async () => {
+    const http: FlinkHttp = async (req) => ({
+      status: 200,
+      headers: {},
+      url: '',
+      body: JSON.stringify(
+        req.path === '/config'
+          ? { 'flink-version': '2.3.0' }
+          : req.path === '/overview'
+            ? {
+                taskmanagers: 1,
+                'slots-total': 4,
+                'slots-available': 2,
+                'jobs-running': 1,
+                'jobs-finished': 0,
+                'jobs-cancelled': 0,
+                'jobs-failed': 0,
+              }
+            : {
+                jobs: [
+                  {
+                    jid: 'a1',
+                    name: 'refund-matcher',
+                    state: 'RUNNING',
+                    'start-time': 1,
+                    'end-time': -1,
+                    duration: 60_000,
+                    'last-modification': 1,
+                  },
+                ],
+              },
+      ),
+    });
+    render(
+      <TooltipProvider>
+        <ToastProvider>
+          <App transport={() => http} />
+        </ToastProvider>
+      </TooltipProvider>,
+    );
+    await userEvent.click(screen.getByRole('button', { name: 'Add a connection' }));
+    await userEvent.click(screen.getByRole('radio', { name: /Self-managed/ }));
+    await userEvent.click(screen.getByRole('button', { name: 'Continue' }));
+    await userEvent.type(screen.getByLabelText(/^Name/), 'local-docker');
+    await userEvent.selectOptions(screen.getByLabelText(/^Environment/), 'dev');
+    await userEvent.type(screen.getByLabelText(/JobManager REST URL/), 'http://localhost:8081');
+    await userEvent.click(screen.getByRole('button', { name: 'Save' }));
+    await userEvent.click(await screen.findByRole('button', { name: 'Open local-docker' }));
+    expect(screen.getByRole('heading', { level: 1, name: 'Jobs' })).toHaveFocus();
+    expect(await screen.findByRole('row', { name: /refund-matcher/ })).toBeTruthy();
+    await userEvent.click(screen.getByRole('button', { name: 'Fleet' }));
+    expect(screen.getByRole('heading', { level: 1, name: 'Fleet' })).toBeTruthy();
+  });
+});
+
 describe('audit of 8671a2f', () => {
   it('#1 Import → Replace: the fleet forgets what the old cluster said', async () => {
     const answers: Record<string, unknown> = {

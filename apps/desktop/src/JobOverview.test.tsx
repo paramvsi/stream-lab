@@ -1626,6 +1626,39 @@ describe('JOB-02 · Job overview (board D08)', () => {
     expect(said).not.toHaveTextContent(/operators it feeds/);
   });
 
+  it('audit wm4: the idleness hint needs a source the plan lists; an upstream with an unknown input is not one', async () => {
+    const now = detail.now;
+    const plan = {
+      nodes: [
+        { id: 'v1', inputs: [{ num: 0, id: 'gone' }] },
+        { id: 'v2', inputs: [{ num: 0, id: 'v1', ship_strategy: 'FORWARD' }] },
+        { id: 'v3', inputs: [{ num: 0, id: 'v2', ship_strategy: 'HASH' }] },
+      ],
+    };
+    show(async (req) => {
+      if (req.path.endsWith('/vertices/v2/watermarks'))
+        return {
+          status: 200,
+          headers: {},
+          url: '',
+          body: JSON.stringify(
+            [0, 1, 2, 3].map((i) => ({
+              id: `${i}.currentInputWatermark`,
+              value: String(now - (i === 2 ? 60_000 : 1_000)),
+            })),
+          ),
+        };
+      if (req.path.includes('/subtasks/')) return { status: 200, headers: {}, url: '', body: '[]' };
+      return answer(200, { ...detail, plan })(req);
+    });
+    const ops = await screen.findByRole('table', { name: 'Operators' });
+    await userEvent.click(within(ops).getAllByRole('row')[2]!);
+    const p = await screen.findByRole('region', { name: 'Window aggregate' });
+    await userEvent.click(within(p).getByRole('tab', { name: 'Watermarks' }));
+    const said = await within(p).findByText(/behind the others/);
+    expect(said).not.toHaveTextContent(/idleness/);
+  });
+
   it('lists the operators with parallelism and status', async () => {
     show(answer(200, detail));
     const table = await screen.findByRole('table', { name: 'Operators' });

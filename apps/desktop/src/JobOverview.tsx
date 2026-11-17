@@ -52,7 +52,10 @@ const POINTWISE = new Set(['FORWARD', 'RESCALE']);
 function fedPointwiseFromSource(g: JobGraph, id: string, depth = 0): boolean {
   if (depth > g.nodes.length) return false;
   const ins = g.edges.filter((e) => e.to === id);
-  if (!ins.length) return depth > 0; // reached a source (the vertex itself being a source: no)
+  // A source only as the plan lists it (JobGraph.sources); no in-edges alone proves nothing (a partial plan).
+  // The vertex itself being a source: no hint.
+  if (g.sources?.includes(id)) return depth > 0;
+  if (!ins.length) return false;
   return ins.every(
     (e) => e.ship !== null && POINTWISE.has(e.ship) && fedPointwiseFromSource(g, e.from, depth + 1),
   );

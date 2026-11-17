@@ -157,7 +157,7 @@ export function JobOverview({
   return (
     <main className="flex min-h-screen flex-col gap-5 bg-surface px-8 py-7">
       {!gone && banner}
-      {/* JOB-05 / D08e: a read-only connection hides actions, and says so. */}
+      {/* JOB-02 / D08e: a read-only connection hides actions, and says so. */}
       {c.readOnly && !gone && <ErrorBanner error={new AppError('JOB-READONLY')} />}
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div className="flex flex-col gap-1">

@@ -315,10 +315,14 @@ describe('JOB-02 · Job overview (board D08)', () => {
     await waitFor(() => expect(k).toHaveTextContent('Off'));
   });
 
-  it('JOB-05 / D08e: a read-only connection says so (JOB-READONLY, info); a normal one does not', async () => {
+  it('JOB-02 / D08e: a read-only connection says so (JOB-READONLY, info banner); a normal one does not', async () => {
     const { unmount } = show(answer(200, detail), {}, { ...conn, readOnly: true });
     await screen.findByRole('table', { name: 'Operators' });
-    expect(await screen.findByText('This connection is read-only. Actions are hidden.')).toBeInTheDocument();
+    const note = await screen.findByText('This connection is read-only. Actions are hidden.');
+    // An info Banner: a polite live region (role=status) that says its severity in words.
+    const region = note.closest('[role="status"]');
+    expect(region).not.toBeNull();
+    expect(region).toHaveTextContent(/Info:/);
     unmount();
     show(answer(200, detail));
     await screen.findByRole('table', { name: 'Operators' });

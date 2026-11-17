@@ -1,9 +1,19 @@
-import { ErrorPage } from '@sl/errors';
-import { getJob, type Connection, type FlinkHttp, type FlinkVertex } from '@sl/flink';
+import { AppError, ErrorPage, present } from '@sl/errors';
+import {
+  checkpointingOff,
+  getCheckpoints,
+  getJob,
+  lastCompleted,
+  type Connection,
+  type FlinkCheckpoint,
+  type FlinkHttp,
+  type FlinkVertex,
+} from '@sl/flink';
 import { Button, Loading, Skeleton, StatusBadge, Table, type Column } from '@sl/ui';
 import { ListChecks, SearchX } from 'lucide-react';
 import { useEffect } from 'react';
 import { useScreenHeading } from './focus';
+import { Kpi } from './Kpi';
 import { TONE, word } from './Jobs';
 import { usePolled } from './usePolled';
 
@@ -15,6 +25,41 @@ export const ago = (ms: number) =>
     : ms < 86_400_000
       ? `${plural(Math.floor(ms / 3_600_000), 'hour')} ago`
       : `${plural(Math.floor(ms / 86_400_000), 'day')} ago`;
+
+/** "3.4 s", "820 ms", "2 min 5 s". */
+export const duration = (ms: number) =>
+  ms < 1_000
+    ? `${Math.round(ms)} ms`
+    : ms < 60_000
+      ? `${(ms / 1_000).toFixed(1)} s`
+      : `${Math.floor(ms / 60_000)} min ${Math.round((ms % 60_000) / 1_000)} s`;
+/** "220 MB", "512 KB", "1.4 GB" (binary units, as Flink's own UI). */
+export const size = (b: number) =>
+  b < 1024 ** 2
+    ? `${Math.round(b / 1024)} KB`
+    : b < 1024 ** 3
+      ? `${Math.round(b / 1024 ** 2)} MB`
+      : `${(b / 1024 ** 3).toFixed(1)} GB`;
+
+type Ckpt = { off: true } | { off: false; last: FlinkCheckpoint | null };
+/**
+ * Checkpoints for the D08 KPI. Off is either Flink's 404 (no settings: JOB-CKPT-NONE) or zero counts with the
+ * disabled interval (checkpointingOff reads the config only then, so a running job pays one call, not two).
+ */
+async function readCkpt(http: FlinkHttp, conn: string, jid: string, t: number): Promise<Ckpt> {
+  try {
+    const s = await getCheckpoints(http, conn, jid, t);
+    if (s.counts.total === 0 && (await checkpointingOff(http, conn, jid, t))) return { off: true };
+    return { off: false, last: lastCompleted(s) };
+  } catch (e) {
+    if (e instanceof AppError && e.code === 'JOB-CKPT-NONE') return { off: true };
+    throw e;
+  }
+}
+const readAll = async (http: FlinkHttp, conn: string, jid: string, t: number) => {
+  const [job, cp] = await Promise.all([getJob(http, conn, jid, t), readCkpt(http, conn, jid, t)]);
+  return { job, cp };
+};
 
 const columns: Column<FlinkVertex>[] = [
   { key: 'name', header: 'Operator', render: (v) => v.name },
@@ -29,7 +74,7 @@ const columns: Column<FlinkVertex>[] = [
 /**
  * JOB-02 / board D08: one job from /jobs/:jid, polled every 2 s while visible (FLINK_API "Open job overview"),
  * with usePolled's §4 errors. A job the cluster no longer has is API-404-JOB's full-page state (Back to list).
- * ponytail: the job graph (xyflow, D08), the KPIs (records in, watermark lag, last checkpoint, restarts), the
+ * ponytail: the job graph (xyflow, D08), the KPIs records in, watermark lag and restarts (metrics, history), the
  * History / Exceptions / Checkpoints / Configuration / Savepoints tabs and the savepoint / stop actions (M8) are
  * next slices; operators are a table until the graph lands. A 404 keeps polling (it may be a short gap in HA).
  * The app shell's breadcrumb (D08 "payments-prod / Jobs / name") waits for the shell; the subtitle names the
@@ -47,11 +92,15 @@ export function JobOverview({
   onJobs?: () => void;
 }) {
   const h1 = useScreenHeading();
-  const {
-    value: j,
-    error,
-    banner,
-  } = usePolled(c, transport, (http, conn, t) => getJob(http, conn, jid, t), h1, 2_000);
+  const { value, error, banner } = usePolled(
+    c,
+    transport,
+    (http, conn, t) => readAll(http, conn, jid, t),
+    h1,
+    2_000,
+  );
+  const j = value?.job;
+  const cp = value?.cp;
   // §4: a single 404 over a job on screen is a blip (HA failover); the page goes only once the banner would.
   const gone = error?.code === 'API-404-JOB' && (!j || !!banner) ? error : null;
   useEffect(() => {
@@ -101,7 +150,26 @@ export function JobOverview({
           </Loading>
         )
       ) : (
-        <Table label="Operators" columns={columns} rows={j.vertices} rowKey={(v) => v.id} />
+        <>
+          <div className="grid grid-cols-[repeat(auto-fill,minmax(220px,1fr))] gap-4">
+            {cp?.off ? (
+              <Kpi
+                label="Last checkpoint"
+                value="Off"
+                note={present(new AppError('JOB-CKPT-NONE')).message}
+              />
+            ) : cp?.last ? (
+              <Kpi
+                label="Last checkpoint"
+                value={`${duration(cp.last.end_to_end_duration)} · ${size(cp.last.checkpointed_size ?? 0)}`}
+                note={ago(j.now - cp.last.latest_ack_timestamp)}
+              />
+            ) : (
+              <Kpi label="Last checkpoint" value="None yet" />
+            )}
+          </div>
+          <Table label="Operators" columns={columns} rows={j.vertices} rowKey={(v) => v.id} />
+        </>
       )}
     </main>
   );

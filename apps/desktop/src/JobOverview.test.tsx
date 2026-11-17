@@ -41,9 +41,34 @@ const detail = {
   now: 1 + 6 * 86_400_000,
   vertices: [v('v1', 'Source: payments', 4), v('v2', 'Window aggregate', 4), v('v3', 'Sink: alerts', 2)],
 };
+const ckpt = {
+  counts: { completed: 9, failed: 0, in_progress: 0, restored: 0, total: 9 },
+  latest: {
+    completed: {
+      id: 9,
+      status: 'COMPLETED',
+      is_savepoint: false,
+      trigger_timestamp: detail.now - 120_000 - 3_400,
+      latest_ack_timestamp: detail.now - 120_000,
+      end_to_end_duration: 3_400,
+      checkpointed_size: 220 * 1024 * 1024,
+      num_subtasks: 4,
+      num_acknowledged_subtasks: 4,
+    },
+  },
+  history: [],
+};
+/** The job answers `body`; its checkpoints answer `cp` (stats; or an Error, or a config body for /config). */
 const answer =
-  (status: number, body: unknown): FlinkHttp =>
-  async () => ({ status, headers: {}, url: '', body: JSON.stringify(body) });
+  (status: number, body: unknown, cp: unknown = ckpt, config: unknown = { interval: 10_000 }): FlinkHttp =>
+  async (req) =>
+    req.path.endsWith('/checkpoints/config')
+      ? { status: 200, headers: {}, url: '', body: JSON.stringify(config) }
+      : req.path.endsWith('/checkpoints')
+        ? cp instanceof Error
+          ? { status: 404, headers: {}, url: '', body: JSON.stringify({ errors: [cp.message] }) }
+          : { status: 200, headers: {}, url: '', body: JSON.stringify(cp) }
+        : { status, headers: {}, url: '', body: JSON.stringify(body) };
 const show = (http: FlinkHttp, more: { onJobs?: () => void } = {}) =>
   render(
     <TooltipProvider>
@@ -62,6 +87,44 @@ describe('JOB-02 · Job overview (board D08)', () => {
     expect(screen.getByText(detail.jid)).toBeInTheDocument();
     expect(screen.getByText(/started 6 days ago · parallelism 4/)).toBeInTheDocument(); // D08 wording
     expect(screen.getByText(/on payments-prod/)).toBeInTheDocument();
+  });
+
+  it('D08 Last checkpoint: duration · size, and how long ago', async () => {
+    show(answer(200, detail));
+    const k = await screen.findByRole('group', { name: 'Last checkpoint' });
+    await waitFor(() => expect(k).toHaveTextContent('3.4 s · 220 MB'));
+    expect(k).toHaveTextContent('2 minutes ago');
+  });
+
+  it('none completed yet (checkpointing on): says so', async () => {
+    show(answer(200, detail, { ...ckpt, counts: { ...ckpt.counts, completed: 0, total: 0 }, latest: {} }));
+    const k = await screen.findByRole('group', { name: 'Last checkpoint' });
+    await waitFor(() => expect(k).toHaveTextContent('None yet'));
+  });
+
+  it('checkpointing off (no settings: 404) shows JOB-CKPT-NONE, not an error page', async () => {
+    show(answer(200, detail, new Error('Checkpointing has not been enabled.')));
+    const k = await screen.findByRole('group', { name: 'Last checkpoint' });
+    await waitFor(() => expect(k).toHaveTextContent('Off'));
+    expect(k).toHaveTextContent(
+      'Checkpointing is off for this job, so it cannot recover state after a failure.',
+    );
+    expect(screen.getByRole('table', { name: 'Operators' })).toBeInTheDocument();
+  });
+
+  it('checkpointing off on a streaming job (zero counts, interval Long.MAX_VALUE) is Off too, not "None yet"', async () => {
+    show(
+      answer(
+        200,
+        detail,
+        { ...ckpt, counts: { ...ckpt.counts, completed: 0, total: 0 }, latest: {} },
+        {
+          interval: 2 ** 63, // Long.MAX_VALUE as JSON.parse gives it
+        },
+      ),
+    );
+    const k = await screen.findByRole('group', { name: 'Last checkpoint' });
+    await waitFor(() => expect(k).toHaveTextContent('Off'));
   });
 
   it('lists the operators with parallelism and status', async () => {

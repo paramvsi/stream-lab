@@ -9,9 +9,10 @@ import {
 } from '@sl/flink';
 import { Button, EmptyState, Loading, Skeleton, StatusBadge, Table, type Column } from '@sl/ui';
 import { LayoutGrid, ListChecks, Server } from 'lucide-react';
-import { useEffect, type ReactNode } from 'react';
+import { useEffect } from 'react';
 import { ENV } from './Connections';
 import { useScreenHeading } from './focus';
+import { Kpi } from './Kpi';
 import { usePolled } from './usePolled';
 
 type Up = Extract<FleetStatus, { state: 'up' }>;
@@ -24,20 +25,6 @@ async function readCluster(http: FlinkHttp, conn: string, timeoutMs: number) {
   ]);
   if (s.state === 'down') throw s.error;
   return { s, tms };
-}
-
-function Kpi({ label, value, note }: { label: string; value: ReactNode; note?: ReactNode }) {
-  return (
-    <div
-      role="group"
-      aria-label={label}
-      className="flex flex-col gap-1 rounded-lg border border-line bg-surface p-4"
-    >
-      <span className="text-[13px] text-muted">{label}</span>
-      <span className="text-[22px] font-semibold">{value}</span>
-      {note && <span className="text-[13px] text-muted">{note}</span>}
-    </div>
-  );
 }
 
 const columns: Column<FlinkTaskManager>[] = [

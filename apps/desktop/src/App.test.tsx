@@ -117,30 +117,32 @@ describe('JOB-01 · Open on a fleet card', () => {
               }
             : req.path === '/taskmanagers'
               ? { taskmanagers: [] }
-              : req.path === '/jobs/a1'
-                ? {
-                    jid: 'a1',
-                    name: 'refund-matcher',
-                    state: 'RUNNING',
-                    'start-time': 1,
-                    'end-time': -1,
-                    duration: 60_000,
-                    now: 60_001,
-                    vertices: [],
-                  }
-                : {
-                    jobs: [
-                      {
-                        jid: 'a1',
-                        name: 'refund-matcher',
-                        state: 'RUNNING',
-                        'start-time': 1,
-                        'end-time': -1,
-                        duration: 60_000,
-                        'last-modification': 1,
-                      },
-                    ],
-                  },
+              : req.path === '/jobs/a1/checkpoints'
+                ? { counts: { completed: 0, failed: 0, in_progress: 0, restored: 0, total: 1 }, history: [] }
+                : req.path === '/jobs/a1'
+                  ? {
+                      jid: 'a1',
+                      name: 'refund-matcher',
+                      state: 'RUNNING',
+                      'start-time': 1,
+                      'end-time': -1,
+                      duration: 60_000,
+                      now: 60_001,
+                      vertices: [],
+                    }
+                  : {
+                      jobs: [
+                        {
+                          jid: 'a1',
+                          name: 'refund-matcher',
+                          state: 'RUNNING',
+                          'start-time': 1,
+                          'end-time': -1,
+                          duration: 60_000,
+                          'last-modification': 1,
+                        },
+                      ],
+                    },
       ),
     });
     render(

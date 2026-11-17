@@ -10,8 +10,9 @@ import { App } from './App';
  * M11 a11y sweep (TESTING.md: axe on every story and route, 0 violations), in jsdom, through the real app against
  * one fake cluster: the screens and overlays listed in the test, each in a loaded state.
  * ponytail: contrast is not checked here (jsdom has no layout), and no real-browser contrast pass of the desktop
- * screens exists yet (only apps/desktop/e2e/connection-form.spec.ts): MORNING. Not covered here: error, offline and
- * empty states, LOG-GONE, the form's validation and Test steps, the Stop dialog's progress and failure steps.
+ * screens exists yet (only apps/desktop/e2e/connection-form.spec.ts): MORNING. Not covered here: error and offline
+ * states, empty states other than "No exceptions" (kept: the heading fix's state), LOG-GONE, the form's validation
+ * and Test steps, and the Stop dialog's progress and failure steps.
  */
 const ok = (body: unknown) => ({ status: 200, headers: {}, url: '', body: JSON.stringify(body) });
 const job = {
@@ -57,9 +58,33 @@ const answers: Record<string, unknown> = {
   },
   '/jobs/overview': { jobs: [{ ...job, 'last-modification': 1 }] },
   '/jobs/a1': { ...job, now: 60_001, vertices: [vertex] },
+  // One completed and one failed checkpoint: the rows render their status badges and cells (and the failure banner).
   '/jobs/a1/checkpoints': {
-    counts: { completed: 0, failed: 0, in_progress: 0, restored: 0, total: 1 },
-    history: [],
+    counts: { completed: 1, failed: 1, in_progress: 0, restored: 0, total: 2 },
+    history: [
+      {
+        id: 2,
+        status: 'FAILED',
+        is_savepoint: false,
+        trigger_timestamp: 50000,
+        latest_ack_timestamp: 50000 + 3_400,
+        end_to_end_duration: 3_400,
+        checkpointed_size: 220 * 1024 * 1024,
+        num_subtasks: 4,
+        num_acknowledged_subtasks: 2,
+      },
+      {
+        id: 1,
+        status: 'COMPLETED',
+        is_savepoint: false,
+        trigger_timestamp: 40000,
+        latest_ack_timestamp: 40000 + 3_400,
+        end_to_end_duration: 3_400,
+        checkpointed_size: 220 * 1024 * 1024,
+        num_subtasks: 4,
+        num_acknowledged_subtasks: 4,
+      },
+    ],
   },
   '/jobs/a1/exceptions': { exceptionHistory: { entries: [], truncated: false } },
   '/taskmanagers': { taskmanagers: [tm] },
@@ -161,9 +186,10 @@ describe('M11 · A11Y · desktop screens', () => {
     ] as const) {
       await userEvent.click(screen.getByRole('tab', { name: new RegExp(`^${tab}`) }));
       // each tab in its loaded state: its heading, or (Checkpoints) its table
-      await (tab === 'Checkpoints'
-        ? screen.findByRole('table', { name: ready })
-        : screen.findByRole('heading', { name: ready }));
+      if (tab === 'Checkpoints') {
+        const t = await screen.findByRole('table', { name: ready });
+        await vi.waitFor(() => expect(within(t).getAllByRole('row').length).toBe(3)); // header + 2 checkpoints
+      } else await screen.findByRole('heading', { name: ready });
       await check(`Job overview · ${tab}`);
     }
     await userEvent.click(screen.getByRole('tab', { name: /^Overview/ }));

@@ -12,8 +12,9 @@ import {
   type LogEntry,
   type LogFile,
 } from '@sl/flink';
-import { Input, Loading, Skeleton, StatusBadge, Table, type Column } from '@sl/ui';
-import { useEffect, useId, useMemo, useState } from 'react';
+import { Button, Input, Loading, Skeleton, StatusBadge, Table, type Column } from '@sl/ui';
+import { Server } from 'lucide-react';
+import { useDeferredValue, useEffect, useId, useMemo, useState } from 'react';
 import { useScreenHeading } from './focus';
 import { size } from './format';
 
@@ -57,62 +58,126 @@ const asAppError = (e: unknown, conn: string) =>
  * ponytail: regex search (through logFilter's worker), Follow (re-read every 2 s: Flink has no partial read),
  * TaskManager tabs and Download are next slices.
  */
-export function Logs({ c, transport }: { c: Connection; transport: (c: Connection) => FlinkHttp }) {
+export function Logs({
+  c,
+  transport,
+  onCluster,
+}: {
+  c: Connection;
+  transport: (c: Connection) => FlinkHttp;
+  /** Back to the cluster page. */
+  onCluster?: () => void;
+}) {
   const h1 = useScreenHeading();
   const http = useMemo(() => transport(c), [transport, c]);
-  const [file, setFile] = useState<LogFile | null>(null);
-  const [none, setNone] = useState(false);
+  const [files, setFiles] = useState<LogFile[] | null>(null);
+  const [name, setName] = useState<string | null>(null);
   const [text, setText] = useState<string | null>(null);
   const [error, setError] = useState<AppError | null>(null);
   const [level, setLevel] = useState<Level>('all');
   const [query, setQuery] = useState('');
+  // Typing stays quick: the filter over up to 5,000 rows follows the typed text a beat behind.
+  const q = useDeferredValue(query);
   const levelName = useId();
+  const fileId = useId();
 
+  // The list first (a name is never read without it); the newest file is picked.
   useEffect(() => {
     let live = true;
-    listJmLogs(http, c.name)
-      .then((files) => {
+    listJmLogs(http, c.name).then(
+      (fs) => {
         if (!live) return;
-        const f = files[0];
-        if (!f) return setNone(true);
-        setFile(f);
-        return getJmLog(http, c.name, f.name).then((t) => live && setText(t));
-      })
-      .catch((e: unknown) => live && setError(asAppError(e, c.name)));
+        setFiles(fs);
+        setName(fs[0]?.name ?? null);
+      },
+      (e: unknown) => live && setError(asAppError(e, c.name)),
+    );
     return () => {
       live = false;
     };
   }, [http, c.name]);
 
-  const shown = useMemo(() => {
+  // The picked file (picked again from the list after LOG-GONE).
+  useEffect(() => {
+    if (!name) return;
+    let live = true;
+    getJmLog(http, c.name, name).then(
+      (t) => live && setText(t),
+      (e: unknown) => live && setError(asAppError(e, c.name)),
+    );
+    return () => {
+      live = false;
+    };
+  }, [http, c.name, name]);
+
+  const file = files?.find((f) => f.name === name) ?? null;
+  // Split and parsed once per file; filtered per level and search.
+  const parsed = useMemo(() => {
     if (text === null) return null;
-    const { lines } = tail(text, LOG_TAIL_LINES);
-    const q = query.toLowerCase();
-    return parseLog(lines)
-      .map((e, i): Row => ({ ...e, i }))
+    const { lines, cut } = tail(text, LOG_TAIL_LINES);
+    return { cut, entries: parseLog(lines).map((e, i): Row => ({ ...e, i })) };
+  }, [text]);
+  const shown = useMemo(() => {
+    if (!parsed) return null;
+    const lq = q.toLowerCase();
+    return parsed.entries
       .filter(atLeast(level))
-      .filter((e) => !q || [e.message, ...e.more].some((l) => l.toLowerCase().includes(q)));
-  }, [text, level, query]);
+      .filter((e) => !lq || [e.message, ...e.more].some((l) => l.toLowerCase().includes(lq)));
+  }, [parsed, level, q]);
 
   return (
     <main className="flex min-h-screen flex-col gap-5 bg-surface px-8 py-7">
-      <h1 ref={h1} tabIndex={-1} className="m-0 text-[26px] font-semibold outline-none">
-        Logs
-      </h1>
+      <div className="flex flex-wrap items-start justify-between gap-4">
+        <h1 ref={h1} tabIndex={-1} className="m-0 text-[26px] font-semibold outline-none">
+          Logs
+        </h1>
+        {onCluster && (
+          <Button icon={<Server size={16} aria-hidden="true" />} onClick={onCluster}>
+            Cluster
+          </Button>
+        )}
+      </div>
       {error && <ErrorBanner error={error} />}
       {file && tooLarge(file.size) && (
         <ErrorBanner error={new AppError('LOG-TOO-LARGE', { size: size(file.size) })} />
       )}
-      {none ? (
+      {files && !files.length ? (
         <p className="m-0 text-[14px] text-muted">No log files on the JobManager of {c.name}.</p>
       ) : (
         <>
           {file && (
             <p className="m-0 text-[14px] text-muted">
               {file.name} · {size(file.size)}
+              {/* Said whenever lines were cut, not only over 50 MB (D18: "showing the last N lines"). */}
+              {parsed &&
+                parsed.cut > 0 &&
+                ` · showing the last ${LOG_TAIL_LINES.toLocaleString('en-US')} lines`}
             </p>
           )}
           <div className="flex flex-wrap items-end gap-4">
+            {files && files.length > 1 && (
+              <div className="flex flex-col gap-1">
+                <label htmlFor={fileId} className="text-[13px] font-medium">
+                  Log file
+                </label>
+                <select
+                  id={fileId}
+                  value={name ?? ''}
+                  onChange={(e) => {
+                    setText(null);
+                    setError(null);
+                    setName(e.target.value);
+                  }}
+                  className="sl-focus h-9 rounded-md border border-line bg-surface px-2 text-[14px]"
+                >
+                  {files.map((f) => (
+                    <option key={f.name} value={f.name}>
+                      {f.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
             <div className="w-72">
               <Input
                 type="search"

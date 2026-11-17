@@ -89,7 +89,14 @@ export function App({
       />
     );
   if (transport && open && screen.name === 'logs')
-    return <Logs key={open.id} c={open} transport={transport} />;
+    return (
+      <Logs
+        key={open.id}
+        c={open}
+        transport={transport}
+        onCluster={() => setScreen({ name: 'cluster', id: open.id })}
+      />
+    );
   if (transport && open && screen.name === 'job')
     return (
       <JobOverview

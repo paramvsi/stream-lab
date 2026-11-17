@@ -2,7 +2,7 @@ import type { Connection, FlinkHttp } from '@sl/flink';
 import { ToastProvider, TooltipProvider } from '@sl/ui';
 import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { Logs } from './Logs';
 
 const conn = {
@@ -19,11 +19,11 @@ const text = [
 const ok = (status: number, body: string) => ({ status, headers: {}, url: '', body });
 const list = (logs: { name: string; size: number; mtime: number }[]) => ok(200, JSON.stringify({ logs }));
 
-const show = (http: FlinkHttp) =>
+const show = (http: FlinkHttp, onCluster?: () => void) =>
   render(
     <TooltipProvider>
       <ToastProvider>
-        <Logs c={conn} transport={() => http} />
+        <Logs c={conn} transport={() => http} {...(onCluster ? { onCluster } : {})} />
       </ToastProvider>
     </TooltipProvider>,
   );
@@ -67,23 +67,30 @@ describe('OPS-01 · Logs (D18, D18b)', () => {
     expect(rows[0]).toHaveTextContent('Buffer pool usage');
   });
 
-  it('a file over 50 MB says LOG-TOO-LARGE and shows the last 5,000 lines; no logs at all is said, not a blank page', async () => {
-    const big = Array.from(
-      { length: 6_000 },
-      (_, i) => `2026-11-17 12:00:00,000 INFO  x [] - line ${i}`,
-    ).join('\n');
-    show(async (r) =>
-      r.path === '/jobmanager/logs'
-        ? list([{ name: 'jobmanager.log', size: 60 * 1024 * 1024, mtime: 1 }])
-        : ok(200, big),
-    );
-    expect(await screen.findByText(/This log is 60 MB\. Showing the last 5,000 lines\./)).toBeInTheDocument();
-    expect(
-      within(screen.getByRole('table', { name: 'Log lines' }))
-        .getAllByRole('row')
-        .slice(1),
-    ).toHaveLength(5_000);
-  });
+  it(
+    'a file over 50 MB says LOG-TOO-LARGE and shows the last 5,000 lines; no logs at all is said, not a blank page',
+    { timeout: 20_000 },
+    async () => {
+      const big = Array.from(
+        { length: 6_000 },
+        (_, i) => `2026-11-17 12:00:00,000 INFO  x [] - line ${i}`,
+      ).join('\n');
+      show(async (r) =>
+        r.path === '/jobmanager/logs'
+          ? list([{ name: 'jobmanager.log', size: 60 * 1024 * 1024, mtime: 1 }])
+          : ok(200, big),
+      );
+      // 5,000 rows render slowly in jsdom (the banner's text lands a frame later): a longer wait.
+      expect(
+        await screen.findByText(/This log is 60 MB\. Showing the last 5,000 lines\./, {}, { timeout: 8_000 }),
+      ).toBeInTheDocument();
+      expect(
+        within(screen.getByRole('table', { name: 'Log lines' }))
+          .getAllByRole('row')
+          .slice(1),
+      ).toHaveLength(5_000);
+    },
+  );
 
   it('no log files: says so', async () => {
     show(async () => list([]));
@@ -98,4 +105,38 @@ describe('OPS-01 · Logs (D18, D18b)', () => {
     );
     expect(await screen.findByText(/jobmanager\.log\.3 is no longer there/)).toBeInTheDocument();
   });
+
+  it(
+    "audit logs #3 #4: Cluster goes back; a log file can be picked from the list (LOG-GONE's advice); a cut file says so",
+    { timeout: 20_000 },
+    async () => {
+      const back = vi.fn();
+      const lines = Array.from(
+        { length: 6_000 },
+        (_, i) => `2026-11-17 12:00:00,000 INFO  x [] - line ${i}`,
+      ).join('\n');
+      const asked: string[] = [];
+      show(async (r) => {
+        asked.push(r.path);
+        return r.path === '/jobmanager/logs'
+          ? list([
+              { name: 'jobmanager.log', size: 1_000, mtime: 2 },
+              { name: 'jobmanager.log.1', size: 10, mtime: 1 },
+            ])
+          : ok(200, r.path.endsWith('.1') ? 'old' : lines);
+      }, back);
+      expect(
+        await screen.findByText(
+          /jobmanager\.log · 1000 B · showing the last 5,000 lines/,
+          {},
+          { timeout: 8_000 },
+        ),
+      ).toBeInTheDocument();
+      await userEvent.selectOptions(screen.getByRole('combobox', { name: 'Log file' }), 'jobmanager.log.1');
+      await screen.findByText('old');
+      expect(asked.at(-1)).toBe('/jobmanager/logs/jobmanager.log.1');
+      await userEvent.click(screen.getByRole('button', { name: 'Cluster' }));
+      expect(back).toHaveBeenCalled();
+    },
+  );
 });

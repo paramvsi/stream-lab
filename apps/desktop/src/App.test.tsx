@@ -172,6 +172,11 @@ describe('JOB-01 · Open on a fleet card', () => {
     expect(screen.getByRole('heading', { level: 1, name: 'Jobs' })).toBeTruthy();
     await userEvent.click(screen.getByRole('button', { name: 'Cluster' }));
     expect(screen.getByRole('heading', { level: 1, name: 'local-docker' })).toBeTruthy();
+    // OPS-01: Logs (D18) from the cluster page, and Cluster back (audit of 8e5b27f: no dead end).
+    await userEvent.click(screen.getByRole('button', { name: 'Logs' }));
+    expect(await screen.findByRole('heading', { level: 1, name: 'Logs' })).toBeTruthy();
+    await userEvent.click(screen.getByRole('button', { name: 'Cluster' }));
+    expect(screen.getByRole('heading', { level: 1, name: 'local-docker' })).toBeTruthy();
     await userEvent.click(screen.getByRole('button', { name: 'Fleet' }));
     expect(screen.getByRole('heading', { level: 1, name: 'Fleet' })).toBeTruthy();
   });

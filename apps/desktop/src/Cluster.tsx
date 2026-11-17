@@ -7,8 +7,8 @@ import {
   type FlinkTaskManager,
   type FleetStatus,
 } from '@sl/flink';
-import { Button, Loading, Skeleton, StatusBadge, Table, type Column } from '@sl/ui';
-import { LayoutGrid, ListChecks } from 'lucide-react';
+import { Button, EmptyState, Loading, Skeleton, StatusBadge, Table, type Column } from '@sl/ui';
+import { LayoutGrid, ListChecks, Server } from 'lucide-react';
 import { useEffect, type ReactNode } from 'react';
 import { ENV } from './Connections';
 import { useScreenHeading } from './focus';
@@ -66,6 +66,9 @@ const columns: Column<FlinkTaskManager>[] = [
  * the §4 error handling of usePolled. Opened from a fleet card; Jobs goes to the list (D07).
  * ponytail: JVM heap (JM), per-TaskManager Heap and Version, the slots chart, recent events, the JobManager and
  * Configuration tabs and the TaskManager detail (D05c) need metrics, history (JOB-06) and those calls: next slices.
+ * Until the Overview tab has its chart, the page is one view (KPIs + TaskManagers), not D05's four tabs. The
+ * subtitle's "session cluster · up 18 days" and the KPI note "all registered" wait for the JobManager calls.
+ * D05b's "ok / busy" status needs heap metrics; until then the words are Flink's own blocklist flag (OK / Blocked).
  */
 export function Cluster({
   c,
@@ -126,12 +129,20 @@ export function Cluster({
             <Kpi label="TaskManagers" value={s!.taskmanagers} />
             <Kpi
               label="Running jobs"
-              value={s!.jobs}
+              // Not done and not failing, as on the fleet card (D05: "13 · 1 failing" of 14 jobs).
+              value={s!.running}
               {...(s!.failing ? { note: `${s!.failing} failing` } : {})}
             />
           </div>
           <h2 className="m-0 text-[18px] font-semibold">TaskManagers</h2>
-          <Table label="TaskManagers" columns={columns} rows={value.tms} rowKey={(t) => t.id} />
+          {value.tms.length ? (
+            <Table label="TaskManagers" columns={columns} rows={value.tms} rowKey={(t) => t.id} />
+          ) : (
+            <EmptyState icon={Server} title="No TaskManagers registered" level={3}>
+              Jobs can not run until a TaskManager joins. Check that the TaskManagers are up and can reach the
+              JobManager.
+            </EmptyState>
+          )}
         </>
       )}
     </main>

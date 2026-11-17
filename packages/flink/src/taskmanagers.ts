@@ -19,7 +19,7 @@ export async function listTaskManagers(
 }
 
 /**
- * Board D05b "Address": host:port from the TaskManager's RPC path (`akka.tcp://flink@host:port/…` before 1.18,
+ * Board D05b "Address": the host from the TaskManager's RPC path (`akka.tcp://flink@host:port/…` before 1.18,
  * `pekko…` after); the id when the path has another shape.
  */
-export const tmAddress = (t: FlinkTaskManager) => /@([^/]+)\//.exec(t.path)?.[1] ?? t.id;
+export const tmAddress = (t: FlinkTaskManager) => /@([^/:]+)(?::\d+)?\//.exec(t.path)?.[1] ?? t.id;

@@ -31,13 +31,11 @@ describe('FLEET-02 · TaskManagers (board D05b)', () => {
     expect(t).toMatchObject({ slotsNumber: 4, freeSlots: 0 });
   });
 
-  it('the address is the host from the RPC path (akka or pekko), else the id', () => {
+  it('the address is the host (board D05b) from the RPC path (akka or pekko), else the id', () => {
     expect(tmAddress(tm('x', 'akka.tcp://flink@10.0.4.21:6122/user/rpc/taskmanager_0', 4, 0))).toBe(
-      '10.0.4.21:6122',
+      '10.0.4.21',
     );
-    expect(tmAddress(tm('x', 'pekko://flink@tm-7.svc:6122/user/rpc/taskmanager_0', 4, 0))).toBe(
-      'tm-7.svc:6122',
-    );
+    expect(tmAddress(tm('x', 'pekko://flink@tm-7.svc:6122/user/rpc/taskmanager_0', 4, 0))).toBe('tm-7.svc');
     expect(tmAddress(tm('10.0.4.9:1-z', 'odd', 4, 0))).toBe('10.0.4.9:1-z');
   });
 

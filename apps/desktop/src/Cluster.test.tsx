@@ -23,7 +23,7 @@ const conn: Connection = {
   pollMs: 5000,
 };
 const tm = (n: number, free: number, blocked = false) => ({
-  id: `10.0.4.2${n}:6122-tm${n}`,
+  id: `tm${n}-6d1f0c`,
   path: `pekko.tcp://flink@10.0.4.2${n}:6122/user/rpc/taskmanager_0`,
   dataPort: 41_000,
   timeSinceLastHeartbeat: 1,
@@ -76,7 +76,8 @@ describe('FLEET-02 · Cluster overview and TaskManagers (boards D05, D05b)', () 
     expect(kpi('Task slots')).toHaveTextContent('6 / 8 used');
     expect(kpi('Task slots')).toHaveTextContent('2 free');
     expect(kpi('TaskManagers')).toHaveTextContent('2');
-    expect(kpi('Running jobs')).toHaveTextContent('3');
+    // Running = not done and not failing, as on the fleet card (D05: 13 running · 1 failing of 14).
+    expect(kpi('Running jobs')).toHaveTextContent(/^Running jobs2/);
     expect(kpi('Running jobs')).toHaveTextContent('1 failing');
   });
 
@@ -85,11 +86,23 @@ describe('FLEET-02 · Cluster overview and TaskManagers (boards D05, D05b)', () 
     const table = await screen.findByRole('table', { name: 'TaskManagers' });
     const rows = within(table).getAllByRole('row').slice(1);
     expect(rows).toHaveLength(2);
-    expect(rows[0]).toHaveTextContent('10.0.4.21:6122');
+    // D05b Address: the host only (the id no longer contains it, so this checks the column).
+    expect(within(rows[0]!).getByText('10.0.4.21')).toBeInTheDocument();
     expect(rows[0]).toHaveTextContent('4/4');
     expect(within(rows[0]!).getByText('OK')).toBeInTheDocument();
     expect(rows[1]).toHaveTextContent('2/4');
     expect(within(rows[1]!).getByText('Blocked')).toBeInTheDocument();
+  });
+
+  it('no TaskManagers registered says so (§6 empty state)', async () => {
+    show(async (req) => ({
+      status: 200,
+      headers: {},
+      url: '',
+      body: JSON.stringify(req.path === '/taskmanagers' ? { taskmanagers: [] } : answers[req.path]),
+    }));
+    expect(await screen.findByRole('heading', { name: 'No TaskManagers registered' })).toBeInTheDocument();
+    expect(screen.queryByRole('table', { name: 'TaskManagers' })).toBeNull();
   });
 
   it('Jobs opens the jobs list', async () => {

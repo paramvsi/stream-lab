@@ -2141,3 +2141,25 @@ describe('JOB-02 · Job overview (board D08)', () => {
     expect(onJobs).toHaveBeenCalled();
   });
 });
+
+describe('APP-01 · a palette pick on the job page', () => {
+  it('audit of b72b496: the page reports the pick it took (onStartTaken(n)), once, and still acts on it', async () => {
+    const taken = vi.fn();
+    render(
+      <TooltipProvider>
+        <ToastProvider>
+          <JobOverview
+            c={conn}
+            jid={detail.jid}
+            transport={() => answer(200, detail)}
+            start={{ act: 'stop', n: 7 }}
+            onStartTaken={taken}
+          />
+        </ToastProvider>
+      </TooltipProvider>,
+    );
+    expect(await screen.findByRole('dialog', { name: /with a savepoint\?/ })).toBeInTheDocument();
+    expect(taken).toHaveBeenCalledWith(7);
+    expect(taken).toHaveBeenCalledTimes(1);
+  });
+});

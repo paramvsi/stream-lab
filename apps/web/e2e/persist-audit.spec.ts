@@ -1,5 +1,5 @@
 import AxeBuilder from '@axe-core/playwright';
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test, type BrowserContext, type Page } from '@playwright/test';
 import { openBlank } from './helpers';
 
 const nodes = (page: Page) => page.locator('.react-flow__node');
@@ -395,6 +395,45 @@ test('R4b edits made while deleted elsewhere stay "Not saved" after that tab und
   await expect(page.getByText('This pipeline is open in another tab')).toBeVisible();
   await page.waitForTimeout(800); // past the autosave debounce: nothing may have flipped it to "Saved"
   await expect(page.getByRole('status').filter({ hasText: /^Not saved$/ })).toBeVisible();
+});
+
+/** R4b up to the conflict banner: edits made while deleted elsewhere, then that tab's Undo. */
+async function editedWhileDeletedThenUndone(page: Page, context: BrowserContext) {
+  await openBlank(page);
+  await addNode(page, 'Source');
+  await saved(page);
+  const list = await context.newPage();
+  await list.goto('/#/pipelines');
+  await list.getByRole('button', { name: 'Delete Untitled pipeline' }).click();
+  await list.getByRole('button', { name: 'Delete pipeline' }).click();
+  await expect(page.getByText('This pipeline was deleted in another tab.')).toBeVisible();
+  await addNode(page, 'Filter');
+  await list.getByRole('button', { name: 'Undo', exact: true }).click();
+  await expect(page.getByText('This pipeline is open in another tab')).toBeVisible();
+  return list;
+}
+
+test('R4c audit of cb7a205 #2: "Keep editing here" stores those edits; they survive leaving', async ({
+  page,
+  context,
+}) => {
+  await editedWhileDeletedThenUndone(page, context);
+  await page.getByRole('button', { name: 'Keep editing here' }).click();
+  await saved(page);
+  const url = page.url();
+  await page.goto('/#/pipelines');
+  await page.goto(url);
+  await expect(nodes(page)).toHaveCount(2);
+});
+
+test('R4d audit of cb7a205 #1: "Load newer version" shows exactly what is stored: "Saved"', async ({
+  page,
+  context,
+}) => {
+  await editedWhileDeletedThenUndone(page, context);
+  await page.getByRole('button', { name: 'Load newer version' }).click();
+  await expect(nodes(page)).toHaveCount(1);
+  await expect(page.getByRole('status').filter({ hasText: /^Saved$/ })).toBeVisible();
 });
 
 test('R5 a saved pipeline\'s failed edit survives "Manage storage" and Back (still "Not saved")', async ({

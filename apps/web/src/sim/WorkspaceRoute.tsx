@@ -40,6 +40,8 @@ export function WorkspaceRoute({ id }: { id: string }) {
   const base = useRef<Stored | null>(null);
   // `content` of the version this tab last read from or wrote to IndexedDB (null: none).
   const written = useRef<string | null>(null);
+  /** The autosave's save, for the conflict banner's "Keep editing here". */
+  const saveNow = useRef<(() => void) | null>(null);
   // While true, store changes come from loading a pipeline, not the user: no autosave.
   const loading = useRef(false);
   const [storeError, setStoreError] = useState<AppError | null>(null);
@@ -216,7 +218,9 @@ export function WorkspaceRoute({ id }: { id: string }) {
       save();
     };
     window.addEventListener('beforeunload', onUnload);
+    saveNow.current = save;
     return () => {
+      saveNow.current = null;
       unsub();
       window.removeEventListener('beforeunload', onUnload);
       // In-app navigation: the page stays alive, so the async save completes (no rescue copy needed).
@@ -260,6 +264,10 @@ export function WorkspaceRoute({ id }: { id: string }) {
     loading.current = true;
     useGraph.getState().load(p);
     loading.current = false;
+    // The screen is now exactly what is stored.
+    written.current = content(p);
+    unsaved.delete(id);
+    useSaveState.setState({ state: 'saved' });
   };
 
   if (status === 'loading')
@@ -340,6 +348,9 @@ export function WorkspaceRoute({ id }: { id: string }) {
                 setConflict(false);
                 // Loading must not autosave (that would bounce the banner to the other tab): showLoaded guards it.
                 if (label === 'Load newer version') void getPipeline(id).then((p) => p && showLoaded(p));
+                // Keep editing here: this tab's version wins. Edits stored nowhere are written now, not on the
+                // next edit (leaving first would lose them).
+                else if (content(useGraph.getState()) !== written.current) saveNow.current?.();
               }}
             />
           )}

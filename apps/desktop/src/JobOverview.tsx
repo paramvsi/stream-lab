@@ -324,7 +324,13 @@ export function JobOverview({
                   <div className="flex flex-col gap-5 pt-5">
                     <div className="grid grid-cols-[repeat(auto-fill,minmax(220px,1fr))] gap-4">
                       {!cp && ck.error ? (
-                        <Kpi label="Last checkpoint" value="—" note={present(ck.error).message} />
+                        // Its words only when the read's problem is its own (ckReadError's rules); a lost
+                        // connection is the page banner's to say.
+                        <Kpi
+                          label="Last checkpoint"
+                          value="—"
+                          {...(ckReadError ? { note: present(ckReadError).message } : {})}
+                        />
                       ) : cp?.off ? (
                         <Kpi
                           label="Last checkpoint"

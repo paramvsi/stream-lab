@@ -799,14 +799,11 @@ describe('JOB-02 · Job overview (board D08)', () => {
     }
   });
 
-  it('audit ckpt #2/#3: with the cluster down the tab shows no CONN copy; a working Retry keeps focus on the heading', async () => {
+  it('audit ckpt #3: a working Retry in the Checkpoints tab keeps focus on the heading', async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     try {
-      let down = false;
       let ckBad = true;
       show(async (req) => {
-        if (down)
-          throw new TransportError({ kind: 'refused', host: 'payments-prod.example.com', port: 8081 });
         if (req.path.endsWith('/checkpoints') && ckBad)
           return { status: 500, headers: {}, url: '', body: '' };
         return answer(200, detail)(req);
@@ -819,15 +816,34 @@ describe('JOB-02 · Job overview (board D08)', () => {
       for (let t = 0; t < 3; t++) await act(async () => vi.advanceTimersByTimeAsync(1_000));
       await screen.findByRole('table', { name: 'Checkpoints' });
       expect(screen.getByRole('heading', { level: 1 })).toHaveFocus();
-      // and a lost cluster is the page banner's to say, not a second copy in the tab
-      down = true;
-      ckBad = true;
-      for (let t = 0; t < 40; t++) await act(async () => vi.advanceTimersByTimeAsync(1_000));
-      expect(screen.queryByText(/Nothing is listening/)).toBeNull();
     } finally {
       vi.useRealTimers();
     }
   });
+
+  it.each(['Overview', 'Checkpoints'])(
+    'audit ckpt 2: checkpoints never loaded, then the cluster drops: only Lost contact says it (%s tab)',
+    async (tabName) => {
+      vi.useFakeTimers({ shouldAdvanceTime: true });
+      try {
+        let down = false;
+        show(async (req) => {
+          if (down)
+            throw new TransportError({ kind: 'refused', host: 'payments-prod.example.com', port: 8081 });
+          if (req.path.endsWith('/checkpoints')) return { status: 500, headers: {}, url: '', body: '' };
+          return answer(200, detail)(req);
+        });
+        await screen.findByRole('table', { name: 'Operators' });
+        await userEvent.click(screen.getByRole('tab', { name: tabName }));
+        down = true;
+        for (let t = 0; t < 40; t++) await act(async () => vi.advanceTimersByTimeAsync(1_000));
+        expect(screen.getByText(/Lost contact with payments-prod/)).toBeInTheDocument();
+        expect(screen.queryByText(/Nothing is listening/)).toBeNull();
+      } finally {
+        vi.useRealTimers();
+      }
+    },
+  );
 
   it('lists the operators with parallelism and status', async () => {
     show(answer(200, detail));

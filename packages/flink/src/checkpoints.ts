@@ -53,13 +53,15 @@ function recording(http: FlinkHttp) {
   return { h, last };
 }
 /**
- * A 404 on a job's checkpoint endpoints: the job has no checkpoint settings at all (Flink says "Checkpointing has
- * not been enabled.") is JOB-CKPT-NONE; anything else is the job gone (API-404-JOB).
+ * A 404 on a job's checkpoint endpoints: the job has no checkpoint settings at all is JOB-CKPT-NONE; anything else
+ * is the job gone (API-404-JOB). Each handler words it its own way: /checkpoints says "Checkpointing has not been
+ * enabled.", /checkpoints/config "Checkpointing is not enabled for this job (<jid>)." (1.20 and 2.3 alike).
  * FLINK: https://github.com/apache/flink/blob/release-1.20/flink-runtime/src/main/java/org/apache/flink/runtime/rest/handler/job/checkpoints/CheckpointingStatisticsHandler.java
+ * FLINK: https://github.com/apache/flink/blob/release-1.20/flink-runtime/src/main/java/org/apache/flink/runtime/rest/handler/job/checkpoints/CheckpointConfigHandler.java
  */
 function notFound(e: unknown, r: FlinkResponse | undefined, conn: string): unknown {
   if (!(e instanceof AppError) || e.code !== 'API-4XX' || e.params.status !== 404) return e;
-  return /checkpointing has not been enabled/i.test(r?.body ?? '')
+  return /checkpointing (has not been|is not) enabled/i.test(r?.body ?? '')
     ? new AppError('JOB-CKPT-NONE', {}, e)
     : new AppError('API-404-JOB', { thing: 'job', conn }, e);
 }
@@ -90,6 +92,7 @@ export async function getCheckpoints(
  * completed yet"); only the config tells them apart: the interval is Long.MAX_VALUE (DISABLED_CHECKPOINT_INTERVAL).
  * JSON gives it to JS as 9223372036854775808 (rounded), so anything from 2^63 − 2^10 counts as off.
  * FLINK: https://github.com/apache/flink/blob/release-1.20/flink-streaming-java/src/main/java/org/apache/flink/streaming/api/graph/StreamingJobGraphGenerator.java
+ * (2.x: flink-runtime/src/main/java/org/apache/flink/streaming/api/graph/StreamGraph.java)
  */
 const CheckpointConfigSchema = z.looseObject({ interval: z.number() });
 export async function checkpointingOff(

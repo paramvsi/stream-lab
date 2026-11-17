@@ -86,6 +86,21 @@ describe('JOB-04 · checkpoints (GET /jobs/:jid/checkpoints)', () => {
     expect(await checkpointingOff(answer({ interval: 10_000, timeout: 600_000 }), 'prod', 'x')).toBe(false);
   });
 
+  it('the config endpoint\'s own 404 wording ("is not enabled for this job (…)") is off, not the job gone', async () => {
+    expect(
+      await checkpointingOff(
+        answer({ errors: ['Checkpointing is not enabled for this job (a1b2c3).'] }, 404),
+        'prod',
+        'x',
+      ),
+    ).toBe(true);
+    await expect(
+      checkpointingOff(answer({ errors: ['Job not found'] }, 404), 'prod', 'x'),
+    ).rejects.toMatchObject({
+      code: 'API-404-JOB',
+    });
+  });
+
   it('API-SHAPE when the stats can not be read', async () => {
     await expect(getCheckpoints(answer({ counts: {} }), 'prod', 'x')).rejects.toMatchObject({
       code: 'API-SHAPE',

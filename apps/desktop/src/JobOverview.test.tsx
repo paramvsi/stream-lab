@@ -976,34 +976,38 @@ describe('JOB-02 · Job overview (board D08)', () => {
     },
   );
 
-  it('audit bp2 #2: a vertex whose reads keep failing loses its old badge after 2 misses (no old reading that looks current)', async () => {
-    vi.useFakeTimers({ shouldAdvanceTime: true });
-    try {
-      let bad = false;
-      const ok = (lvl: string, r: number) => ({
-        status: 200,
-        headers: {},
-        url: '',
-        body: JSON.stringify({ status: 'ok', backpressureLevel: lvl, subtasks: [{ ratio: r }] }),
-      });
-      show(async (req) => {
-        const m = /\/vertices\/(v\d)\/backpressure$/.exec(req.path);
-        if (m)
-          return m[1] === 'v2'
-            ? bad
-              ? { status: 500, headers: {}, url: '', body: '' }
-              : ok('high', 0.97)
-            : ok('ok', 0.01);
-        return answer(200, detail)(req);
-      });
-      await screen.findByText('backpressured 97%');
-      bad = true;
-      for (let t = 0; t < 20; t++) await act(async () => vi.advanceTimersByTimeAsync(1_000));
-      expect(screen.queryByText('backpressured 97%')).toBeNull();
-    } finally {
-      vi.useRealTimers();
-    }
-  });
+  it(
+    'audit bp2 #2: a vertex whose reads keep failing loses its old badge once it is over 60 s old (no old reading that looks current)',
+    { timeout: 20_000 },
+    async () => {
+      vi.useFakeTimers({ shouldAdvanceTime: true });
+      try {
+        let bad = false;
+        const ok = (lvl: string, r: number) => ({
+          status: 200,
+          headers: {},
+          url: '',
+          body: JSON.stringify({ status: 'ok', backpressureLevel: lvl, subtasks: [{ ratio: r }] }),
+        });
+        show(async (req) => {
+          const m = /\/vertices\/(v\d)\/backpressure$/.exec(req.path);
+          if (m)
+            return m[1] === 'v2'
+              ? bad
+                ? { status: 500, headers: {}, url: '', body: '' }
+                : ok('high', 0.97)
+              : ok('ok', 0.01);
+          return answer(200, detail)(req);
+        });
+        await screen.findByText('backpressured 97%');
+        bad = true;
+        for (let t = 0; t < 70; t++) await act(async () => vi.advanceTimersByTimeAsync(1_000));
+        expect(screen.queryByText('backpressured 97%')).toBeNull();
+      } finally {
+        vi.useRealTimers();
+      }
+    },
+  );
 
   it(
     'audit bp3: hung backpressure reads: the round ends within one interval and the graph says its readings are old',
@@ -1122,6 +1126,56 @@ describe('JOB-02 · Job overview (board D08)', () => {
           if (!screen.queryByText('backpressured 90%')) blinks++;
         }
         expect(blinks).toBe(0);
+      } finally {
+        vi.useRealTimers();
+      }
+    },
+  );
+
+  it(
+    'audit bp6: operators whose reads fail in rounds that fail as a whole still lose their badge after 60 s',
+    { timeout: 30_000 },
+    async () => {
+      vi.useFakeTimers({ shouldAdvanceTime: true });
+      try {
+        // 6 fast healthy operators, then 6 on a sick TaskManager: read once (s5 HIGH), then every read times out.
+        const ids = [
+          ...Array.from({ length: 6 }, (_, i) => `f${i}`),
+          ...Array.from({ length: 6 }, (_, i) => `s${i}`),
+        ];
+        const many = {
+          ...detail,
+          vertices: ids.map((id) => ({ ...detail.vertices[0]!, id, name: `op ${id}` })),
+        };
+        let sick = false;
+        show(async (req) => {
+          const m = /\/vertices\/(\w\d)\/backpressure$/.exec(req.path);
+          if (m) {
+            if (sick && m[1]!.startsWith('s')) {
+              await new Promise((r) => setTimeout(r, req.timeoutMs ?? 10_000));
+              throw new TransportError({ kind: 'timeout', host: 'payments-prod.example.com', timeoutS: 2 });
+            }
+            const hot = m[1] === 's5';
+            return {
+              status: 200,
+              headers: {},
+              url: '',
+              body: JSON.stringify({
+                status: 'ok',
+                backpressureLevel: hot ? 'high' : 'ok',
+                subtasks: [{ ratio: hot ? 0.8 : 0 }],
+              }),
+            };
+          }
+          return answer(200, many)(req);
+        });
+        await screen.findByRole('list', { name: 'Job graph' });
+        for (let t = 0; t < 10 && !screen.queryByText('backpressured 80%'); t++)
+          await act(async () => vi.advanceTimersByTimeAsync(1_000));
+        expect(screen.getByText('backpressured 80%')).toBeInTheDocument();
+        sick = true;
+        for (let t = 0; t < 90; t++) await act(async () => vi.advanceTimersByTimeAsync(1_000));
+        expect(screen.queryByText('backpressured 80%')).toBeNull();
       } finally {
         vi.useRealTimers();
       }

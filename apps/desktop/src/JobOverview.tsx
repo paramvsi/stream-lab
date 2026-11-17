@@ -138,6 +138,10 @@ function ReadError({
   );
 }
 
+// ponytail: a fixed bound; a reading's own age on the badge would let it stay longer. Product call in MORNING.md.
+/** How old a backpressure reading may be and still be shown (a big job reads its vertices in turn, ~6 per round). */
+const BP_MAX_AGE = 60_000;
+
 type Failures = { n: number; more: boolean };
 type Ckpt =
   { off: true } | { off: false; last: FlinkCheckpoint | null; failed: Failures; stats: FlinkCheckpointStats };
@@ -227,16 +231,18 @@ export function JobOverview({
   // JOB-BACKPRESSURE: each operator of a RUNNING job, on its own quiet 5 s poll (a sample per vertex). One
   // vertex that can not be read is no reading for it alone; Flink's values for a job not running are not read.
   const running = j?.state === 'RUNNING';
-  const bpLast = useRef<Record<string, Backpressure | null>>({});
-  const bpMisses = useRef(new Map<string, number>());
+  /** Each vertex's last good reading and when it came (cleared when the job or its vertices change). */
+  const bpRead = useRef(new Map<string, { value: Backpressure | null; at: number }>());
   const bpNext = useRef(0);
   const vids = j ? j.vertices.map((v) => v.id).join(',') : '';
   // Bumped when the backpressure read's world changes (state, vertices, page): an older round stops at once.
   const bpGen = useRef(0);
   useEffect(() => {
     const g = bpGen;
+    const r = bpRead;
     return () => {
       g.current++;
+      r.current.clear();
     };
   }, [running, vids]);
   const bp = usePolled(
@@ -267,26 +273,20 @@ export function JobOverview({
           ),
         );
       }
+      // A reading counts by its age, not by rounds: shown while under BP_MAX_AGE, whether the vertex was not
+      // reached, failed, or sat in a round that failed as a whole. Never an old reading that looks current.
+      const now = Date.now();
+      for (const [v, r] of got)
+        if (r.status === 'fulfilled') bpRead.current.set(v, { value: r.value, at: now });
+      // §4: every vertex read failing is a failed read (the poll keeps the last badges and counts it: the stale
+      // note), not "nothing to show".
       const rs = [...got.values()];
-      // §4: every vertex failing is a failed read (the poll keeps the last badges and counts it), not "nothing
-      // to show". One vertex failing keeps its last reading for at most 2 misses in a row, then has none: never
-      // an old reading that looks current.
       const failed = rs.find((r) => r.status === 'rejected');
       if (failed && rs.every((r) => r.status === 'rejected')) throw failed.reason;
-      const prev = bpLast.current;
-      const misses = bpMisses.current;
       return Object.fromEntries(
         ids.map((v) => {
-          const r = got.get(v);
-          // Not reached this round: its last reading stands, and its miss count with it.
-          if (!r) return [v, prev[v] ?? null];
-          if (r.status === 'fulfilled') {
-            misses.delete(v);
-            return [v, r.value];
-          }
-          const n = (misses.get(v) ?? 0) + 1;
-          misses.set(v, n);
-          return [v, n <= POLL.jobs.staleAfter ? (prev[v] ?? null) : null];
+          const r = bpRead.current.get(v);
+          return [v, r && now - r.at <= BP_MAX_AGE ? r.value : null];
         }),
       );
     },
@@ -295,9 +295,6 @@ export function JobOverview({
     { quiet: true, restartOn: running ? vids : '' },
   );
   const bpShown = running ? (bp.value ?? {}) : {};
-  useEffect(() => {
-    bpLast.current = bpShown;
-  });
   // JOB-05: exceptions only while the job is in trouble (no extra call for a healthy job), on their own quiet poll.
   const troubled = !!j && TROUBLED.has(j.state);
   const [tab, setTab] = useState('overview');

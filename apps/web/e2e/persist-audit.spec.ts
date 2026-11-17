@@ -154,6 +154,46 @@ test('Q1 a pending autosave does not bring back a pipeline deleted in another ta
   await expect(list.getByText('No saved pipelines yet')).toBeVisible();
 });
 
+test('Q1b after a failed autosave, the next one still does not bring back a pipeline deleted in another tab', async ({
+  page,
+  context,
+}) => {
+  await page.addInitScript(() => {
+    const w = window as unknown as { failOnce?: boolean };
+    const put = IDBObjectStore.prototype.put;
+    IDBObjectStore.prototype.put = function (...a: Parameters<typeof put>) {
+      if (w.failOnce) {
+        w.failOnce = false;
+        throw Object.assign(new Error('full'), { name: 'QuotaExceededError' });
+      }
+      return put.apply(this, a);
+    };
+    // This tab never hears the other tab's delete: the race window held open, so the result is not timing.
+    const listen = BroadcastChannel.prototype.addEventListener;
+    BroadcastChannel.prototype.addEventListener = function (
+      this: BroadcastChannel,
+      ...a: Parameters<typeof listen>
+    ) {
+      if (a[0] !== 'message') listen.apply(this, a);
+    };
+  });
+  await openBlank(page);
+  await addNode(page, 'Source');
+  await saved(page);
+  await page.evaluate(() => ((window as unknown as { failOnce: boolean }).failOnce = true));
+  await addNode(page, 'Sink');
+  await expect(page.getByRole('status').filter({ hasText: /^Not saved$/ })).toBeVisible();
+  const list = await context.newPage();
+  await list.goto('/#/pipelines');
+  await list.getByRole('button', { name: 'Delete Untitled pipeline' }).click();
+  await list.getByRole('button', { name: 'Delete pipeline' }).click();
+  await expect(list.getByText('No saved pipelines yet')).toBeVisible();
+  await addNode(page, 'Filter'); // the next autosave (500 ms)
+  await expect(page.getByText('This pipeline was deleted in another tab.')).toBeVisible();
+  await list.reload();
+  await expect(list.getByText('No saved pipelines yet')).toBeVisible();
+});
+
 test('Q2 never-saved pipeline: edits survive "Manage storage" and Back', async ({ page }) => {
   await fullStorage(page);
   await openBlank(page);

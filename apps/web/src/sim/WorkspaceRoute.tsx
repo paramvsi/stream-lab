@@ -40,6 +40,9 @@ export function WorkspaceRoute({ id }: { id: string }) {
   const [conflict, setConflict] = useState(false);
   const [deleted, setDeleted] = useState(false);
   const wasDeleted = useRef(false);
+  // In IndexedDB at least once (opened from it, or written): saves are then updates, refused once deleted. Not
+  // `unsaved`: that also holds the copy of a failed save of a stored pipeline.
+  const inDb = useRef(false);
   // Shared with the delete handler and "Load newer version", which must cancel a pending autosave
   // (saving it would resurrect a deleted pipeline, or bounce the conflict to the other tab).
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -80,11 +83,13 @@ export function WorkspaceRoute({ id }: { id: string }) {
         );
         const newest = candidates.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))[0];
         if (!newest) return setStatus('missing');
+        inDb.current = !!stored;
         show(newest);
         if (newest !== stored) {
           // Not in IndexedDB yet: write it back; until that works, "Not saved" and the banner.
           try {
             await savePipeline(newest);
+            inDb.current = true;
             unsaved.delete(id);
             clearRescue(id);
           } catch (e) {
@@ -143,8 +148,8 @@ export function WorkspaceRoute({ id }: { id: string }) {
       useSaveState.setState({ state: 'saving' });
       const p = snapshot();
       base.current = p;
-      // An update unless it was never written (first save failed): a delete elsewhere is not undone by it.
-      savePipeline(p, { update: !unsaved.has(id) }).then(
+      // An update once it has been in IndexedDB: a delete elsewhere is not undone by it.
+      savePipeline(p, { update: inDb.current }).then(
         (written) => {
           if (!written) {
             // Deleted in another tab; its broadcast may still be on the way.
@@ -152,6 +157,7 @@ export function WorkspaceRoute({ id }: { id: string }) {
             setDeleted(true);
             return;
           }
+          inDb.current = true;
           unsaved.delete(id);
           useSaveState.setState({ state: 'saved' });
           setStoreError(null);

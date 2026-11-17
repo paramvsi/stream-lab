@@ -77,6 +77,9 @@ export function AllJobs({
   const rows = queryJobs(all, { ...(bucket ? { bucket } : {}), q });
   const down = connections.filter((c) => read[c.id]?.error);
   const reading = connections.filter((c) => !read[c.id]).length;
+  // The list is whole only when every connection has answered with its jobs: counts and "no match" wait for it (a
+  // connection still reading, or down, may hold the very jobs they would say are not there).
+  const whole = !reading && !connections.some((c) => read[c.id]?.error);
   const retry = () => {
     h1.current?.focus(); // the banner and its Retry go: focus stays on the page
     setRead((r) => Object.fromEntries(Object.entries(r).filter(([, v]) => !v.error)));
@@ -146,8 +149,8 @@ export function AllJobs({
               aria-pressed={bucket === ch.bucket}
               onClick={() => setBucket(ch.bucket)}
             >
-              {/* A count only once every connection has answered: never "Failing 0" while one is still reading. */}
-              {reading ? ch.label : `${ch.label} ${counts[ch.key]}`}
+              {/* A count only when the list is whole: never "Failing 0" for jobs not read. */}
+              {whole ? `${ch.label} ${counts[ch.key]}` : ch.label}
             </Button>
           ))}
         </div>
@@ -167,7 +170,7 @@ export function AllJobs({
       )}
       {/* As the Jobs list (D07b): mounted empty so the words are announced, and one step to clear. */}
       <div role="status" className="flex items-center gap-3 text-[14px] text-muted">
-        {!!all.length && rows.length === 0 && (!!bucket || !!q.trim()) && (
+        {whole && !!all.length && rows.length === 0 && (!!bucket || !!q.trim()) && (
           <>
             No jobs match this search or filter.
             <Button

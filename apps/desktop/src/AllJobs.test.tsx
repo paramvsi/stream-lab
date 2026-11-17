@@ -159,4 +159,20 @@ describe('JOB-11 · jobs across connections (board X18)', () => {
     expect(box).toHaveFocus();
     expect(screen.getByText('p-job')).toBeInTheDocument();
   });
+
+  it('audit of 77bfa9f: with a connection down or still reading, no counts and no "no match" (its jobs are missing)', async () => {
+    let release = () => {};
+    show((c) => async () => {
+      if (c.id === 'p') return { status: 503, headers: {}, url: '', body: '' }; // prod is down
+      await new Promise<void>((r) => (release = r)); // staging still reading at first
+      return ok({ jobs: [row('s1', 's-job', 'RUNNING')] });
+    });
+    await screen.findByText(/did not answer/);
+    await userEvent.click(screen.getByRole('button', { name: 'Failing' }));
+    expect(screen.queryByText('No jobs match this search or filter.')).toBeNull(); // staging still reading
+    release();
+    await screen.findByText(/All connections · 1 job/);
+    expect(screen.getByRole('button', { name: 'Failing' })).toBeInTheDocument(); // prod is down: no "Failing 0"
+    expect(screen.queryByText('No jobs match this search or filter.')).toBeNull(); // prod's jobs are missing
+  });
 });

@@ -1,6 +1,7 @@
 import { graphLayers, type JobGraph } from '@sl/flink';
 import { StatusBadge } from '@sl/ui';
 import { ArrowRight } from 'lucide-react';
+import { useId } from 'react';
 import { TONE, word } from './Jobs';
 
 /**
@@ -15,39 +16,51 @@ import { TONE, word } from './Jobs';
 export function JobGraphView({ graph }: { graph: JobGraph }) {
   const byId = new Map(graph.nodes.map((n) => [n.id, n]));
   const layers = graphLayers(graph);
+  const titleId = useId();
   return (
-    <div className="overflow-x-auto rounded-lg border border-line bg-surface p-4">
-      <ol aria-label="Job graph" className="m-0 flex list-none flex-nowrap items-start gap-3 p-0">
-        {layers.map((ids, i) => (
-          <li key={ids.join('|')} className="flex items-center gap-3">
-            {i > 0 && <ArrowRight size={16} aria-hidden="true" className="shrink-0 text-muted" />}
-            <ul aria-label={`Stage ${i + 1}`} className="m-0 flex list-none flex-col gap-3 p-0">
-              {ids.map((id) => {
-                const n = byId.get(id)!;
-                const ins = graph.edges.filter((e) => e.to === id);
-                return (
-                  <li
-                    key={id}
-                    className="flex min-w-[180px] flex-col gap-1 rounded-md border border-line p-3"
-                  >
-                    <h3 className="m-0 text-[14px] font-semibold">{n.name}</h3>
-                    <span className="font-mono text-[12px] text-muted">p {n.parallelism}</span>
-                    {n.status !== 'RUNNING' && (
-                      <StatusBadge tone={TONE[n.status] ?? 'neutral'}>{word(n.status)}</StatusBadge>
-                    )}
-                    {ins.map((e) => (
-                      <span key={`${e.from}-${e.num}`} className="text-[12px] text-muted">
-                        from {byId.get(e.from)?.name ?? e.from}
-                        {e.ship ? ` · ${e.ship}` : ''}
-                      </span>
-                    ))}
-                  </li>
-                );
-              })}
-            </ul>
-          </li>
-        ))}
-      </ol>
+    <div className="flex flex-col gap-3">
+      <h3 id={titleId} className="m-0 text-[16px] font-semibold">
+        Job graph
+      </h3>
+      {/* A scroll region the keyboard can reach (WebKit does not focus scrollers by itself), as Table does. */}
+      <div
+        role="region"
+        aria-labelledby={titleId}
+        tabIndex={0}
+        className="sl-focus overflow-x-auto rounded-lg border border-line bg-surface p-4"
+      >
+        <ol aria-label="Job graph" className="m-0 flex list-none flex-nowrap items-start gap-3 p-0">
+          {layers.map((ids, i) => (
+            <li key={ids.join('|')} className="flex items-center gap-3">
+              {i > 0 && <ArrowRight size={16} aria-hidden="true" className="shrink-0 text-muted" />}
+              <ul className="m-0 flex list-none flex-col gap-3 p-0">
+                {ids.map((id) => {
+                  const n = byId.get(id)!;
+                  const ins = graph.edges.filter((e) => e.to === id);
+                  return (
+                    <li
+                      key={id}
+                      className="flex min-w-[180px] flex-col gap-1 rounded-md border border-line p-3"
+                    >
+                      <h4 className="m-0 text-[14px] font-semibold">{n.name}</h4>
+                      <span className="font-mono text-[12px] text-muted">p {n.parallelism}</span>
+                      {n.status !== 'RUNNING' && (
+                        <StatusBadge tone={TONE[n.status] ?? 'neutral'}>{word(n.status)}</StatusBadge>
+                      )}
+                      {ins.map((e) => (
+                        <span key={`${e.from}-${e.num}`} className="text-[12px] text-muted">
+                          from {byId.get(e.from)?.name ?? e.from}
+                          {e.ship ? ` · ${e.ship}` : ''}
+                        </span>
+                      ))}
+                    </li>
+                  );
+                })}
+              </ul>
+            </li>
+          ))}
+        </ol>
+      </div>
     </div>
   );
 }

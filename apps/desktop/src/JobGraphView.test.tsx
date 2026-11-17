@@ -79,4 +79,12 @@ describe('JOB-02 · job graph view (board D08)', () => {
     expect(within(card('Window aggregate')).getByText('Failed')).toBeInTheDocument();
     expect(within(card('Source: payments')).queryByText('Running')).toBeNull();
   });
+
+  it('audit 2 #1/#2: a titled region (D08 "Job graph", h3; cards h4) that the keyboard can reach to scroll', () => {
+    render(<JobGraphView graph={graph} />);
+    const region = screen.getByRole('region', { name: 'Job graph' });
+    expect(region).toHaveAttribute('tabindex', '0');
+    expect(screen.getByRole('heading', { level: 3, name: 'Job graph' })).toBeVisible();
+    expect(screen.getByRole('heading', { level: 4, name: 'Window aggregate' })).toBeInTheDocument();
+  });
 });

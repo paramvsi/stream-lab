@@ -363,13 +363,20 @@ describe('JOB-02 · Job overview (board D08)', () => {
     expect(h.compareDocumentPosition(t) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
-  it('audit #2: a failed job whose exceptions can not be read says that, not nothing', async () => {
-    show(async (req) =>
-      req.path.endsWith('/exceptions')
-        ? { status: 500, headers: {}, url: '', body: '' }
-        : answer(200, { ...detail, state: 'FAILED' })(req),
-    );
-    expect(await screen.findByText(/internal error while reading the exceptions/)).toBeInTheDocument();
+  it('audit #2: a failed job whose exceptions can not be read says that (after 3 in a row, §4), not nothing', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      show(async (req) =>
+        req.path.endsWith('/exceptions')
+          ? { status: 500, headers: {}, url: '', body: '' }
+          : answer(200, { ...detail, state: 'FAILED' })(req),
+      );
+      await screen.findByRole('table', { name: 'Operators' });
+      await act(async () => vi.advanceTimersByTimeAsync(40_000));
+      expect(await screen.findByText(/internal error while reading the exceptions/)).toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('20 kept failures, all recent (a cluster that keeps more than the default 16): "20+ times"', async () => {
@@ -424,6 +431,29 @@ describe('JOB-02 · Job overview (board D08)', () => {
     expect(await screen.findByText(/restarted 16\+ times in/)).toBeInTheDocument();
   });
 
+  it('audit 4 #1: after an outage the exceptions read asks again at once, so no stale CONN banner lingers', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      let down = false;
+      show(async (req) => {
+        if (down)
+          throw new TransportError({ kind: 'refused', host: 'payments-prod.example.com', port: 8081 });
+        if (req.path.endsWith('/exceptions')) return { status: 500, headers: {}, url: '', body: '' };
+        return answer(200, { ...detail, state: 'FAILED' })(req);
+      });
+      await screen.findByRole('table', { name: 'Operators' });
+      down = true;
+      await act(async () => vi.advanceTimersByTimeAsync(60_000)); // job banner up; exceptions backed off to 30 s
+      down = false;
+      await act(async () => vi.advanceTimersByTimeAsync(31_000)); // the job recovers
+      await waitFor(() => expect(screen.queryByText(/Lost contact/)).toBeNull());
+      await act(async () => vi.advanceTimersByTimeAsync(500));
+      expect(screen.queryByText(/Nothing is listening/)).toBeNull(); // not the outage's error
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('audit 2 #4: a 404 on the exceptions read is not a "no longer exists" banner over a job on screen', async () => {
     let asked = 0;
     show(async (req) =>
@@ -437,14 +467,27 @@ describe('JOB-02 · Job overview (board D08)', () => {
     expect(screen.queryByText(/no longer exists/)).toBeNull();
   });
 
-  it('audit 3 #1: exceptions that keep timing out while the job reads fine are said, not hidden for good', async () => {
-    show(async (req) => {
-      if (req.path.endsWith('/exceptions'))
-        throw new TransportError({ kind: 'timeout', host: 'payments-prod.example.com', timeoutS: 10 });
-      return answer(200, { ...detail, state: 'FAILED' })(req);
-    });
-    await screen.findByRole('table', { name: 'Operators' });
-    expect(await screen.findByText(/payments-prod\.example\.com/)).toBeInTheDocument();
+  it('audit 3 #1 / audit 4 #2: exceptions that keep timing out are said after 3 in a row, not at once, not never', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      let n = 0;
+      show(async (req) => {
+        if (req.path.endsWith('/exceptions')) {
+          n++;
+          throw new TransportError({ kind: 'timeout', host: 'payments-prod.example.com', timeoutS: 10 });
+        }
+        return answer(200, { ...detail, state: 'FAILED' })(req);
+      });
+      await screen.findByRole('table', { name: 'Operators' });
+      await waitFor(() => expect(n).toBeGreaterThanOrEqual(1));
+      await act(async () => vi.advanceTimersByTimeAsync(100));
+      expect(screen.queryByText(/payments-prod\.example\.com/)).toBeNull(); // 1 failure: silent (§4)
+      await act(async () => vi.advanceTimersByTimeAsync(40_000));
+      expect(n).toBeGreaterThanOrEqual(3);
+      expect(await screen.findByText(/payments-prod\.example\.com/)).toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('audit 3 #1: a 404 on the exceptions read that persists (3 in a row) is said as the HTTP refusal', async () => {
@@ -456,6 +499,8 @@ describe('JOB-02 · Job overview (board D08)', () => {
           : answer(200, { ...detail, state: 'FAILED' })(req),
       );
       await screen.findByRole('table', { name: 'Operators' });
+      await act(async () => vi.advanceTimersByTimeAsync(100));
+      expect(screen.queryByText(/refused this request/)).toBeNull(); // audit 4 #5: one 404 is silent
       await act(async () => vi.advanceTimersByTimeAsync(40_000));
       expect(await screen.findByText(/refused this request \(HTTP 404\)/)).toBeInTheDocument();
       expect(screen.queryByText(/no longer exists/)).toBeNull();

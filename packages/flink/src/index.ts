@@ -12,3 +12,4 @@ export * from './endpoints/jobs';
 export * from './jobs';
 export * from './taskmanagers';
 export * from './job';
+export * from './checkpoints';

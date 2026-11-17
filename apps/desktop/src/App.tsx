@@ -1,4 +1,5 @@
-import type { Connection, FlinkHttp, KindChoice } from '@sl/flink';
+import { AppError, present } from '@sl/errors';
+import { listJobs, type Connection, type FlinkHttp, type FlinkJobRow, type KindChoice } from '@sl/flink';
 import { Fleet, type CardState } from './Fleet';
 import { useToast } from '@sl/ui';
 import { useEffect, useRef, useState } from 'react';
@@ -106,7 +107,37 @@ export function App({
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [inSteps, transport, connections, cur]);
-  // ponytail: navigation only for now; jobs and job actions (board G01) are the next slices.
+  // Board G01 "Jump to job": every connection's jobs, read when the palette opens (one GET each). A cluster that
+  // can not be read is said in the palette; the rest still works.
+  const [paletteJobs, setPaletteJobs] = useState<Record<string, { jobs?: FlinkJobRow[]; error?: AppError }>>(
+    {},
+  );
+  useEffect(() => {
+    if (!palette || !transport) return;
+    let live = true;
+    for (const c of connections)
+      listJobs(transport(c), c.name).then(
+        (jobs) => live && setPaletteJobs((p) => ({ ...p, [c.id]: { jobs } })),
+        (e: unknown) =>
+          live &&
+          setPaletteJobs((p) => ({
+            ...p,
+            [c.id]: { error: e instanceof AppError ? e : new AppError('API-SHAPE', {}, e) },
+          })),
+      );
+    return () => {
+      live = false;
+    };
+  }, [palette, transport, connections]);
+  const reading = transport ? connections.filter((c) => !paletteJobs[c.id]).length : 0;
+  const paletteNotes = [
+    ...(reading ? [`Reading the jobs of ${reading} connection${reading === 1 ? '' : 's'}…`] : []),
+    ...connections.flatMap((c) => {
+      const e = paletteJobs[c.id]?.error;
+      return e ? [present(e).message] : [];
+    }),
+  ];
+  // ponytail: job actions (board G01 "Trigger savepoint: …") are the next slice.
   const commands: Command[] = [
     ...(transport && connections.length ? [{ id: 'fleet', label: 'Fleet', run: home }] : []),
     { id: 'list', label: 'Connections', run: () => setScreen({ name: 'list' }) },
@@ -122,6 +153,12 @@ export function App({
           },
           { id: `j-${c.id}`, label: `Jobs · ${c.name}`, run: () => setScreen({ name: 'jobs', id: c.id }) },
           { id: `l-${c.id}`, label: `Logs · ${c.name}`, run: () => setScreen({ name: 'logs', id: c.id }) },
+          ...(paletteJobs[c.id]?.jobs ?? []).map((j): Command => ({
+            id: `job-${c.id}-${j.jid}`,
+            label: j.name,
+            hint: `Job · ${c.name}`,
+            run: () => setScreen({ name: 'job', id: c.id, jid: j.jid }),
+          })),
         ])
       : []),
   ];
@@ -253,7 +290,16 @@ export function App({
   return (
     <>
       {view}
-      {palette && !inSteps && <Palette commands={commands} onClose={() => setPalette(false)} />}
+      {palette && !inSteps && (
+        <Palette
+          commands={commands}
+          notes={paletteNotes}
+          onClose={() => {
+            setPalette(false);
+            setPaletteJobs({}); // read again next time
+          }}
+        />
+      )}
       {sheet && !inSteps && <ShortcutsSheet onClose={() => setSheet(false)} />}
     </>
   );

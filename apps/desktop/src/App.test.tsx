@@ -252,8 +252,7 @@ describe('audit of 8671a2f', () => {
 });
 
 describe('APP-01 · command palette (board G01)', () => {
-  const withOne = async () => {
-    const http: FlinkHttp = async () => ({ status: 503, headers: {}, body: '', url: '' });
+  const withOne = async (http: FlinkHttp = async () => ({ status: 503, headers: {}, body: '', url: '' })) => {
     render(
       <TooltipProvider>
         <ToastProvider>
@@ -429,5 +428,68 @@ describe('APP-01 · command palette (board G01)', () => {
     expect(screen.queryByRole('heading', { level: 1, name: 'Jobs' })).toBeNull();
     fireEvent.keyDown(document.body, { key: 'k', code: 'KeyV', metaKey: true }); // Dvorak's labelled K
     expect(screen.getByRole('dialog', { name: 'Commands' })).toBeInTheDocument();
+  });
+
+  it('G01 jobs: the palette lists every cluster\'s jobs ("Job · cluster"); Enter opens the job', async () => {
+    const http: FlinkHttp = async (req) => ({
+      status: 200,
+      headers: {},
+      url: '',
+      body: JSON.stringify(
+        req.path === '/jobs/overview'
+          ? {
+              jobs: [
+                {
+                  jid: 'a1',
+                  name: 'refund-matcher',
+                  state: 'RUNNING',
+                  'start-time': 1,
+                  'end-time': -1,
+                  duration: 60_000,
+                  'last-modification': 1,
+                },
+                {
+                  jid: 'b2',
+                  name: 'fraud-scoring',
+                  state: 'RESTARTING',
+                  'start-time': 1,
+                  'end-time': -1,
+                  duration: 60_000,
+                  'last-modification': 1,
+                },
+              ],
+            }
+          : req.path === '/jobs/a1'
+            ? {
+                jid: 'a1',
+                name: 'refund-matcher',
+                state: 'RUNNING',
+                'start-time': 1,
+                'end-time': -1,
+                duration: 60_000,
+                now: 60_001,
+                vertices: [],
+              }
+            : req.path === '/jobs/a1/checkpoints'
+              ? { counts: { completed: 0, failed: 0, in_progress: 0, restored: 0, total: 1 }, history: [] }
+              : {},
+      ),
+    });
+    await withOne(http);
+    await userEvent.keyboard('{Meta>}k{/Meta}');
+    const dialog = screen.getByRole('dialog', { name: 'Commands' });
+    await userEvent.type(within(dialog).getByRole('combobox'), 'refund');
+    const opt = await within(dialog).findByRole('option', { name: /refund-matcher/ });
+    expect(opt).toHaveTextContent('Job · local-docker');
+    await userEvent.keyboard('{Enter}');
+    expect(await screen.findByRole('heading', { level: 1, name: 'refund-matcher' })).toBeTruthy();
+  });
+
+  it('G01 jobs: a cluster whose jobs can not be read is said in the palette (catalog), and navigation still works', async () => {
+    await withOne(); // every request 503
+    await userEvent.keyboard('{Meta>}k{/Meta}');
+    const dialog = screen.getByRole('dialog', { name: 'Commands' });
+    expect(await within(dialog).findByText(/local-docker .*reading the jobs/)).toBeInTheDocument();
+    expect(within(dialog).getByRole('option', { name: /Logs · local-docker/ })).toBeInTheDocument();
   });
 });

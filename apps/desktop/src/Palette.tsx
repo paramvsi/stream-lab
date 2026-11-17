@@ -16,7 +16,16 @@ export interface Command {
  * ponytail: the web workspace has its own (apps/web/src/sim/Commands.tsx, same pattern); one shared palette in
  * packages/ui when a third appears.
  */
-export function Palette({ commands, onClose }: { commands: Command[]; onClose: () => void }) {
+export function Palette({
+  commands,
+  onClose,
+  notes = [],
+}: {
+  commands: Command[];
+  onClose: () => void;
+  /** What is still being read, or could not be (catalog messages), said in a live region. */
+  notes?: string[];
+}) {
   const [q, setQ] = useState('');
   const [active, setActive] = useState(0);
   const input = useRef<HTMLInputElement>(null);
@@ -74,6 +83,13 @@ export function Palette({ commands, onClose }: { commands: Command[]; onClose: (
       <p role="status" className={items.length === 0 ? 'm-0 text-[14px]' : 'sr-only'}>
         {items.length === 0 ? 'No commands match.' : ''}
       </p>
+      {notes.length > 0 && (
+        <ul role="status" className="m-0 list-none p-0 text-[13px] text-muted">
+          {notes.map((n) => (
+            <li key={n}>{n}</li>
+          ))}
+        </ul>
+      )}
       <ul
         id={listId}
         role="listbox"

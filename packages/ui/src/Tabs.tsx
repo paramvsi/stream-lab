@@ -4,7 +4,8 @@ import type { ReactNode } from 'react';
 export interface TabItem {
   value: string;
   label: ReactNode;
-  count?: number;
+  /** A number, or "16+" for a lower bound. */
+  count?: number | string;
   content: ReactNode;
 }
 

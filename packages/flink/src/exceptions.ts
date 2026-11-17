@@ -118,6 +118,8 @@ const sameProblem = (message: string) =>
     );
 
 export interface ExceptionGroup {
+  /** What groups it (full class + message with per-occurrence ids masked): stable across polls. */
+  key: string;
   name: string;
   /** The newest occurrence's words. */
   message: string;
@@ -145,7 +147,8 @@ export function groupExceptions(entries: readonly FlinkException[]): ExceptionGr
       g.first = Math.min(g.first, e.timestamp);
       g.last = Math.max(g.last, e.timestamp);
       g.entries.push(e);
-    } else groups.set(key, { name, message, count: 1, first: e.timestamp, last: e.timestamp, entries: [e] });
+    } else
+      groups.set(key, { key, name, message, count: 1, first: e.timestamp, last: e.timestamp, entries: [e] });
   }
   return [...groups.values()].sort((a, b) => b.count - a.count || b.last - a.last);
 }

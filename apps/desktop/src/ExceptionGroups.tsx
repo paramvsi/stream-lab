@@ -1,7 +1,7 @@
 import { groupExceptions, rootCauseLine, type FlinkException } from '@sl/flink';
 import { Button, EmptyState } from '@sl/ui';
 import { CircleCheck } from 'lucide-react';
-import { Fragment, useState } from 'react';
+import { Fragment, useId, useState } from 'react';
 
 /** Board X20 "09:12": the viewer's local clock, hours and minutes. */
 export const clock = (ms: number) =>
@@ -14,8 +14,17 @@ const plural = (n: number, w: string) => `${n} ${w}${n === 1 ? '' : 's'}`;
  * first, with count and first / last seen; "Show N" expands to each occurrence (newest first: time, task, cause).
  * ponytail: the "Explain this" hint (J-09) and the full trace with Copy (D11b) are next slices.
  */
-export function ExceptionGroups({ entries }: { entries: readonly FlinkException[] }) {
-  const [open, setOpen] = useState<Set<number>>(new Set());
+export function ExceptionGroups({
+  entries,
+  capped = false,
+}: {
+  entries: readonly FlinkException[];
+  /** Flink may have dropped older failures (it keeps a few): the occurrences are a lower bound ("N+"). */
+  capped?: boolean;
+}) {
+  // Open groups by their key, not their row: a poll re-sorts the rows.
+  const [open, setOpen] = useState<Set<string>>(new Set());
+  const base = useId();
   const groups = groupExceptions(entries);
   if (!groups.length)
     return (
@@ -23,7 +32,7 @@ export function ExceptionGroups({ entries }: { entries: readonly FlinkException[
         Flink has not recorded a failure for this job.
       </EmptyState>
     );
-  const toggle = (i: number) =>
+  const toggle = (i: string) =>
     setOpen((s) => {
       const n = new Set(s);
       if (n.has(i)) n.delete(i);
@@ -35,7 +44,8 @@ export function ExceptionGroups({ entries }: { entries: readonly FlinkException[
   return (
     <div className="flex flex-col gap-3">
       <p className="m-0 text-[14px] text-muted">
-        {plural(groups.length, 'group')}, {plural(entries.length, 'occurrence')}
+        {plural(groups.length, 'group')}, {entries.length}
+        {capped ? '+' : ''} occurrence{entries.length === 1 && !capped ? '' : 's'}
       </p>
       <div className="overflow-x-auto rounded-lg border border-line bg-surface">
         <table aria-label="Exceptions" className="w-full border-collapse text-ink">
@@ -60,10 +70,10 @@ export function ExceptionGroups({ entries }: { entries: readonly FlinkException[
           </thead>
           <tbody>
             {groups.map((g, i) => {
-              const id = `exc-group-${i}`;
+              const id = `${base}-${i}`;
               const label = g.name || 'Exception';
               return (
-                <Fragment key={id}>
+                <Fragment key={g.key}>
                   <tr>
                     <td className={td}>
                       <b>{label}</b>
@@ -76,15 +86,15 @@ export function ExceptionGroups({ entries }: { entries: readonly FlinkException[
                       <Button
                         size="sm"
                         variant="ghost"
-                        aria-expanded={open.has(i)}
+                        aria-expanded={open.has(g.key)}
                         aria-controls={id}
-                        onClick={() => toggle(i)}
+                        onClick={() => toggle(g.key)}
                       >
                         {`Show ${g.count}`}
                       </Button>
                     </td>
                   </tr>
-                  {open.has(i) && (
+                  {open.has(g.key) && (
                     <tr id={id}>
                       <td colSpan={5} className="border-b border-line bg-subtle px-3.5 py-3">
                         <ul

@@ -255,12 +255,18 @@ export function Logs({
     return () => clearInterval(t);
   }, [follow, name, big, ready, proc, http, c.name]);
   const followWhy = useId();
-  // D18 Download: the whole file as served (also over 50 MB, where 5,000 lines show), under its own name.
+  // D18 Download: the whole file as served (also over 50 MB, where 5,000 lines show).
   // ponytail: an <a download> on a blob URL, as Export does; the Tauri build saves with the dialog and fs plugins.
   const download = () => {
     if (text === null || !name) return;
     const url = URL.createObjectURL(new Blob([text], { type: 'text/plain' }));
-    Object.assign(document.createElement('a'), { href: url, download: name }).click();
+    // The cluster and the process in the name: every TaskManager serves taskmanager.log. Only characters a file
+    // name can hold on every system (a TaskManager id may carry "host:port").
+    const saved = [c.name, proc, name]
+      .filter(Boolean)
+      .join('-')
+      .replace(/[^\w.-]/g, '_');
+    Object.assign(document.createElement('a'), { href: url, download: saved }).click();
     // Revoked a moment later: some engines cancel a download whose URL is revoked straight after the click.
     setTimeout(() => URL.revokeObjectURL(url), 1000);
   };

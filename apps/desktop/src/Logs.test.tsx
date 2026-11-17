@@ -678,7 +678,7 @@ describe('OPS-01 · Logs (D18, D18b)', () => {
       await screen.findByRole('table', { name: 'Log lines' });
       expect(dl).not.toHaveAttribute('aria-disabled');
       await userEvent.click(dl);
-      expect(names).toEqual(['jobmanager.log']);
+      expect(names).toEqual(['payments-prod-jobmanager.log']); // the cluster in the name (another cluster's never clashes)
       expect(await blobs[0]!.text()).toBe(whole);
       vi.advanceTimersByTime(1000);
       expect(URL.revokeObjectURL).toHaveBeenCalledWith('blob:log');
@@ -687,6 +687,52 @@ describe('OPS-01 · Logs (D18, D18b)', () => {
       URL.createObjectURL = create;
       URL.revokeObjectURL = revoke;
       vi.useRealTimers();
+    }
+  });
+
+  it('audit dl #1: a TaskManager log saves under the cluster and that TaskManager (every TaskManager has taskmanager.log)', async () => {
+    const names: string[] = [];
+    const create = URL.createObjectURL;
+    URL.createObjectURL = vi.fn(() => 'blob:log');
+    const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(function (
+      this: HTMLAnchorElement,
+    ) {
+      names.push(this.download);
+    });
+    try {
+      const base = tmHttp();
+      showRaw(async (r) =>
+        r.path === '/taskmanagers'
+          ? ok(
+              200,
+              JSON.stringify({
+                taskmanagers: [
+                  JSON.parse((await base(r)).body).taskmanagers[0],
+                  { ...JSON.parse((await base(r)).body).taskmanagers[0], id: '10.0.4.21:6122-abc' },
+                ],
+              }),
+            )
+          : r.path === '/taskmanagers/10.0.4.21%3A6122-abc/logs'
+            ? list([{ name: 'taskmanager.log', size: 1, mtime: 1 }])
+            : r.path === '/taskmanagers/10.0.4.21%3A6122-abc/logs/taskmanager.log'
+              ? ok(200, '2026-11-17 12:00:00,000 INFO  x [] - other TaskManager')
+              : base(r),
+      );
+      await screen.findByRole('table', { name: 'Log lines' });
+      const group = screen.getByRole('group', { name: 'Process' });
+      await userEvent.click(within(group).getByRole('radio', { name: 'tm1-6d1f0c' }));
+      await screen.findByText('a TaskManager line');
+      await userEvent.click(screen.getByRole('button', { name: 'Download' }));
+      await userEvent.click(within(group).getByRole('radio', { name: '10.0.4.21:6122-abc' }));
+      await screen.findByText('other TaskManager');
+      await userEvent.click(screen.getByRole('button', { name: 'Download' }));
+      expect(names).toEqual([
+        'payments-prod-tm1-6d1f0c-taskmanager.log',
+        'payments-prod-10.0.4.21_6122-abc-taskmanager.log', // ":" is not allowed in a file name on every system
+      ]);
+    } finally {
+      click.mockRestore();
+      URL.createObjectURL = create;
     }
   });
 });

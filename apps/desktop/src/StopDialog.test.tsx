@@ -413,4 +413,26 @@ describe('SP-TIMEOUT (catalog: still IN_PROGRESS after 10 min, board D15b)', () 
       await vi.advanceTimersByTimeAsync(30_000);
       expect(d()).toBe(first);
     }));
+
+  it('D15b: "Run in background" closes the running dialog; the stop goes on and ends as a toast', () =>
+    run(async () => {
+      let reads = 0;
+      const http: FlinkHttp = async (r) => {
+        if (r.path === '/jobmanager/config') return cfg('s3://sp');
+        if (r.method === 'POST') return ok(202, { 'request-id': 'r1' });
+        return ++reads < 3
+          ? ok(200, { status: { id: 'IN_PROGRESS' } })
+          : ok(200, { status: { id: 'COMPLETED' }, operation: { location: 's3://sp/savepoint-a71e' } });
+      };
+      render(<Harness http={http} />);
+      await start();
+      await userEvent.click(screen.getByRole('button', { name: 'Run in background' }), {
+        advanceTimers: vi.advanceTimersByTime,
+      });
+      expect(screen.queryByRole('dialog')).toBeNull();
+      await tick(4);
+      expect(
+        await screen.findAllByText('refund-matcher stopped. Savepoint savepoint-a71e saved.'),
+      ).not.toHaveLength(0);
+    }));
 });

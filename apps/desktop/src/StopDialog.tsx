@@ -256,7 +256,12 @@ export function StopDialog({
 
   if (step.name === 'running')
     return (
-      <Dialog {...shared} title={`Stopping ${job}`}>
+      <Dialog
+        {...shared}
+        title={`Stopping ${job}`}
+        // D15b: the stop goes on (its result comes as a toast on the job page).
+        footer={<Button onClick={close}>Run in background</Button>}
+      >
         {slow === 'shown' && started !== null && (
           <ErrorBanner
             error={new AppError('SP-TIMEOUT', { dur: `${Math.floor((now - started) / 60_000)} min` })}

@@ -1,4 +1,5 @@
 import { fireEvent, render, screen, within } from '@testing-library/react';
+import { AppError } from '@sl/errors';
 import { exportConnections, type FlinkHttp } from '@sl/flink';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
@@ -1041,5 +1042,51 @@ describe('APP-04 · Settings (boards D21)', () => {
     await screen.findByRole('heading', { level: 1, name: 'Settings' });
     await userEvent.click(screen.getByRole('button', { name: 'Back' }));
     expect(await screen.findByRole('heading', { level: 1, name: 'local-docker' })).toBeTruthy();
+  });
+});
+
+describe('CONN-03 / CONN-KEYCHAIN: saving a connection puts its secret in the keychain', () => {
+  const fill = async () => {
+    await userEvent.click(screen.getByRole('button', { name: 'Add a connection' }));
+    await userEvent.click(screen.getByRole('radio', { name: /Self-managed/ }));
+    await userEvent.click(screen.getByRole('button', { name: 'Continue' }));
+    await userEvent.type(screen.getByLabelText(/^Name/), 'payments-prod');
+    await userEvent.selectOptions(screen.getByLabelText(/^Environment/), 'dev');
+    await userEvent.type(screen.getByLabelText(/JobManager REST URL/), 'https://pay:8081');
+    await userEvent.selectOptions(screen.getByLabelText('Login method'), 'bearer');
+    await userEvent.type(screen.getByLabelText(/^Token/), 's3cret');
+    await userEvent.click(screen.getByRole('button', { name: 'Save' }));
+  };
+  const withKeep = (keep: (conn: string, s: { key: string; value: string }[]) => Promise<void>) => (
+    <TooltipProvider>
+      <ToastProvider>
+        <App keep={keep} />
+      </ToastProvider>
+    </TooltipProvider>
+  );
+  it('the token goes to keep(), never into the saved connection', async () => {
+    const keep = vi.fn().mockResolvedValue(undefined);
+    render(withKeep(keep));
+    await fill();
+    await screen.findByRole('heading', { level: 1, name: 'Connections' });
+    expect(keep).toHaveBeenCalledWith('payments-prod', [
+      { key: expect.stringMatching(/\/login$/), value: 's3cret' },
+    ]);
+  });
+  it('a refused keychain shows CONN-KEYCHAIN over the form, which keeps what was typed; Try again saves', async () => {
+    const keep = vi
+      .fn()
+      .mockRejectedValueOnce(new AppError('CONN-KEYCHAIN', { conn: 'payments-prod' }))
+      .mockResolvedValueOnce(undefined);
+    render(withKeep(keep));
+    await fill();
+    const dlg = await screen.findByRole('dialog');
+    expect(dlg.textContent).toContain(
+      'Stream Lab could not read the saved secret for payments-prod from the keychain',
+    );
+    expect((screen.getByLabelText(/^Name/) as HTMLInputElement).value).toBe('payments-prod');
+    await userEvent.click(within(dlg).getByRole('button', { name: 'Try again' }));
+    await screen.findByRole('heading', { level: 1, name: 'Connections' });
+    expect(keep).toHaveBeenCalledTimes(2);
   });
 });

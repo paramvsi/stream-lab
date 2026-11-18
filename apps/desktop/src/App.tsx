@@ -1,4 +1,4 @@
-import { AppError, present } from '@sl/errors';
+import { AppError, ErrorDialog, present } from '@sl/errors';
 import {
   jobBucket,
   listJobs,
@@ -47,14 +47,19 @@ type Screen =
 export function App({
   transport,
   test,
+  keep,
 }: {
   transport?: (c: Connection) => FlinkHttp;
   /** Test connection before saving: the transport with the secret typed in the form (not yet in the keychain). */
   test?: (c: Connection, secret: string, more: { gateway: string; proxy: string }) => FlinkHttp;
+  /** CONN-03: put a new connection's secrets in the OS keychain; rejects with CONN-KEYCHAIN. */
+  keep?: (conn: string, secrets: { key: string; value: string }[]) => Promise<void>;
 } = {}) {
   const [screen, setScreen] = useState<Screen>({ name: 'home' });
   const [connections, setConnections] = useState<Connection[]>([]);
   const [importing, setImporting] = useState(false);
+  // A save whose secrets the keychain refused: the form stays (nothing typed is lost) and the dialog says so.
+  const [keepFailed, setKeepFailed] = useState<{ error: AppError; retry: () => void } | null>(null);
   const [fleetCache] = useState(() => new Map<string, CardState>());
   // JOB-06: one history store for the app's life (SQLite with the Rust side).
   const [history] = useState(memoryHistory);
@@ -283,10 +288,27 @@ export function App({
           taken={connections.map((c) => c.name)}
           {...(test ? { test } : {})}
           onCancel={() => setScreen({ name: 'kind', kind: screen.kind })}
-          onSave={({ connection }) => {
-            setConnections((cs) => [...cs, connection]);
-            toast({ severity: 'success', message: `Saved ${connection.name}.` });
-            setScreen({ name: 'home' });
+          onSave={({ connection, secrets }) => {
+            const done = () => {
+              setConnections((cs) => [...cs, connection]);
+              toast({ severity: 'success', message: `Saved ${connection.name}.` });
+              setScreen({ name: 'home' });
+            };
+            if (!keep || !secrets.length) return done();
+            const attempt = () =>
+              keep(connection.name, secrets).then(
+                () => {
+                  setKeepFailed(null);
+                  done();
+                },
+                (e: unknown) =>
+                  setKeepFailed({
+                    error:
+                      e instanceof AppError ? e : new AppError('CONN-KEYCHAIN', { conn: connection.name }, e),
+                    retry: attempt,
+                  }),
+              );
+            void attempt();
           }}
         />
       );
@@ -437,6 +459,15 @@ export function App({
         />
       )}
       {sheet && !inSteps && <ShortcutsSheet onClose={() => setSheet(false)} />}
+      {keepFailed && (
+        <ErrorDialog
+          error={keepFailed.error}
+          open
+          onOpenChange={(o) => !o && setKeepFailed(null)}
+          // Try again: the same secrets once more. Enter secret: back to the form, as typed.
+          onAction={(l) => (l === 'Try again' ? keepFailed.retry() : setKeepFailed(null))}
+        />
+      )}
     </>
   );
 }

@@ -133,15 +133,19 @@ export const lastCompleted = (s: FlinkCheckpointStats): FlinkCheckpoint | null =
 export function savepointProgress(
   s: FlinkCheckpointStats,
   since: number,
-): { bytes: number | undefined; acked: number; total: number } | null {
+): { bytes: number | undefined; acked: number; total: number; pct: number } | null {
   const sp = s.history
     .filter((c) => c.is_savepoint && c.status === 'IN_PROGRESS' && c.trigger_timestamp >= since - 60_000)
     .sort((a, b) => b.trigger_timestamp - a.trigger_timestamp)[0];
   if (!sp || sp.num_subtasks <= 0) return null;
   const b = sp.checkpointed_size ?? sp.state_size;
+  const acked = sp.num_acknowledged_subtasks;
+  const total = sp.num_subtasks;
+  // Rounded down: 399 of 400 is 99%, never 100% while it still runs.
   return {
     bytes: b !== undefined && b > 0 ? b : undefined,
-    acked: sp.num_acknowledged_subtasks,
-    total: sp.num_subtasks,
+    acked,
+    total,
+    pct: Math.floor((acked / total) * 100),
   };
 }

@@ -265,11 +265,12 @@ async fn flink_request(
             .ok_or_else(|| Failure::new("keychain", &host))
     };
 
-    // Redirects only within the same host: reqwest keeps custom headers (secret ones too) across hosts. The 3xx to
-    // another host goes back as it is; testConnection reads it as CONN-SSO-REDIRECT.
-    let same_host = host.clone();
+    // Redirects only within the same origin (scheme, host and port): reqwest keeps custom headers (secret ones too)
+    // across them, and Authorization across a scheme change. A 3xx elsewhere goes back as it is; testConnection reads
+    // one to another host as CONN-SSO-REDIRECT.
+    let origin = parsed.origin();
     let policy = reqwest::redirect::Policy::custom(move |a| {
-        if a.previous().len() >= 10 || a.url().host_str() != Some(same_host.as_str()) {
+        if a.previous().len() >= 10 || a.url().origin() != origin {
             a.stop()
         } else {
             a.follow()
@@ -283,7 +284,8 @@ async fn flink_request(
         let mut px =
             reqwest::Proxy::all(p).map_err(|_| Failure::io(&host, "invalid proxy address"))?;
         if let Some(u) = user {
-            let pw = need("proxy")?;
+            // The proxy's password may be empty (the form does not require one): no entry is an empty one.
+            let pw = secret("proxy").map_err(keychain)?.unwrap_or_default();
             px = px.basic_auth(u, &pw);
         }
         proxy_url = Some(p.clone());
@@ -450,6 +452,30 @@ mod tests {
         .unwrap();
         assert_eq!(r.status, 302);
         assert!(t.join().unwrap().contains("x-api-key: typed"));
+    }
+
+    #[test]
+    fn a_redirect_to_the_same_host_on_another_port_is_not_followed() {
+        let (port, t) = serve(Some(
+            "HTTP/1.1 302 Found\r\nLocation: http://127.0.0.1:9/config\r\nContent-Length: 0\r\n\r\n",
+        ));
+        let r = get(conn(port, r#""headers":[]"#)).unwrap();
+        assert_eq!(r.status, 302);
+        t.join().unwrap();
+    }
+
+    #[test]
+    fn a_proxy_user_with_no_password_is_sent_through_the_proxy() {
+        // The one-shot server stands in for the proxy (a plain-http target goes in absolute form).
+        let (port, t) = serve(Some("HTTP/1.1 200 OK\r\nContent-Length: 0\r\n\r\n"));
+        let c: Conn = serde_json::from_str(&format!(
+            r#"{{"id":"px-{port}","url":"http://flink.invalid:8081","basePath":"","auth":{{"type":"none"}},
+              "headers":[],"transport":{{"type":"proxy","url":"http://127.0.0.1:{port}","user":"alice"}},
+              "timeoutMs":1000}}"#
+        ))
+        .unwrap();
+        assert_eq!(get(c).unwrap().status, 200);
+        assert!(t.join().unwrap().contains("proxy-authorization: basic"));
     }
 
     #[test]

@@ -1182,3 +1182,34 @@ describe('APP-STORE-FAILED / saved connections (CONN-08 kept on this computer)',
     expect(save).toHaveBeenCalledTimes(2);
   });
 });
+
+describe('audit of b8e3cf4 #5', () => {
+  it('a newer Save while the keychain is busy is not dropped: what was typed last is saved, once', async () => {
+    const finish: (() => void)[] = [];
+    const keep = vi.fn().mockImplementation(() => new Promise<void>((r) => finish.push(r)));
+    render(
+      <TooltipProvider>
+        <ToastProvider>
+          <App keep={keep} />
+        </ToastProvider>
+      </TooltipProvider>,
+    );
+    await userEvent.click(screen.getByRole('button', { name: 'Add a connection' }));
+    await userEvent.click(screen.getByRole('radio', { name: /Self-managed/ }));
+    await userEvent.click(screen.getByRole('button', { name: 'Continue' }));
+    await userEvent.type(screen.getByLabelText(/^Name/), 'payments-prod');
+    await userEvent.selectOptions(screen.getByLabelText(/^Environment/), 'dev');
+    await userEvent.type(screen.getByLabelText(/JobManager REST URL/), 'https://pay:8081');
+    await userEvent.selectOptions(screen.getByLabelText('Login method'), 'bearer');
+    await userEvent.type(screen.getByLabelText(/^Token/), 's3cret');
+    await userEvent.click(screen.getByRole('button', { name: 'Save' }));
+    await userEvent.type(screen.getByLabelText(/^Name/), '-eu');
+    await userEvent.click(screen.getByRole('button', { name: 'Save' }));
+    finish[0]!();
+    await vi.waitFor(() => expect(keep).toHaveBeenCalledTimes(2));
+    finish[1]!();
+    await screen.findByRole('heading', { level: 1, name: 'Connections' });
+    expect(screen.getByText('payments-prod-eu')).toBeTruthy();
+    expect(screen.queryByText('payments-prod')).toBeNull();
+  });
+});

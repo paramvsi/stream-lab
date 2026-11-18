@@ -133,16 +133,26 @@ describe('D15b savepointProgress', () => {
     history,
   });
   it('the running savepoint: bytes written and subtasks acknowledged', () => {
-    expect(savepointProgress(stats([cp({})]), 1_000_000)).toEqual({ bytes: 146_800_640, acked: 3, total: 4 });
+    expect(savepointProgress(stats([cp({})]), 1_000_000)).toEqual({
+      bytes: 146_800_640,
+      acked: 3,
+      total: 4,
+      pct: 75,
+    });
   });
   it('a running checkpoint, a finished savepoint or an older one is not ours', () => {
     expect(savepointProgress(stats([cp({ is_savepoint: false })]), 1_000_000)).toBeNull();
     expect(savepointProgress(stats([cp({ status: 'COMPLETED' })]), 1_000_000)).toBeNull();
     expect(savepointProgress(stats([cp({ trigger_timestamp: 900_000 })]), 1_000_000)).toBeNull();
   });
+  it('399 of 400 is 99%, never 100% while it runs', () => {
+    expect(
+      savepointProgress(stats([cp({ num_subtasks: 400, num_acknowledged_subtasks: 399 })]), 1_000_000)?.pct,
+    ).toBe(99);
+  });
   it('no acknowledgement yet: size unknown (-1 or 0), not "0 B"', () => {
     expect(
       savepointProgress(stats([cp({ checkpointed_size: -1, num_acknowledged_subtasks: 0 })]), 1_000_000),
-    ).toEqual({ bytes: undefined, acked: 0, total: 4 });
+    ).toEqual({ bytes: undefined, acked: 0, total: 4, pct: 0 });
   });
 });

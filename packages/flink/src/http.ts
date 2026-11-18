@@ -75,7 +75,12 @@ export function fromTransport(f: TransportFailure, cause?: unknown): AppError {
     case 'tls_changed':
       return new AppError('CONN-CERT-CHANGED', { host }, cause);
     case 'proxy':
-      return new AppError('CONN-PROXY', { proxy: f.proxy ?? '', status: f.status ?? '' }, cause);
+      // A CONNECT refusal carries no status in hyper-util's error (only a 407 is told apart): never "()".
+      return new AppError(
+        'CONN-PROXY',
+        { proxy: f.proxy ?? '', status: f.status ?? 'no status given' },
+        cause,
+      );
     case 'ssh_auth':
       return new AppError('CONN-SSH-AUTH', { user: f.user ?? '', bastion: f.bastion ?? host }, cause);
     case 'ssh_host_key':

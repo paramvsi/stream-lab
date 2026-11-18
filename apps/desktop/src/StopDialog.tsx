@@ -336,10 +336,7 @@ export function StopDialog({
           <p className="m-0 text-[14px]">Writing savepoint…</p>
           {progress ? (
             <div aria-hidden="true" className="mt-3 h-2 w-full overflow-hidden rounded-full bg-subtle">
-              <div
-                className="h-full rounded-full bg-rose-600"
-                style={{ width: `${Math.round((progress.acked / progress.total) * 100)}%` }}
-              />
+              <div className="h-full rounded-full bg-rose-600" style={{ width: `${progress.pct}%` }} />
             </div>
           ) : (
             <Skeleton className="mt-3 h-2 w-full" />
@@ -349,8 +346,7 @@ export function StopDialog({
         {progress && (
           <p className="m-0 text-[14px] text-muted">
             {progress.bytes !== undefined && `${size(progress.bytes)} written · `}
-            {progress.acked} of {progress.total} subtasks (
-            {Math.round((progress.acked / progress.total) * 100)}
+            {progress.acked} of {progress.total} subtasks ({progress.pct}
             %)
           </p>
         )}

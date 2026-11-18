@@ -23,8 +23,8 @@ enum Auth {
 #[derive(Deserialize)]
 struct Header {
     name: String,
+    /// None when the value is in the keychain (the `secret` flag is JS's: splitSecrets already acted on it).
     value: Option<String>,
-    secret: bool,
 }
 
 #[derive(Deserialize)]
@@ -53,6 +53,8 @@ pub struct Conn {
     headers: Vec<Header>,
     transport: Transport,
     gateway: Option<Gateway>,
+    /// The connection's own timeout (CONN-04): used when a request names none (Test connection).
+    timeout_ms: u64,
 }
 
 #[derive(Deserialize)]
@@ -152,8 +154,10 @@ fn classify(
             ..Failure::new("timeout", host)
         };
     }
+    // The causes only: reqwest's own text adds "for url (…)", and words in the address (a YARN "/proxy/" base
+    // path, a host called flink-tls) must not decide the kind.
     let mut chain = String::new();
-    let mut src: Option<&dyn std::error::Error> = Some(e);
+    let mut src: Option<&dyn std::error::Error> = std::error::Error::source(e);
     while let Some(s) = src {
         chain.push_str(&s.to_string().to_lowercase());
         chain.push(' ');
@@ -163,12 +167,12 @@ fn classify(
 }
 
 fn kind_of(chain: &str, host: &str, port: Option<u16>, proxy: Option<&str>) -> Failure {
+    // hyper-util's CONNECT errors: "tunnel error: proxy authorization required" (a 407), "…: unsuccessful".
     if let Some(p) = proxy {
-        if chain.contains("407") || chain.contains("tunnel") || chain.contains("proxy") {
-            let status = ["407", "403", "502", "503"]
-                .iter()
-                .find(|s| chain.contains(*s))
-                .and_then(|s| s.parse().ok());
+        if chain.contains("tunnel error") || chain.contains("proxy authorization") {
+            let status = chain
+                .contains("proxy authorization required")
+                .then_some(407);
             return Failure {
                 proxy: Some(p.into()),
                 status,
@@ -251,17 +255,35 @@ async fn flink_request(
         },
         &req.path,
     );
-    let timeout_ms = req.timeout_ms.unwrap_or(10_000);
-    // CONN-KEYCHAIN in JS: the platform's text is not passed on (it can name the entry).
+    let timeout_ms = req.timeout_ms.unwrap_or(conn.timeout_ms);
+    // CONN-KEYCHAIN in JS: the platform's text is not passed on (it can name the entry). A secret the connection
+    // needs and the keychain no longer has (wiped, another computer) is the same: never sent empty.
     let keychain = |_: keyring::Error| Failure::new("keychain", &host);
+    let need = |part: &str| -> Result<String, Failure> {
+        secret(part)
+            .map_err(keychain)?
+            .ok_or_else(|| Failure::new("keychain", &host))
+    };
 
-    let mut b = reqwest::Client::builder().timeout(Duration::from_millis(timeout_ms));
+    // Redirects only within the same host: reqwest keeps custom headers (secret ones too) across hosts. The 3xx to
+    // another host goes back as it is; testConnection reads it as CONN-SSO-REDIRECT.
+    let same_host = host.clone();
+    let policy = reqwest::redirect::Policy::custom(move |a| {
+        if a.previous().len() >= 10 || a.url().host_str() != Some(same_host.as_str()) {
+            a.stop()
+        } else {
+            a.follow()
+        }
+    });
+    let mut b = reqwest::Client::builder()
+        .timeout(Duration::from_millis(timeout_ms))
+        .redirect(policy);
     let mut proxy_url = None;
     if let Transport::Proxy { url: p, user } = &conn.transport {
         let mut px =
             reqwest::Proxy::all(p).map_err(|_| Failure::io(&host, "invalid proxy address"))?;
         if let Some(u) = user {
-            let pw = secret("proxy").map_err(keychain)?.unwrap_or_default();
+            let pw = need("proxy")?;
             px = px.basic_auth(u, &pw);
         }
         proxy_url = Some(p.clone());
@@ -293,12 +315,12 @@ async fn flink_request(
     match auth {
         Auth::None => {}
         Auth::Basic { user } => {
-            let pw = secret(part).map_err(keychain)?.unwrap_or_default();
+            let pw = need(part)?;
             let raw = base64::engine::general_purpose::STANDARD.encode(format!("{user}:{pw}"));
             rb = rb.header("Authorization", format!("Basic {raw}"));
         }
         Auth::Bearer => {
-            let t = secret(part).map_err(keychain)?.unwrap_or_default();
+            let t = need(part)?;
             rb = rb.header("Authorization", format!("Bearer {t}"));
         }
         Auth::TokenCommand | Auth::Mtls => {
@@ -306,14 +328,13 @@ async fn flink_request(
         }
     }
     for h in &conn.headers {
-        let v = if h.secret || h.value.is_none() {
-            secret(&format!("header:{}", h.name.trim().to_lowercase())).map_err(keychain)?
-        } else {
-            h.value.clone()
+        // A saved connection has no value on a secret header (splitSecrets): the keychain's. A draft under Test
+        // still carries what was typed: that.
+        let v = match &h.value {
+            Some(v) => v.clone(),
+            None => need(&format!("header:{}", h.name.trim().to_lowercase()))?,
         };
-        if let Some(v) = v {
-            rb = rb.header(h.name.trim(), v);
-        }
+        rb = rb.header(h.name.trim(), v);
     }
 
     let r = rb
@@ -321,6 +342,16 @@ async fn flink_request(
         .await
         .map_err(|e| classify(&e, &host, port, timeout_ms / 1000, proxy_url.as_deref()))?;
     let status = r.status().as_u16();
+    // A plain-http target's proxy answers 407 itself (an https one fails the CONNECT above): CONN-PROXY too.
+    if status == 407 {
+        if let Some(p) = proxy_url {
+            return Err(Failure {
+                proxy: Some(p),
+                status: Some(407),
+                ..Failure::new("proxy", &host)
+            });
+        }
+    }
     let final_url = r.url().to_string();
     let headers = r
         .headers()
@@ -374,6 +405,69 @@ pub fn run() {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::io::{Read, Write};
+    use std::net::TcpListener;
+
+    /// A one-request HTTP server on 127.0.0.1: answers with `reply` (None: never answers) and returns what it got.
+    fn serve(reply: Option<&'static str>) -> (u16, std::thread::JoinHandle<String>) {
+        let l = TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = l.local_addr().unwrap().port();
+        let t = std::thread::spawn(move || {
+            let (mut s, _) = l.accept().unwrap();
+            let mut buf = [0u8; 4096];
+            let n = s.read(&mut buf).unwrap_or(0);
+            match reply {
+                Some(r) => s.write_all(r.as_bytes()).unwrap(),
+                None => std::thread::sleep(Duration::from_secs(3)),
+            }
+            String::from_utf8_lossy(&buf[..n]).to_lowercase()
+        });
+        (port, t)
+    }
+    fn conn(port: u16, extra: &str) -> Conn {
+        serde_json::from_str(&format!(
+            r#"{{"id":"t-{port}","url":"http://127.0.0.1:{port}","basePath":"","auth":{{"type":"none"}},
+              "transport":{{"type":"direct"}},"timeoutMs":1000,{extra}}}"#
+        ))
+        .unwrap()
+    }
+    fn get(c: Conn) -> Result<Resp, Failure> {
+        let req: Req = serde_json::from_str(r#"{"method":"GET","path":"/config"}"#).unwrap();
+        tauri::async_runtime::block_on(flink_request(c, req, None))
+    }
+
+    #[test]
+    fn a_redirect_to_another_host_comes_back_and_typed_headers_are_sent() {
+        let (port, t) = serve(Some(
+            "HTTP/1.1 302 Found\r\nLocation: https://sso.idp.example/login\r\nContent-Length: 0\r\n\r\n",
+        ));
+        let r = get(conn(
+            port,
+            r#""headers":[{"name":"X-Api-Key","value":"typed","secret":true}]"#,
+        ))
+        .unwrap();
+        assert_eq!(r.status, 302);
+        assert!(t.join().unwrap().contains("x-api-key: typed"));
+    }
+
+    #[test]
+    fn no_timeout_on_the_request_uses_the_connections() {
+        let (port, _t) = serve(None);
+        let f = get(conn(port, r#""headers":[]"#)).err().unwrap();
+        assert_eq!((f.kind, f.timeout_s), ("timeout", Some(1)));
+    }
+
+    #[test]
+    fn a_secret_the_keychain_does_not_have_is_conn_keychain_never_sent_empty() {
+        let (port, _t) = serve(Some("HTTP/1.1 200 OK\r\nContent-Length: 0\r\n\r\n"));
+        let f = get(conn(
+            port,
+            r#""headers":[{"name":"X-Api-Key","secret":true}]"#,
+        ))
+        .err()
+        .unwrap();
+        assert_eq!(f.kind, "keychain");
+    }
 
     #[test]
     fn join_has_one_slash_at_each_seam() {
@@ -415,7 +509,7 @@ mod tests {
         );
         assert_eq!(k("connection reset by peer", None), "io");
         assert_eq!(
-            k("unsuccessful tunnel 407", Some("http://px:3128")),
+            k("tunnel error: unsuccessful", Some("http://px:3128")),
             "proxy"
         );
         // Without a proxy, a "proxy" word in a message is not a proxy failure.
@@ -424,8 +518,21 @@ mod tests {
 
     #[test]
     fn proxy_failure_carries_its_status() {
-        let f = kind_of("unsuccessful tunnel 407", "h", None, Some("http://px:3128"));
+        let f = kind_of(
+            "tunnel error: proxy authorization required",
+            "h",
+            None,
+            Some("http://px:3128"),
+        );
         assert_eq!(f.status, Some(407));
+        // Digits elsewhere are not a status.
+        let g = kind_of(
+            "tunnel error: unsuccessful",
+            "h",
+            None,
+            Some("http://px:3128"),
+        );
+        assert_eq!(g.status, None);
         assert_eq!(f.proxy.as_deref(), Some("http://px:3128"));
     }
 

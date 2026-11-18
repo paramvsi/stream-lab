@@ -60,6 +60,8 @@ export function App({
   const [importing, setImporting] = useState(false);
   // A save whose secrets the keychain refused: the form stays (nothing typed is lost) and the dialog says so.
   const [keepFailed, setKeepFailed] = useState<{ error: AppError; retry: () => void } | null>(null);
+  // One keychain write at a time: a second Save or Try again while one runs would add the connection twice.
+  const saving = useRef(false);
   const [fleetCache] = useState(() => new Map<string, CardState>());
   // JOB-06: one history store for the app's life (SQLite with the Rust side).
   const [history] = useState(memoryHistory);
@@ -295,19 +297,26 @@ export function App({
               setScreen({ name: 'home' });
             };
             if (!keep || !secrets.length) return done();
-            const attempt = () =>
-              keep(connection.name, secrets).then(
-                () => {
-                  setKeepFailed(null);
-                  done();
-                },
-                (e: unknown) =>
-                  setKeepFailed({
-                    error:
-                      e instanceof AppError ? e : new AppError('CONN-KEYCHAIN', { conn: connection.name }, e),
-                    retry: attempt,
-                  }),
-              );
+            const attempt = () => {
+              if (saving.current) return;
+              saving.current = true;
+              return keep(connection.name, secrets)
+                .finally(() => (saving.current = false))
+                .then(
+                  () => {
+                    setKeepFailed(null);
+                    done();
+                  },
+                  (e: unknown) =>
+                    setKeepFailed({
+                      error:
+                        e instanceof AppError
+                          ? e
+                          : new AppError('CONN-KEYCHAIN', { conn: connection.name }, e),
+                      retry: attempt,
+                    }),
+                );
+            };
             void attempt();
           }}
         />

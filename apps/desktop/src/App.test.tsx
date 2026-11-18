@@ -1090,3 +1090,36 @@ describe('CONN-03 / CONN-KEYCHAIN: saving a connection puts its secret in the ke
     expect(keep).toHaveBeenCalledTimes(2);
   });
 });
+
+describe('audit of ccb989d #7', () => {
+  it('Try again twice while the keychain is busy saves the connection once', async () => {
+    let finish: () => void = () => {};
+    const keep = vi
+      .fn()
+      .mockRejectedValueOnce(new AppError('CONN-KEYCHAIN', { conn: 'payments-prod' }))
+      .mockImplementation(() => new Promise<void>((r) => (finish = r)));
+    render(
+      <TooltipProvider>
+        <ToastProvider>
+          <App keep={keep} />
+        </ToastProvider>
+      </TooltipProvider>,
+    );
+    await userEvent.click(screen.getByRole('button', { name: 'Add a connection' }));
+    await userEvent.click(screen.getByRole('radio', { name: /Self-managed/ }));
+    await userEvent.click(screen.getByRole('button', { name: 'Continue' }));
+    await userEvent.type(screen.getByLabelText(/^Name/), 'payments-prod');
+    await userEvent.selectOptions(screen.getByLabelText(/^Environment/), 'dev');
+    await userEvent.type(screen.getByLabelText(/JobManager REST URL/), 'https://pay:8081');
+    await userEvent.selectOptions(screen.getByLabelText('Login method'), 'bearer');
+    await userEvent.type(screen.getByLabelText(/^Token/), 's3cret');
+    await userEvent.click(screen.getByRole('button', { name: 'Save' }));
+    const dlg = await screen.findByRole('dialog');
+    await userEvent.click(within(dlg).getByRole('button', { name: 'Try again' }));
+    await userEvent.click(within(dlg).getByRole('button', { name: 'Try again' }));
+    finish();
+    await screen.findByRole('heading', { level: 1, name: 'Connections' });
+    expect(keep).toHaveBeenCalledTimes(2);
+    expect(screen.getAllByText('payments-prod')).toHaveLength(1);
+  });
+});

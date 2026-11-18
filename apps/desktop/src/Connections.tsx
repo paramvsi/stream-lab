@@ -49,8 +49,11 @@ export function Connections({
   onFleet,
   onImport,
   onRemove,
+  kept = false,
 }: {
   connections: Connection[];
+  /** Saved on this computer (the shell's store and keychain); else this session only. */
+  kept?: boolean;
   onAdd: () => void;
   /** Back to the fleet, when the app has one (a transport). */
   onFleet?: () => void;
@@ -72,9 +75,11 @@ export function Connections({
           <h1 ref={h1} tabIndex={-1} className="m-0 text-[26px] font-semibold outline-none">
             Connections
           </h1>
-          {/* Not the board's "Saved on this computer": until the storage and keychain land, that would be false. */}
+          {/* The board's "Saved on this computer" only when it is true (in the shell, with its store). */}
           <p className="m-0 text-[14px] text-muted">
-            Kept for this session only: saving connections and secrets on this computer is not built yet.
+            {kept
+              ? 'Saved on this computer'
+              : 'Kept for this session only: saving connections and secrets on this computer is not built yet.'}
           </p>
         </div>
         <div className="flex gap-3">

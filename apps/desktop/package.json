@@ -19,6 +19,7 @@
     "@sl/flink": "workspace:*",
     "@sl/ui": "workspace:*",
     "@tauri-apps/api": "^2.12.5",
+    "@tauri-apps/plugin-store": "^2.5.1",
     "lucide-react": "^1.73.0",
     "react": "^19.3.1",
     "react-dom": "^19.3.1"

@@ -4,7 +4,11 @@ import { ToastProvider, TooltipProvider } from '@sl/ui';
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { App } from './App';
+import { tauriSaved } from './saved';
 import { inTauri, saveSecrets, tauriHttp } from './tauri';
+
+// One store for the app's life (a new object each render would read the file again).
+const saved = tauriSaved();
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
@@ -21,6 +25,7 @@ createRoot(document.getElementById('root')!).render(
               )
             }
             keep={saveSecrets}
+            saved={saved}
           />
         ) : (
           <App />

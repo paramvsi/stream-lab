@@ -1,4 +1,4 @@
-import { AppError, ErrorDialog, present } from '@sl/errors';
+import { AppError, ErrorBanner, ErrorDialog, present } from '@sl/errors';
 import {
   jobBucket,
   listJobs,
@@ -24,6 +24,7 @@ import { gateFor } from './usePolled';
 import { AllJobs } from './AllJobs';
 import { Settings } from './Settings';
 import { Welcome } from './Welcome';
+import type { Saved } from './saved';
 
 /**
  * The desktop app (M6). The same React code Tauri wraps (its devUrl); it reaches clusters only through the Rust
@@ -48,15 +49,51 @@ export function App({
   transport,
   test,
   keep,
+  saved,
 }: {
   transport?: (c: Connection) => FlinkHttp;
   /** Test connection before saving: the transport with the secret typed in the form (not yet in the keychain). */
   test?: (c: Connection, secret: string, more: { gateway: string; proxy: string }) => FlinkHttp;
   /** CONN-03: put a new connection's secrets in the OS keychain; rejects with CONN-KEYCHAIN. */
   keep?: (conn: string, secrets: { key: string; value: string }[]) => Promise<void>;
+  /** The connections kept on this computer (the Tauri store); none: this session only. */
+  saved?: Saved;
 } = {}) {
   const [screen, setScreen] = useState<Screen>({ name: 'home' });
   const [connections, setConnections] = useState<Connection[]>([]);
+  // Saved connections: read once; written on every change after a read that worked (never over a file that could
+  // not be read). A failure is APP-STORE-FAILED, with Try again.
+  const [storeError, setStoreError] = useState<AppError | null>(null);
+  const [readOk, setReadOk] = useState(false);
+  const [readTry, setReadTry] = useState(0);
+  useEffect(() => {
+    if (!saved) return;
+    let live = true;
+    saved.load().then(
+      (cs) => {
+        if (!live) return;
+        // Added while it was read: kept too.
+        setConnections((cur) => [...cs, ...cur.filter((c) => !cs.some((x) => x.id === c.id))]);
+        setStoreError(null);
+        setReadOk(true);
+      },
+      (e: unknown) =>
+        live &&
+        setStoreError(e instanceof AppError ? e : new AppError('APP-STORE-FAILED', { what: 'read' }, e)),
+    );
+    return () => {
+      live = false;
+    };
+  }, [saved, readTry]);
+  const [saveTry, setSaveTry] = useState(0);
+  useEffect(() => {
+    if (!saved || !readOk) return;
+    saved.save(connections).then(
+      () => setStoreError((e) => (e?.params.what === 'save' ? null : e)),
+      (e: unknown) =>
+        setStoreError(e instanceof AppError ? e : new AppError('APP-STORE-FAILED', { what: 'save' }, e)),
+    );
+  }, [saved, readOk, connections, saveTry]);
   const [importing, setImporting] = useState(false);
   // A save whose secrets the keychain refused: the form stays (nothing typed is lost) and the dialog says so.
   const [keepFailed, setKeepFailed] = useState<{ error: AppError; retry: () => void } | null>(null);
@@ -441,6 +478,7 @@ export function App({
       <>
         <Connections
           connections={connections}
+          kept={!!saved}
           onAdd={add}
           {...(transport ? { onFleet: () => setScreen({ name: 'home' }) } : {})}
           onImport={() => setImporting(true)}
@@ -456,6 +494,17 @@ export function App({
   })();
   return (
     <>
+      {storeError && (
+        <div className="bg-surface px-8 pt-5">
+          <ErrorBanner
+            error={storeError}
+            handles={new Set(['Try again'])}
+            onAction={() =>
+              storeError.params.what === 'read' ? setReadTry((n) => n + 1) : setSaveTry((n) => n + 1)
+            }
+          />
+        </div>
+      )}
       {view}
       {palette && !inSteps && (
         <Palette

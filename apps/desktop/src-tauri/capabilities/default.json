@@ -1,7 +1,7 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Least privilege (ARCHITECTURE.md): the app's own commands only; no http, fs or shell plugin.",
+  "description": "Least privilege (ARCHITECTURE.md): the app's own commands only; the store for saved connections; no http, fs or shell plugin.",
   "windows": ["main"],
-  "permissions": ["core:default"]
+  "permissions": ["core:default", "store:default"]
 }

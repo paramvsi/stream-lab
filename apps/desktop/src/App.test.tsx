@@ -1123,3 +1123,62 @@ describe('audit of ccb989d #7', () => {
     expect(screen.getAllByText('payments-prod')).toHaveLength(1);
   });
 });
+
+describe('APP-STORE-FAILED / saved connections (CONN-08 kept on this computer)', () => {
+  const pay = {
+    id: 'p1',
+    name: 'payments-prod',
+    url: 'https://pay:8081',
+    kind: 'standalone',
+    env: 'prod',
+    readOnly: false,
+    basePath: '',
+    auth: { type: 'none' },
+    headers: [],
+    transport: { type: 'direct' },
+    timeoutMs: 10_000,
+    pollMs: 5_000,
+  } as const;
+  const withSaved = (saved: { load: () => Promise<unknown[]>; save: (cs: unknown[]) => Promise<void> }) => (
+    <TooltipProvider>
+      <ToastProvider>
+        <App saved={saved as never} />
+      </ToastProvider>
+    </TooltipProvider>
+  );
+  it('the saved connections are there at start; a change is saved', async () => {
+    const save = vi.fn().mockResolvedValue(undefined);
+    render(withSaved({ load: async () => [pay], save }));
+    expect(await screen.findByText('payments-prod')).toBeTruthy();
+    expect(screen.getByText('Saved on this computer')).toBeTruthy();
+    await vi.waitFor(() => expect(save).toHaveBeenLastCalledWith([pay]));
+  });
+  it('a read that fails says so, never writes over the file, and Try again reads again', async () => {
+    const load = vi
+      .fn()
+      .mockRejectedValueOnce(new AppError('APP-STORE-FAILED', { what: 'read' }))
+      .mockResolvedValueOnce([pay]);
+    const save = vi.fn().mockResolvedValue(undefined);
+    render(withSaved({ load, save }));
+    expect(
+      await screen.findByText(/Stream Lab could not read your connections on this computer/),
+    ).toBeTruthy();
+    expect(save).not.toHaveBeenCalled();
+    await userEvent.click(screen.getByRole('button', { name: 'Try again' }));
+    expect(await screen.findByText('payments-prod')).toBeTruthy();
+    expect(screen.queryByText(/could not read your connections/)).toBeNull();
+  });
+  it('a save that fails says so; Try again saves again and clears it', async () => {
+    const save = vi
+      .fn()
+      .mockRejectedValueOnce(new AppError('APP-STORE-FAILED', { what: 'save' }))
+      .mockResolvedValue(undefined);
+    render(withSaved({ load: async () => [pay], save }));
+    expect(
+      await screen.findByText(/Stream Lab could not save your connections on this computer/),
+    ).toBeTruthy();
+    await userEvent.click(screen.getByRole('button', { name: 'Try again' }));
+    await vi.waitFor(() => expect(screen.queryByText(/could not save your connections/)).toBeNull());
+    expect(save).toHaveBeenCalledTimes(2);
+  });
+});

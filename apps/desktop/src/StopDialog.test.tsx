@@ -91,6 +91,44 @@ describe('ACT-01 · stop with savepoint (D15, D15b, D15c, D15d)', () => {
     expect(within(d).queryByText(/This cluster has no default savepoint folder/)).toBeNull();
   });
 
+  it('D15b (ruled): the running savepoint shows bytes written and subtasks acknowledged, outside the live region', () =>
+    run(async () => {
+      const sent = Date.now();
+      const ckpts = (acked: number, size: number) =>
+        ok(200, {
+          counts: { completed: 0, failed: 0, in_progress: 1, restored: 0, total: 1 },
+          history: [
+            {
+              id: 9,
+              status: 'IN_PROGRESS',
+              is_savepoint: true,
+              trigger_timestamp: sent + 500,
+              latest_ack_timestamp: -1,
+              end_to_end_duration: -1,
+              checkpointed_size: size,
+              num_subtasks: 4,
+              num_acknowledged_subtasks: acked,
+            },
+          ],
+        });
+      let ck = 0;
+      const http: FlinkHttp = async (r) => {
+        if (r.path === '/jobmanager/config') return cfg('s3://sp');
+        if (r.method === 'POST') return ok(202, { 'request-id': 'r1' });
+        if (r.path.endsWith('/checkpoints')) return ++ck < 2 ? ckpts(0, -1) : ckpts(3, 140 * 1024 * 1024);
+        return ok(200, { status: { id: 'IN_PROGRESS' } });
+      };
+      render(<Harness http={http} />);
+      const d = await screen.findByRole('dialog');
+      await within(d).findByDisplayValue('s3://sp');
+      await userEvent.click(within(d).getByRole('button', { name: 'Stop with savepoint' }));
+      // No acknowledgement yet: no size, never "0 B".
+      expect(await within(d).findByText('0 of 4 subtasks (0%)')).toBeInTheDocument();
+      await tick(3);
+      const line = await within(d).findByText('140 MB written · 3 of 4 subtasks (75%)');
+      expect(line.closest('[role="status"]')).toBeNull();
+    }));
+
   it("D15b → D15c: stops once (folder, drain), shows progress, then the board's toast with Copy path; focus is not lost", () =>
     run(async () => {
       const posts: FlinkRequest[] = [];
@@ -217,7 +255,7 @@ describe('ACT-01 · stop with savepoint (D15, D15b, D15c, D15d)', () => {
       const http: FlinkHttp = async (r) => {
         if (r.path === '/jobmanager/config') return cfg('s3://sp');
         if (r.method === 'POST') return ok(202, { 'request-id': 'r1' });
-        reads++;
+        if (r.path.includes('/savepoints/')) reads++; // status reads (D15b's progress reads are apart)
         return { status: 404, headers: {}, url: '', body: '' };
       };
       render(<Harness http={http} />);

@@ -122,3 +122,26 @@ export async function checkpointingOff(
 
 /** Board D08 "Last checkpoint": the latest completed one, or null when none has completed yet. */
 export const lastCompleted = (s: FlinkCheckpointStats): FlinkCheckpoint | null => s.latest?.completed ?? null;
+
+/**
+ * D15b (ruled 2026-11-18: real numbers only): the running savepoint's progress from the checkpoint history: its
+ * written size so far and subtasks acknowledged. No total size exists until it completes, so there is none here.
+ * since: when the stop was sent; a savepoint triggered a minute or more before it is someone else's.
+ * FLINK: https://nightlies.apache.org/flink/flink-docs-release-1.20/docs/ops/rest_api/#jobs-jobid-checkpoints
+ * ponytail: since − 60 s allows for clock skew between this computer and the JobManager.
+ */
+export function savepointProgress(
+  s: FlinkCheckpointStats,
+  since: number,
+): { bytes: number | undefined; acked: number; total: number } | null {
+  const sp = s.history
+    .filter((c) => c.is_savepoint && c.status === 'IN_PROGRESS' && c.trigger_timestamp >= since - 60_000)
+    .sort((a, b) => b.trigger_timestamp - a.trigger_timestamp)[0];
+  if (!sp || sp.num_subtasks <= 0) return null;
+  const b = sp.checkpointed_size ?? sp.state_size;
+  return {
+    bytes: b !== undefined && b > 0 ? b : undefined,
+    acked: sp.num_acknowledged_subtasks,
+    total: sp.num_subtasks,
+  };
+}

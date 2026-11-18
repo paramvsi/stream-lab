@@ -1,7 +1,15 @@
 import { AppError, ErrorBanner, present } from '@sl/errors';
-import { getSavepointDir, savepointStatus, stopWithSavepoint, type FlinkHttp } from '@sl/flink';
+import {
+  getCheckpoints,
+  getSavepointDir,
+  savepointProgress,
+  savepointStatus,
+  stopWithSavepoint,
+  type FlinkHttp,
+} from '@sl/flink';
 import { Button, Dialog, Field, Input, Loading, Skeleton, useToastOptional } from '@sl/ui';
 import { useEffect, useId, useRef, useState, type RefObject } from 'react';
+import { size } from './format';
 
 type Step =
   | { name: 'confirm' }
@@ -18,6 +26,8 @@ const LOST =
 /** How often a running stop is asked about: one GET each (the stop itself is never sent again); slower when a read fails. */
 const EVERY_MS = 1_000;
 const AFTER_FAIL_MS = 5_000;
+/** D15b's progress line: read from the checkpoint history while the dialog is open. */
+const PROGRESS_MS = 2_000;
 /** SP-TIMEOUT (catalog): a savepoint still IN_PROGRESS after 10 min says so. */
 export const SP_TIMEOUT_MS = 10 * 60_000;
 
@@ -31,7 +41,8 @@ const asAppError = (e: unknown, conn: string) =>
  * retried; while it is sent the dialog can not be closed; a refusal says why and stays on confirm. Closed while it
  * runs, the stop goes on and its result comes as a toast. Each opening starts at the question (a stop that is
  * still running shows its progress).
- * ponytail: D15b's bytes / % and per-operator progress (a ruling on their meaning: MORNING); after a timed-out
+ * D15b's progress (ruled: real numbers only): bytes written so far and subtasks acknowledged, no total size.
+ * ponytail: per-operator progress ("Waiting for Window aggregate") needs /checkpoints/details; after a timed-out
  * POST the job's state should be read before anything else is offered.
  */
 export function StopDialog({
@@ -177,6 +188,34 @@ export function StopDialog({
     return () => clearInterval(t);
   }, [step.name, slow]);
 
+  // D15b: while it runs and is in view, how far the savepoint has got. A failed read keeps the line as it was (the
+  // status reads above say what is wrong; this one only decorates), and asks again.
+  const [progress, setProgress] = useState<ReturnType<typeof savepointProgress>>(null);
+  const [progressFor, setProgressFor] = useState(step.name);
+  if (progressFor !== step.name) {
+    setProgressFor(step.name);
+    setProgress(null);
+  }
+  useEffect(() => {
+    if (step.name !== 'running' || !open || started === null) return;
+    let live = true;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const read = () =>
+      getCheckpoints(http, conn, jid)
+        .then(
+          (st) => live && setProgress(savepointProgress(st, started)),
+          () => undefined, // decoration only: the status poll reports a cluster that does not answer
+        )
+        .finally(() => {
+          if (live) timer = setTimeout(read, PROGRESS_MS);
+        });
+    void read();
+    return () => {
+      live = false;
+      clearTimeout(timer);
+    };
+  }, [step.name, open, started, http, conn, jid]);
+
   // A running stop: one status read at a time until it is done, open or not (closed: the result is a toast).
   useEffect(() => {
     if (step.name !== 'running' || !rid) return;
@@ -295,8 +334,26 @@ export function StopDialog({
         )}
         <Loading label="Writing savepoint">
           <p className="m-0 text-[14px]">Writing savepoint…</p>
-          <Skeleton className="mt-3 h-2 w-full" />
+          {progress ? (
+            <div aria-hidden="true" className="mt-3 h-2 w-full overflow-hidden rounded-full bg-subtle">
+              <div
+                className="h-full rounded-full bg-rose-600"
+                style={{ width: `${Math.round((progress.acked / progress.total) * 100)}%` }}
+              />
+            </div>
+          ) : (
+            <Skeleton className="mt-3 h-2 w-full" />
+          )}
         </Loading>
+        {/* Not in the live region: it changes every 2 s. Read on demand. */}
+        {progress && (
+          <p className="m-0 text-[14px] text-muted">
+            {progress.bytes !== undefined && `${size(progress.bytes)} written · `}
+            {progress.acked} of {progress.total} subtasks (
+            {Math.round((progress.acked / progress.total) * 100)}
+            %)
+          </p>
+        )}
         <p ref={note} tabIndex={-1} className="sl-focus m-0 rounded-sm text-[13px] text-muted">
           You can close this; the stop goes on. Stay on this page to be told when it ends.
         </p>

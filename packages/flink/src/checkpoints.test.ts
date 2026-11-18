@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { checkpointingOff, getCheckpoints, lastCompleted } from './checkpoints';
+import {
+  checkpointingOff,
+  getCheckpoints,
+  lastCompleted,
+  savepointProgress,
+  type FlinkCheckpoint,
+  type FlinkCheckpointStats,
+} from './checkpoints';
 import type { FlinkHttp } from './http';
 
 const cp = (id: number, status: string, at: number, extra: Record<string, unknown> = {}) => ({
@@ -105,5 +112,37 @@ describe('JOB-04 · checkpoints (GET /jobs/:jid/checkpoints)', () => {
     await expect(getCheckpoints(answer({ counts: {} }), 'prod', 'x')).rejects.toMatchObject({
       code: 'API-SHAPE',
     });
+  });
+});
+
+describe('D15b savepointProgress', () => {
+  const cp = (o: Partial<FlinkCheckpoint>): FlinkCheckpoint => ({
+    id: 1,
+    status: 'IN_PROGRESS',
+    is_savepoint: true,
+    trigger_timestamp: 1_000_000,
+    latest_ack_timestamp: -1,
+    end_to_end_duration: -1,
+    checkpointed_size: 146_800_640,
+    num_subtasks: 4,
+    num_acknowledged_subtasks: 3,
+    ...o,
+  });
+  const stats = (history: FlinkCheckpoint[]): FlinkCheckpointStats => ({
+    counts: { completed: 0, failed: 0, in_progress: history.length, restored: 0, total: history.length },
+    history,
+  });
+  it('the running savepoint: bytes written and subtasks acknowledged', () => {
+    expect(savepointProgress(stats([cp({})]), 1_000_000)).toEqual({ bytes: 146_800_640, acked: 3, total: 4 });
+  });
+  it('a running checkpoint, a finished savepoint or an older one is not ours', () => {
+    expect(savepointProgress(stats([cp({ is_savepoint: false })]), 1_000_000)).toBeNull();
+    expect(savepointProgress(stats([cp({ status: 'COMPLETED' })]), 1_000_000)).toBeNull();
+    expect(savepointProgress(stats([cp({ trigger_timestamp: 900_000 })]), 1_000_000)).toBeNull();
+  });
+  it('no acknowledgement yet: size unknown (-1 or 0), not "0 B"', () => {
+    expect(
+      savepointProgress(stats([cp({ checkpointed_size: -1, num_acknowledged_subtasks: 0 })]), 1_000_000),
+    ).toEqual({ bytes: undefined, acked: 0, total: 4 });
   });
 });

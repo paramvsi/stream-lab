@@ -168,9 +168,11 @@ export function groupExceptions(entries: readonly FlinkException[]): ExceptionGr
  * X20's "Explain this" (ruled 2026-11-18: hints from the Flink docs), for the root cause's type and message. Only
  * cases with a known cause; anything else has no hint (never a guess). Sources, per hint:
  * - Kafka timeouts: board X20's own words.
- * - Expired checkpoints: a job fails once failed checkpoints pass the tolerable count (any reason, counted together),
- *   as a FlinkRuntimeException naming the latest one's reason ("…failed due to Checkpoint expired before
- *   completing."): matched by message, any class, and the hint claims only that the latest expired.
+ * - Expired checkpoints: Flink counts consecutive failed checkpoints of five reasons (IO, async, declined, expired,
+ *   finalize; others are ignored; a success resets it) and fails the job once the count passes the tolerable number
+ *   (0 by default: one is enough), as a FlinkRuntimeException naming the latest one's reason ("…failed due to
+ *   Checkpoint expired before completing."). Matched by message, any class; the hint claims only that the latest
+ *   expired and the tolerance was passed.
  *   FLINK: https://github.com/apache/flink/blob/release-1.20/flink-runtime/src/main/java/org/apache/flink/runtime/checkpoint/CheckpointFailureManager.java
  *   FLINK: https://nightlies.apache.org/flink/flink-docs-release-1.20/docs/deployment/config/#execution-checkpointing-timeout
  * - OutOfMemoryError: per kind (heap, Metaspace, direct memory), as the memory troubleshooting page.
@@ -186,7 +188,7 @@ export function exceptionHint(type: string, message: string): string | null {
   if (t === 'TimeoutException' && /kafka|topic|broker|describeTopics|metadata/i.test(`${type} ${message}`))
     return 'Repeated Kafka timeouts usually mean the brokers are unreachable from the TaskManagers, not a bug in the job.';
   if (/checkpoint expired before completing/i.test(message))
-    return 'Too many checkpoints failed in a row, and the latest one expired: it took longer than the checkpoint timeout (execution.checkpointing.timeout). Backpressure or slow state uploads are the usual cause of that: find the slow operator, or raise the timeout.';
+    return 'The latest checkpoint expired: it took longer than the checkpoint timeout (execution.checkpointing.timeout), and the job allows no more failed checkpoints than execution.checkpointing.tolerable-failed-checkpoints (0 by default). Backpressure or slow state uploads are the usual cause: find the slow operator, or raise the timeout.';
   if (t === 'OutOfMemoryError') {
     if (/metaspace/i.test(message))
       return 'The JVM Metaspace is full: often classes loaded again on every job restart. Raise taskmanager.memory.jvm-metaspace.size, or look for a library that keeps classes loaded.';

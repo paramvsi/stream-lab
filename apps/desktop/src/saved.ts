@@ -29,9 +29,13 @@ export function tauriSaved(call: Invoke = invoke): Saved {
       } catch (e) {
         throw new AppError('APP-STORE-FAILED', { what: 'read' }, e);
       }
-      // The store plugin's file (afee9d5..7375b3f) is {"connections": [...]}: read it as the list it holds.
-      if (list && typeof list === 'object' && Array.isArray((list as { connections?: unknown }).connections))
-        list = (list as { connections: unknown[] }).connections;
+      // The store plugin's file (afee9d5..7375b3f): {"connections": [...]}, or {} when nothing was ever saved (it wrote
+      // its defaults on exit). Read as the list it holds; any other object is not ours.
+      if (list && typeof list === 'object' && !Array.isArray(list)) {
+        const o = list as Record<string, unknown>;
+        if (Object.keys(o).every((k) => k === 'connections') && (o.connections ?? []) instanceof Array)
+          list = o.connections ?? [];
+      }
       if (!Array.isArray(list)) throw new AppError('APP-STORE-FAILED', { what: 'read' });
       const cs: Connection[] = [];
       kept = [];

@@ -34,6 +34,9 @@ describe('saved connections (APP-STORE-FAILED)', () => {
     await expect(tauriSaved(async () => JSON.stringify({ connections: [pay] })).load()).resolves.toEqual([
       pay,
     ]);
+    // audit D1: the plugin's empty file.
+    await expect(tauriSaved(async () => '{}').load()).resolves.toEqual([]);
+    await expect(tauriSaved(async () => '{"connections":null}').load()).resolves.toEqual([]);
   });
   it('an entry that no longer reads as a connection is kept on disk, not deleted', async () => {
     const odd = { id: 'old', name: 'from-an-older-version' };

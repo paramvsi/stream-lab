@@ -239,24 +239,34 @@ describe('JOB-08 · grouped exceptions (board X20)', () => {
 });
 
 describe('X20 exceptionHint', () => {
-  it('the common causes, from the Flink docs; anything else none', () => {
+  const h = exceptionHint;
+  it('Kafka timeouts; other timeouts get none', () => {
     expect(
-      exceptionHint(
-        'org.apache.kafka.common.errors.TimeoutException',
-        'Timed out waiting for describeTopics',
+      h('org.apache.kafka.common.errors.TimeoutException', 'Timed out waiting for describeTopics'),
+    ).toMatch(/brokers are unreachable/);
+    expect(h('java.util.concurrent.TimeoutException', 'Heartbeat of TaskManager timed out.')).toBeNull();
+  });
+  it('audit D3: expired checkpoints as Flink 1.20 fails the job (FlinkRuntimeException, cause in the message)', () => {
+    expect(
+      h(
+        'org.apache.flink.util.FlinkRuntimeException',
+        'Exceeded checkpoint tolerable failure threshold. The latest checkpoint failed due to Checkpoint expired before completing., view the Checkpoint History tab or the Job Manager log to find out why continuous checkpoints failed.',
       ),
-    ).toMatch(/brokers are unreachable from the TaskManagers/);
-    expect(
-      exceptionHint('java.util.concurrent.TimeoutException', 'Heartbeat of TaskManager timed out.'),
-    ).toBeNull();
-    expect(
-      exceptionHint(
-        'org.apache.flink.runtime.checkpoint.CheckpointException',
-        'Checkpoint expired before completing.',
-      ),
-    ).toMatch(/checkpoint timeout/);
-    expect(exceptionHint('java.lang.NullPointerException', '')).toMatch(/job's own code/);
-    expect(exceptionHint('java.lang.OutOfMemoryError', 'Java heap space')).toMatch(/ran out of memory/);
-    expect(exceptionHint('java.io.IOException', 'Stream closed')).toBeNull();
+    ).toMatch(/execution.checkpointing.timeout/);
+  });
+  it('audit D4: each OutOfMemoryError kind its own fix; an unknown kind none', () => {
+    expect(h('java.lang.OutOfMemoryError', 'Metaspace')).toMatch(/jvm-metaspace.size/);
+    expect(h('java.lang.OutOfMemoryError', 'Direct buffer memory')).toMatch(/off-heap.size/);
+    expect(h('java.lang.OutOfMemoryError', 'Java heap space')).toMatch(/task.heap.size/);
+    expect(h('java.lang.OutOfMemoryError', 'unable to create native thread')).toBeNull();
+  });
+  it('audit D5: a class cast to itself is class loading; another cast and IllegalArgumentException get none', () => {
+    expect(h('java.lang.ClassCastException', 'com.acme.Payment cannot be cast to com.acme.Payment')).toMatch(
+      /loaded twice/,
+    );
+    expect(h('java.lang.ClassCastException', 'java.lang.String cannot be cast to java.lang.Long')).toBeNull();
+    expect(h('java.lang.IllegalArgumentException', 'parallelism must be positive')).toBeNull();
+    expect(h('java.lang.NullPointerException', '')).toMatch(/replays from the last checkpoint/);
+    expect(h('java.io.IOException', 'Stream closed')).toBeNull();
   });
 });

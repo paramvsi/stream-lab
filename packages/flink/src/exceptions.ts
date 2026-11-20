@@ -166,28 +166,39 @@ export function groupExceptions(entries: readonly FlinkException[]): ExceptionGr
 
 /**
  * X20's "Explain this" (ruled 2026-11-18: hints from the Flink docs), for the root cause's type and message. Only
- * the common cases; anything else has no hint (never a guess).
- * FLINK: https://nightlies.apache.org/flink/flink-docs-release-1.20/docs/connectors/datastream/kafka/
- * FLINK: https://nightlies.apache.org/flink/flink-docs-release-1.20/docs/ops/state/checkpoints/
- * FLINK: https://nightlies.apache.org/flink/flink-docs-release-1.20/docs/deployment/memory/mem_trouble/
- * FLINK: https://nightlies.apache.org/flink/flink-docs-release-1.20/docs/ops/state/task_failure_recovery/
+ * cases with a known cause; anything else has no hint (never a guess). Sources, per hint:
+ * - Kafka timeouts: board X20's own words.
+ * - Expired checkpoints: a job fails on them only past the tolerable failures, as a FlinkRuntimeException whose message
+ *   names the cause ("…failed due to Checkpoint expired before completing."), so the message is matched, any class.
+ *   FLINK: https://github.com/apache/flink/blob/release-1.20/flink-runtime/src/main/java/org/apache/flink/runtime/checkpoint/CheckpointFailureManager.java
+ *   FLINK: https://nightlies.apache.org/flink/flink-docs-release-1.20/docs/deployment/config/#execution-checkpointing-timeout
+ * - OutOfMemoryError: per kind (heap, Metaspace, direct memory), as the memory troubleshooting page.
+ *   FLINK: https://nightlies.apache.org/flink/flink-docs-release-1.20/docs/deployment/memory/mem_trouble/
+ * - "X cannot be cast to X": a class loaded twice.
+ *   FLINK: https://nightlies.apache.org/flink/flink-docs-release-1.20/docs/ops/debugging/debugging_classloading/
+ * - NullPointerException / NumberFormatException: from the job's code on a record; after a restart Flink replays from
+ *   the last checkpoint, so the same record comes again.
+ *   FLINK: https://nightlies.apache.org/flink/flink-docs-release-1.20/docs/learn-flink/fault_tolerance/
  */
 export function exceptionHint(type: string, message: string): string | null {
   const t = type.split('.').at(-1) ?? type;
   if (t === 'TimeoutException' && /kafka|topic|broker|describeTopics|metadata/i.test(`${type} ${message}`))
     return 'Repeated Kafka timeouts usually mean the brokers are unreachable from the TaskManagers, not a bug in the job.';
-  if (t === 'CheckpointException' && /expired/i.test(message))
-    return 'The checkpoint took longer than the checkpoint timeout. Backpressure or slow state uploads are the usual cause: find the slow operator, or raise execution.checkpointing.timeout.';
-  if (t === 'OutOfMemoryError')
-    return 'A TaskManager ran out of memory. Look for state or a window that grows without end, or give TaskManagers more memory (taskmanager.memory.process.size).';
-  if (
-    [
-      'NullPointerException',
-      'ClassCastException',
-      'NumberFormatException',
-      'IllegalArgumentException',
-    ].includes(t)
-  )
-    return "This comes from the job's own code. A restart reads the same record again and fails again: fix the code, or filter the record out.";
+  if (/checkpoint expired before completing/i.test(message))
+    return 'Checkpoints took longer than the checkpoint timeout (execution.checkpointing.timeout) and failed more often than the job allows. Backpressure or slow state uploads are the usual cause: find the slow operator, or raise the timeout.';
+  if (t === 'OutOfMemoryError') {
+    if (/metaspace/i.test(message))
+      return 'The JVM Metaspace is full: often classes loaded again on every job restart. Raise taskmanager.memory.jvm-metaspace.size, or look for a library that keeps classes loaded.';
+    if (/direct buffer memory/i.test(message))
+      return 'Direct (off-heap) memory ran out: raise taskmanager.memory.task.off-heap.size, or look for a direct-memory leak in a connector or library.';
+    if (/java heap space|gc overhead/i.test(message))
+      return 'A TaskManager ran out of heap. Look for state or a window that grows without end, or give tasks more heap (taskmanager.memory.task.heap.size).';
+    return null;
+  }
+  const cast = /^(?:class )?(\S+) cannot be cast to (?:class )?(\S+)/.exec(message);
+  if (t === 'ClassCastException' && cast && cast[1] === cast[2])
+    return "The same class was loaded twice (from the job jar and from Flink's lib folder, for example). Keep it in one place, or change the class loading order (classloader.resolve-order).";
+  if (t === 'NullPointerException' || t === 'NumberFormatException')
+    return "This comes from the job's own code, on a record. After a restart Flink replays from the last checkpoint, so the same record fails again: fix the code, or filter the record out.";
   return null;
 }

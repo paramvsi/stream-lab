@@ -1202,8 +1202,10 @@ describe('audit of e09fcb0 #1-3 (and b8e3cf4 #5, 08c0e9b #4)', () => {
     await userEvent.type(screen.getByLabelText(/JobManager REST URL/), 'https://pay:8081');
     await userEvent.selectOptions(screen.getByLabelText('Login method'), 'bearer');
     await userEvent.type(screen.getByLabelText(/^Token/), 's3cret');
-    await userEvent.click(screen.getByRole('button', { name: 'Save' }));
+    // Enter in a field submits: focus must not stay on a field about to be disabled (audit of 3c88a64, D2).
+    await userEvent.type(screen.getByLabelText(/^Name/), '{Enter}');
     const saving = await screen.findByRole('button', { name: /Saving/ });
+    expect(saving).toHaveFocus();
     expect(saving).toHaveAttribute('aria-disabled', 'true');
     expect(screen.getByRole('button', { name: 'Cancel' })).toHaveAttribute('aria-disabled', 'true');
     expect(screen.getByLabelText(/^Name/)).toBeDisabled();

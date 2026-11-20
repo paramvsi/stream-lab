@@ -191,6 +191,18 @@ describe('X20 Explain this (ruled: hints from the Flink docs)', () => {
       screen.getByText(/brokers are unreachable from the TaskManagers, not a bug in the job/),
     ).toBeInTheDocument();
   });
+  it('audit D7: the line names the group it explains, which need not be the top one', () => {
+    render(
+      <ExceptionGroups
+        entries={[
+          ex(T + 2, 'java.io.IOException: Stream closed'),
+          ex(T + 1, 'java.io.IOException: Stream closed'),
+          ex(T, 'java.lang.NullPointerException: ScoreFunction.map'),
+        ]}
+      />,
+    );
+    expect(screen.getByText('Explain this (NullPointerException):')).toBeInTheDocument();
+  });
   it('a cause with no hint says nothing (never a guess)', () => {
     render(<ExceptionGroups entries={[ex(T, 'java.io.IOException: Stream closed')]} />);
     expect(screen.queryByText(/Explain this/)).toBeNull();

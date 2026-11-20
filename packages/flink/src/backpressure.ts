@@ -60,9 +60,10 @@ export async function getBackpressure(
 }
 
 /**
- * D08f (ruled 2026-11-18: hints from the Flink docs): the likely bottleneck. Flink's guide: backpressure starts at
- * the first operator downstream of the backpressured ones that is not backpressured itself (it is busy, so its
- * inputs wait). Here: an operator reading OK whose input reads HIGH. Without a reading for either, nothing is said.
+ * D08f (ruled 2026-11-18: hints from the Flink docs): the likely bottleneck. The docs' example: a slow Sink makes
+ * the Source upstream show backpressure while the Sink itself is busy, not backpressured; so an operator that reads
+ * OK while its input reads HIGH is where the waiting starts. Without a reading for either, or with more than one
+ * such operator, the caller names none. ponytail: the busy metric (busyTimeMsPerSecond) would confirm it.
  * FLINK: https://nightlies.apache.org/flink/flink-docs-release-1.20/docs/ops/monitoring/back_pressure/
  */
 export function bottlenecks(

@@ -173,6 +173,7 @@ export function ConnectionForm({
     document.title = 'New connection · Stream Lab';
   }, []);
   const h1 = useScreenHeading();
+  const saveBtn = useRef<HTMLButtonElement>(null);
   const colorName = useId();
   const headersErr = useId();
   const keychainNote = useId();
@@ -344,6 +345,9 @@ export function ConnectionForm({
     }
     const { connection, secrets } = splitSecrets(conn);
     const key = secretKey(id, 'login');
+    // The fields lock while the keychain is written (a disabled field drops focus to the page): focus goes to Save,
+    // outside them, which also takes it back after an error dialog (audit of 3c88a64, D2).
+    saveBtn.current?.focus();
     onSave({
       connection,
       secrets: [
@@ -792,7 +796,7 @@ export function ConnectionForm({
           >
             {testing ? 'Testing…' : 'Test connection'}
           </Button>
-          <Button type="submit" variant="primary" loading={saving}>
+          <Button ref={saveBtn} type="submit" variant="primary" loading={saving}>
             {saving ? 'Saving…' : 'Save'}
           </Button>
         </div>

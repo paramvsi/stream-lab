@@ -188,7 +188,7 @@ export function exceptionHint(type: string, message: string): string | null {
   if (t === 'TimeoutException' && /kafka|topic|broker|describeTopics|metadata/i.test(`${type} ${message}`))
     return 'Repeated Kafka timeouts usually mean the brokers are unreachable from the TaskManagers, not a bug in the job.';
   if (/checkpoint expired before completing/i.test(message))
-    return 'The latest checkpoint expired: it took longer than the checkpoint timeout (execution.checkpointing.timeout), and the job allows no more failed checkpoints than execution.checkpointing.tolerable-failed-checkpoints (0 by default). Backpressure or slow state uploads are the usual cause: find the slow operator, or raise the timeout.';
+    return 'The latest checkpoint expired: it took longer than the checkpoint timeout (execution.checkpointing.timeout), and the job allows no more consecutive failed checkpoints than execution.checkpointing.tolerable-failed-checkpoints (0 by default). Backpressure or slow state uploads are the usual cause: find the slow operator, or raise the timeout.';
   if (t === 'OutOfMemoryError') {
     if (/metaspace/i.test(message))
       return 'The JVM Metaspace is full: often classes loaded again on every job restart. Raise taskmanager.memory.jvm-metaspace.size, or look for a library that keeps classes loaded.';

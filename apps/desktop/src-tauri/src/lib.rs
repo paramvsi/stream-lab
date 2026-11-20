@@ -412,7 +412,7 @@ fn connections_read(app: tauri::AppHandle) -> Result<Option<String>, String> {
     }
 }
 
-/// Written whole and atomically: a temporary file, then renamed over the old one (a crash leaves one or the other).
+/// Written whole and atomically: a temporary file, flushed, then renamed over the old one.
 #[tauri::command]
 fn connections_write(app: tauri::AppHandle, text: String) -> Result<(), String> {
     write_atomic(&connections_path(&app)?, &text).map_err(|e| e.to_string())
@@ -422,8 +422,15 @@ fn write_atomic(path: &std::path::Path, text: &str) -> std::io::Result<()> {
     if let Some(dir) = path.parent() {
         std::fs::create_dir_all(dir)?;
     }
-    let tmp = path.with_extension("json.tmp");
-    std::fs::write(&tmp, text)?;
+    // Per process (two app windows never share one), and flushed to disk before the rename: after a power cut the
+    // file is the old one or the new one, never an empty one.
+    let tmp = path.with_extension(format!("json.{}.tmp", std::process::id()));
+    {
+        use std::io::Write;
+        let mut f = std::fs::File::create(&tmp)?;
+        f.write_all(text.as_bytes())?;
+        f.sync_all()?;
+    }
     std::fs::rename(&tmp, path)
 }
 
@@ -551,7 +558,9 @@ mod tests {
         write_atomic(&p, "[1]").unwrap();
         write_atomic(&p, "[2]").unwrap();
         assert_eq!(std::fs::read_to_string(&p).unwrap(), "[2]");
-        assert!(!p.with_extension("json.tmp").exists());
+        assert!(!p
+            .with_extension(format!("json.{}.tmp", std::process::id()))
+            .exists());
         std::fs::remove_dir_all(dir).unwrap();
     }
 

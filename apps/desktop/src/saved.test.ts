@@ -28,7 +28,12 @@ describe('saved connections (APP-STORE-FAILED)', () => {
   });
   it('a file that is not JSON, or not a list, is a read failure (never read as empty)', async () => {
     expect(await code(tauriSaved(async () => '{"conn').load())).toBe('APP-STORE-FAILED:read');
-    expect(await code(tauriSaved(async () => '{"connections":[]}').load())).toBe('APP-STORE-FAILED:read');
+    expect(await code(tauriSaved(async () => '{"other":[]}').load())).toBe('APP-STORE-FAILED:read');
+  });
+  it("the store plugin's older file ({connections: [...]}) is read as its list", async () => {
+    await expect(tauriSaved(async () => JSON.stringify({ connections: [pay] })).load()).resolves.toEqual([
+      pay,
+    ]);
   });
   it('an entry that no longer reads as a connection is kept on disk, not deleted', async () => {
     const odd = { id: 'old', name: 'from-an-older-version' };

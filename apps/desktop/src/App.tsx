@@ -99,15 +99,11 @@ export function App({
   }, [saved, readOk, connections, saveTry]);
   const [importing, setImporting] = useState(false);
   // A save whose secrets the keychain refused: the form stays (nothing typed is lost) and the dialog says so.
-  const [keepFailed, setKeepFailed] = useState<{ id: string; error: AppError; retry: () => void } | null>(
-    null,
-  );
-  // One keychain write at a time. A second Try again of the same save is dropped (it would add the connection
-  // twice). A newer Save of the same connection (edited meanwhile) waits and then wins, so what was typed last is
-  // saved; a Save of another connection (Cancel, then a new form) waits and then runs too: both are kept.
-  type Run = { id: string; run: () => unknown };
-  const saving = useRef<Run | null>(null);
-  const queued = useRef<Run | null>(null);
+  const [keepFailed, setKeepFailed] = useState<{ error: AppError; retry: () => void } | null>(null);
+  // One keychain write at a time: while it runs, the form's Save and Cancel are off ("Saving…"), so no second save
+  // or other form can start (a queue of them lost saves and typed work: audits of 08c0e9b, e09fcb0).
+  const [keeping, setKeeping] = useState(false);
+  const keepBusy = useRef(false);
   const [fleetCache] = useState(() => new Map<string, CardState>());
   // JOB-06: one history store for the app's life (SQLite with the Rust side).
   const [history] = useState(memoryHistory);
@@ -336,51 +332,39 @@ export function App({
           taken={connections.map((c) => c.name)}
           {...(test ? { test } : {})}
           onCancel={() => setScreen({ name: 'kind', kind: screen.kind })}
+          saving={keeping}
           onSave={({ connection, secrets }) => {
             const done = () => {
               setConnections((cs) => [...cs, connection]);
               toast({ severity: 'success', message: `Saved ${connection.name}.` });
               setScreen({ name: 'home' });
             };
-            if (!keep) return done();
-            const id = connection.id;
-            const attempt = (): unknown => {
-              if (saving.current?.run === attempt) return;
-              if (saving.current) return void (queued.current = { id, run: attempt });
-              saving.current = { id, run: attempt };
-              // The save waiting behind this one; `newer`: the same connection, so this one's outcome is skipped.
-              const next = () => {
-                saving.current = null;
-                const q = queued.current;
-                queued.current = null;
-                return { q, newer: q?.id === id };
-              };
-              // A save with no secrets still waits its turn (else it could land between and add twice).
-              return (secrets.length ? keep(connection.name, secrets) : Promise.resolve()).then(
-                () => {
-                  const { q, newer } = next();
-                  if (!newer) {
-                    setKeepFailed((k) => (k?.id === id ? null : k));
+            if (!keep || !secrets.length) return done();
+            const attempt = () => {
+              if (keepBusy.current) return; // one write at a time (the form is locked meanwhile)
+              keepBusy.current = true;
+              setKeeping(true);
+              keep(connection.name, secrets)
+                .finally(() => {
+                  keepBusy.current = false;
+                  setKeeping(false);
+                })
+                .then(
+                  () => {
+                    setKeepFailed(null);
                     done();
-                  }
-                  return q?.run();
-                },
-                (e: unknown) => {
-                  const { q, newer } = next();
-                  if (!newer)
+                  },
+                  (e: unknown) =>
                     setKeepFailed({
-                      id,
                       error:
                         e instanceof AppError
                           ? e
                           : new AppError('CONN-KEYCHAIN', { conn: connection.name }, e),
                       retry: attempt,
-                    });
-                  return q?.run();
-                },
-              );
+                    }),
+                );
             };
-            void attempt();
+            attempt();
           }}
         />
       );

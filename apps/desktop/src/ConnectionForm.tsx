@@ -156,7 +156,10 @@ export function ConnectionForm({
   onSave,
   test,
   pollMs = 5000,
+  saving = false,
 }: {
+  /** The secrets are being written to the keychain: Save and Cancel wait (the form keeps what was typed). */
+  saving?: boolean;
   kind: Connection['kind'];
   /** APP-04: the default refresh interval from Settings. */
   pollMs?: number;
@@ -331,6 +334,7 @@ export function ConnectionForm({
   const bad = all.headers && shown('headers') ? badHeader(d, c) : undefined;
   const isBad = (i: number, part: 'name' | 'value') => bad?.i === i && bad.part === part;
   const save = (over?: Partial<Draft>) => {
+    if (saving) return;
     const conn = over ? toConnection({ ...d, ...over }, id, kind) : c;
     setSubmitted(true);
     if (count) {
@@ -374,391 +378,403 @@ export function ConnectionForm({
           save();
         }}
       >
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-          <Field label="Name" required error={msg('name')}>
+        {/* Saving to the keychain: nothing can be edited meanwhile (it would be lost when the save ends). */}
+        <fieldset disabled={saving} className="m-0 flex min-w-0 flex-col gap-4 border-0 p-0">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <Field label="Name" required error={msg('name')}>
+              <Input
+                value={d.name}
+                placeholder="e.g. payments-prod"
+                onChange={(e) => set('name', e.target.value)}
+                onBlur={blur('name')}
+              />
+            </Field>
+            <Field label="Environment" required error={msg('env')}>
+              <Select
+                value={d.env}
+                onChange={(e) => set('env', e.target.value as Env | '')}
+                onBlur={blur('env')}
+              >
+                <option value="">Choose</option>
+                <option value="prod">Production</option>
+                <option value="staging">Staging</option>
+                <option value="dev">Development</option>
+                <option value="none">No tag</option>
+              </Select>
+            </Field>
+          </div>
+          <fieldset className="m-0 flex flex-col gap-2 border-0 p-0">
+            <legend className="mb-1 p-0 text-[13px] font-medium">Colour</legend>
+            <div className="flex gap-3">
+              {COLORS.map((x) => (
+                <label key={x.color} className="relative cursor-pointer">
+                  <input
+                    type="radio"
+                    name={colorName}
+                    className="peer sr-only"
+                    checked={d.color === x.color}
+                    onChange={() => set('color', x.color)}
+                  />
+                  <span className="sr-only">{x.label}</span>
+                  <span
+                    aria-hidden="true"
+                    className={`block size-7 rounded-full ${x.css} ring-offset-2 peer-checked:ring-2 peer-checked:ring-ink peer-focus-visible:ring-2 peer-focus-visible:ring-rose-600`}
+                  />
+                </label>
+              ))}
+            </div>
+          </fieldset>
+          <Field
+            label="JobManager REST URL"
+            required
+            help="The address of Flink's web UI and REST API."
+            error={msg('url')}
+          >
             <Input
-              value={d.name}
-              placeholder="e.g. payments-prod"
-              onChange={(e) => set('name', e.target.value)}
-              onBlur={blur('name')}
+              mono
+              value={d.url}
+              placeholder="https://host:8081"
+              data-field="url"
+              onChange={(e) => set('url', e.target.value)}
+              onBlur={blur('url')}
             />
           </Field>
-          <Field label="Environment" required error={msg('env')}>
-            <Select
-              value={d.env}
-              onChange={(e) => set('env', e.target.value as Env | '')}
-              onBlur={blur('env')}
-            >
-              <option value="">Choose</option>
-              <option value="prod">Production</option>
-              <option value="staging">Staging</option>
-              <option value="dev">Development</option>
-              <option value="none">No tag</option>
-            </Select>
+          <Field label="SQL Gateway URL (optional)" error={msg('gateway')}>
+            <Input
+              mono
+              value={d.gateway}
+              placeholder="https://host:8083"
+              data-field="gateway"
+              onChange={(e) => set('gateway', e.target.value)}
+              onBlur={blur('gateway')}
+            />
           </Field>
-        </div>
-        <fieldset className="m-0 flex flex-col gap-2 border-0 p-0">
-          <legend className="mb-1 p-0 text-[13px] font-medium">Colour</legend>
-          <div className="flex gap-3">
-            {COLORS.map((x) => (
-              <label key={x.color} className="relative cursor-pointer">
-                <input
-                  type="radio"
-                  name={colorName}
-                  className="peer sr-only"
-                  checked={d.color === x.color}
-                  onChange={() => set('color', x.color)}
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <Field label="Login method">
+              <Select value={d.auth} onChange={(e) => setAuth(e.target.value as AuthType)}>
+                {AUTH.map((a) => (
+                  <option key={a.type} value={a.type}>
+                    {a.label}
+                  </option>
+                ))}
+              </Select>
+            </Field>
+            {d.auth === 'basic' && (
+              <Field label="User" required error={msg('user')}>
+                <Input
+                  value={d.user}
+                  autoComplete="off"
+                  onChange={(e) => set('user', e.target.value)}
+                  onBlur={blur('user')}
                 />
-                <span className="sr-only">{x.label}</span>
-                <span
-                  aria-hidden="true"
-                  className={`block size-7 rounded-full ${x.css} ring-offset-2 peer-checked:ring-2 peer-checked:ring-ink peer-focus-visible:ring-2 peer-focus-visible:ring-rose-600`}
+              </Field>
+            )}
+            {(d.auth === 'basic' || d.auth === 'bearer') && (
+              <Field
+                label={d.auth === 'basic' ? 'Password' : 'Token'}
+                required
+                help="Kept in your keychain."
+                error={msg('secret')}
+              >
+                <Input
+                  type="password"
+                  autoComplete="off"
+                  value={d.secret}
+                  onChange={(e) => set('secret', e.target.value)}
+                  onBlur={blur('secret')}
                 />
-              </label>
-            ))}
-          </div>
-        </fieldset>
-        <Field
-          label="JobManager REST URL"
-          required
-          help="The address of Flink's web UI and REST API."
-          error={msg('url')}
-        >
-          <Input
-            mono
-            value={d.url}
-            placeholder="https://host:8081"
-            data-field="url"
-            onChange={(e) => set('url', e.target.value)}
-            onBlur={blur('url')}
-          />
-        </Field>
-        <Field label="SQL Gateway URL (optional)" error={msg('gateway')}>
-          <Input
-            mono
-            value={d.gateway}
-            placeholder="https://host:8083"
-            data-field="gateway"
-            onChange={(e) => set('gateway', e.target.value)}
-            onBlur={blur('gateway')}
-          />
-        </Field>
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-          <Field label="Login method">
-            <Select value={d.auth} onChange={(e) => setAuth(e.target.value as AuthType)}>
-              {AUTH.map((a) => (
-                <option key={a.type} value={a.type}>
-                  {a.label}
-                </option>
-              ))}
-            </Select>
-          </Field>
-          {d.auth === 'basic' && (
-            <Field label="User" required error={msg('user')}>
-              <Input
-                value={d.user}
-                autoComplete="off"
-                onChange={(e) => set('user', e.target.value)}
-                onBlur={blur('user')}
-              />
-            </Field>
-          )}
-          {(d.auth === 'basic' || d.auth === 'bearer') && (
-            <Field
-              label={d.auth === 'basic' ? 'Password' : 'Token'}
-              required
-              help="Kept in your keychain."
-              error={msg('secret')}
-            >
-              <Input
-                type="password"
-                autoComplete="off"
-                value={d.secret}
-                onChange={(e) => set('secret', e.target.value)}
-                onBlur={blur('secret')}
-              />
-            </Field>
-          )}
-          {d.auth === 'token-command' && (
-            <Field
-              label="Token command"
-              required
-              help="Prints a token; run again when the cluster says 401."
-              error={msg('command')}
-            >
-              <Input
-                mono
-                value={d.command}
-                onChange={(e) => set('command', e.target.value)}
-                onBlur={blur('command')}
-              />
-            </Field>
-          )}
-          {d.auth === 'mtls' && (
-            <>
-              <Field label="Client certificate (PEM file)" required error={msg('cert')}>
+              </Field>
+            )}
+            {d.auth === 'token-command' && (
+              <Field
+                label="Token command"
+                required
+                help="Prints a token; run again when the cluster says 401."
+                error={msg('command')}
+              >
                 <Input
                   mono
-                  value={d.cert}
-                  onChange={(e) => set('cert', e.target.value)}
-                  onBlur={blur('cert')}
+                  value={d.command}
+                  onChange={(e) => set('command', e.target.value)}
+                  onBlur={blur('command')}
                 />
               </Field>
-              <Field label="Client key (PEM file)" required error={msg('key')}>
-                <Input mono value={d.key} onChange={(e) => set('key', e.target.value)} onBlur={blur('key')} />
-              </Field>
-            </>
-          )}
-        </div>
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-          <Field label="Refresh every">
-            <Select value={d.pollMs} onChange={(e) => set('pollMs', Number(e.target.value))}>
-              {POLL_CHOICES.map((ms) => (
-                <option key={ms} value={ms}>
-                  {ms / 1000} seconds
-                </option>
-              ))}
-            </Select>
-          </Field>
-          <Field label="Timeout">
-            <Select
-              data-field="timeout"
-              value={d.timeoutMs}
-              onChange={(e) => set('timeoutMs', Number(e.target.value))}
-            >
-              {[5000, 10000, 30000, 60000].map((ms) => (
-                <option key={ms} value={ms}>
-                  {ms / 1000} seconds
-                </option>
-              ))}
-            </Select>
-          </Field>
-        </div>
-        <details className="rounded-lg border border-line">
-          <summary className="sl-focus cursor-pointer px-4 py-3 text-[14px] font-semibold">
-            Advanced settings
-          </summary>
-          <div className="flex flex-col gap-4 border-t border-line px-4 py-4">
-            <Field
-              label="Base path"
-              help="For gateways and YARN proxies. Every call goes to the address, then the base path."
-              error={msg('basePath')}
-            >
-              <Input
-                mono
-                data-field="basePath"
-                value={d.basePath}
-                placeholder="/flink/payments"
-                onChange={(e) => set('basePath', e.target.value)}
-                onBlur={blur('basePath')}
-              />
+            )}
+            {d.auth === 'mtls' && (
+              <>
+                <Field label="Client certificate (PEM file)" required error={msg('cert')}>
+                  <Input
+                    mono
+                    value={d.cert}
+                    onChange={(e) => set('cert', e.target.value)}
+                    onBlur={blur('cert')}
+                  />
+                </Field>
+                <Field label="Client key (PEM file)" required error={msg('key')}>
+                  <Input
+                    mono
+                    value={d.key}
+                    onChange={(e) => set('key', e.target.value)}
+                    onBlur={blur('key')}
+                  />
+                </Field>
+              </>
+            )}
+          </div>
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <Field label="Refresh every">
+              <Select value={d.pollMs} onChange={(e) => set('pollMs', Number(e.target.value))}>
+                {POLL_CHOICES.map((ms) => (
+                  <option key={ms} value={ms}>
+                    {ms / 1000} seconds
+                  </option>
+                ))}
+              </Select>
             </Field>
-            <fieldset className="m-0 flex flex-col gap-2 border-0 p-0">
-              <legend className="mb-1 p-0 text-[13px] font-medium">Custom headers</legend>
-              {d.headers.map((h, i) => (
-                <div key={i} className="grid grid-cols-[1fr_1fr_auto_auto] items-center gap-2">
-                  <Input
-                    aria-label={`Header ${i + 1} name`}
-                    aria-invalid={isBad(i, 'name') || undefined}
-                    aria-describedby={isBad(i, 'name') ? headersErr : undefined}
-                    mono
-                    value={h.name}
-                    placeholder="X-Tenant"
-                    onChange={(e) =>
-                      set(
-                        'headers',
-                        d.headers.map((x, j) => (j === i ? { ...x, name: e.target.value } : x)),
-                      )
-                    }
-                    onBlur={blur('headers')}
-                  />
-                  <Input
-                    aria-label={`Header ${i + 1} value`}
-                    aria-invalid={isBad(i, 'value') || undefined}
-                    aria-describedby={isBad(i, 'value') ? headersErr : undefined}
-                    mono
-                    type={isSecretHeader(h) ? 'password' : 'text'}
-                    autoComplete="off"
-                    value={h.value}
-                    onChange={(e) =>
-                      set(
-                        'headers',
-                        d.headers.map((x, j) => (j === i ? { ...x, value: e.target.value } : x)),
-                      )
-                    }
-                  />
-                  <label className="flex items-center gap-1.5 text-[13px]">
-                    <input
-                      type="checkbox"
-                      className="sl-focus accent-rose-600"
-                      aria-label={`Header ${i + 1} in keychain`}
-                      checked={isSecretHeader(h)}
-                      // A credential name is always kept in the keychain: the box says so and stays reachable
-                      // (aria-disabled, not disabled: still focusable, and focus is never pulled away from it).
-                      aria-disabled={!h.secret && isSecretHeader(h) ? true : undefined}
-                      aria-describedby={!h.secret && isSecretHeader(h) ? `${keychainNote}-${i}` : undefined}
+            <Field label="Timeout">
+              <Select
+                data-field="timeout"
+                value={d.timeoutMs}
+                onChange={(e) => set('timeoutMs', Number(e.target.value))}
+              >
+                {[5000, 10000, 30000, 60000].map((ms) => (
+                  <option key={ms} value={ms}>
+                    {ms / 1000} seconds
+                  </option>
+                ))}
+              </Select>
+            </Field>
+          </div>
+          <details className="rounded-lg border border-line">
+            <summary className="sl-focus cursor-pointer px-4 py-3 text-[14px] font-semibold">
+              Advanced settings
+            </summary>
+            <div className="flex flex-col gap-4 border-t border-line px-4 py-4">
+              <Field
+                label="Base path"
+                help="For gateways and YARN proxies. Every call goes to the address, then the base path."
+                error={msg('basePath')}
+              >
+                <Input
+                  mono
+                  data-field="basePath"
+                  value={d.basePath}
+                  placeholder="/flink/payments"
+                  onChange={(e) => set('basePath', e.target.value)}
+                  onBlur={blur('basePath')}
+                />
+              </Field>
+              <fieldset className="m-0 flex flex-col gap-2 border-0 p-0">
+                <legend className="mb-1 p-0 text-[13px] font-medium">Custom headers</legend>
+                {d.headers.map((h, i) => (
+                  <div key={i} className="grid grid-cols-[1fr_1fr_auto_auto] items-center gap-2">
+                    <Input
+                      aria-label={`Header ${i + 1} name`}
+                      aria-invalid={isBad(i, 'name') || undefined}
+                      aria-describedby={isBad(i, 'name') ? headersErr : undefined}
+                      mono
+                      value={h.name}
+                      placeholder="X-Tenant"
                       onChange={(e) =>
-                        !(!h.secret && isSecretHeader(h)) &&
                         set(
                           'headers',
-                          d.headers.map((x, j) => (j === i ? { ...x, secret: e.target.checked } : x)),
+                          d.headers.map((x, j) => (j === i ? { ...x, name: e.target.value } : x)),
+                        )
+                      }
+                      onBlur={blur('headers')}
+                    />
+                    <Input
+                      aria-label={`Header ${i + 1} value`}
+                      aria-invalid={isBad(i, 'value') || undefined}
+                      aria-describedby={isBad(i, 'value') ? headersErr : undefined}
+                      mono
+                      type={isSecretHeader(h) ? 'password' : 'text'}
+                      autoComplete="off"
+                      value={h.value}
+                      onChange={(e) =>
+                        set(
+                          'headers',
+                          d.headers.map((x, j) => (j === i ? { ...x, value: e.target.value } : x)),
                         )
                       }
                     />
-                    Keychain
-                  </label>
+                    <label className="flex items-center gap-1.5 text-[13px]">
+                      <input
+                        type="checkbox"
+                        className="sl-focus accent-rose-600"
+                        aria-label={`Header ${i + 1} in keychain`}
+                        checked={isSecretHeader(h)}
+                        // A credential name is always kept in the keychain: the box says so and stays reachable
+                        // (aria-disabled, not disabled: still focusable, and focus is never pulled away from it).
+                        aria-disabled={!h.secret && isSecretHeader(h) ? true : undefined}
+                        aria-describedby={!h.secret && isSecretHeader(h) ? `${keychainNote}-${i}` : undefined}
+                        onChange={(e) =>
+                          !(!h.secret && isSecretHeader(h)) &&
+                          set(
+                            'headers',
+                            d.headers.map((x, j) => (j === i ? { ...x, secret: e.target.checked } : x)),
+                          )
+                        }
+                      />
+                      Keychain
+                    </label>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      data-remove-header
+                      aria-label={`Remove header ${i + 1}`}
+                      onClick={(e) => {
+                        // Focus stays in the list: the row that takes this place, or Add header.
+                        const list = e.currentTarget.closest('fieldset');
+                        set(
+                          'headers',
+                          d.headers.filter((_, j) => j !== i),
+                        );
+                        requestAnimationFrame(() =>
+                          (
+                            list?.querySelectorAll<HTMLElement>('[data-remove-header]')[i] ??
+                            list?.querySelectorAll<HTMLElement>('[data-remove-header]')[i - 1] ??
+                            list?.querySelector<HTMLElement>('[data-add-header]')
+                          )?.focus(),
+                        );
+                      }}
+                    >
+                      Remove
+                    </Button>
+                    {!h.secret && isSecretHeader(h) && (
+                      // Seen as well as heard (the box ignores clicks), on a line of its own so every row's
+                      // columns stay the same width.
+                      <p id={`${keychainNote}-${i}`} className="col-span-4 m-0 text-[13px] text-muted">
+                        {h.name.trim()} is always kept in the keychain.
+                      </p>
+                    )}
+                  </div>
+                ))}
+                {msg('headers') && <FieldMessage id={headersErr}>{msg('headers')}</FieldMessage>}
+                <div>
                   <Button
+                    data-add-header
                     size="sm"
-                    variant="ghost"
-                    data-remove-header
-                    aria-label={`Remove header ${i + 1}`}
-                    onClick={(e) => {
-                      // Focus stays in the list: the row that takes this place, or Add header.
-                      const list = e.currentTarget.closest('fieldset');
-                      set(
-                        'headers',
-                        d.headers.filter((_, j) => j !== i),
-                      );
-                      requestAnimationFrame(() =>
-                        (
-                          list?.querySelectorAll<HTMLElement>('[data-remove-header]')[i] ??
-                          list?.querySelectorAll<HTMLElement>('[data-remove-header]')[i - 1] ??
-                          list?.querySelector<HTMLElement>('[data-add-header]')
-                        )?.focus(),
-                      );
-                    }}
+                    type="button"
+                    onClick={() => set('headers', [...d.headers, { name: '', value: '', secret: false }])}
                   >
-                    Remove
+                    Add header
                   </Button>
-                  {!h.secret && isSecretHeader(h) && (
-                    // Seen as well as heard (the box ignores clicks), on a line of its own so every row's
-                    // columns stay the same width.
-                    <p id={`${keychainNote}-${i}`} className="col-span-4 m-0 text-[13px] text-muted">
-                      {h.name.trim()} is always kept in the keychain.
-                    </p>
+                </div>
+              </fieldset>
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+                <Field label="HTTP proxy (optional)" error={msg('proxy')} className="sm:col-span-3">
+                  <Input
+                    mono
+                    value={d.proxy}
+                    placeholder="http://proxy:3128"
+                    onChange={(e) => set('proxy', e.target.value)}
+                    onBlur={blur('proxy')}
+                  />
+                </Field>
+                {d.proxy.trim() && (
+                  <>
+                    <Field label="Proxy user (optional)">
+                      <Input
+                        autoComplete="off"
+                        value={d.proxyUser}
+                        onChange={(e) => set('proxyUser', e.target.value)}
+                      />
+                    </Field>
+                    <Field label="Proxy password (optional)" help="Kept in your keychain.">
+                      <Input
+                        type="password"
+                        autoComplete="off"
+                        value={d.proxySecret}
+                        onChange={(e) => set('proxySecret', e.target.value)}
+                      />
+                    </Field>
+                  </>
+                )}
+              </div>
+              {d.gateway.trim() && (
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+                  <Field label="SQL Gateway login">
+                    <Select
+                      value={d.gwSame ? 'same' : d.gwAuth}
+                      onChange={(e) => {
+                        const v = e.target.value;
+                        changed();
+                        setD((x) =>
+                          v === 'same'
+                            ? { ...x, gwSame: true, gwSecret: '' }
+                            : { ...x, gwSame: false, gwAuth: v as Draft['gwAuth'], gwSecret: '' },
+                        );
+                      }}
+                    >
+                      <option value="same">Same as REST</option>
+                      <option value="none">None</option>
+                      <option value="basic">User and password</option>
+                      <option value="bearer">Bearer token</option>
+                    </Select>
+                  </Field>
+                  {!d.gwSame && d.gwAuth === 'basic' && (
+                    <Field label="SQL Gateway user" required error={msg('gatewayLogin')}>
+                      <Input
+                        autoComplete="off"
+                        value={d.gwUser}
+                        onChange={(e) => set('gwUser', e.target.value)}
+                        onBlur={blur('gatewayLogin')}
+                      />
+                    </Field>
+                  )}
+                  {!d.gwSame && d.gwAuth !== 'none' && (
+                    <Field
+                      label={d.gwAuth === 'basic' ? 'SQL Gateway password' : 'SQL Gateway token'}
+                      required
+                      help="Kept in your keychain."
+                      error={msg('gwSecret')}
+                    >
+                      <Input
+                        type="password"
+                        autoComplete="off"
+                        value={d.gwSecret}
+                        onChange={(e) => set('gwSecret', e.target.value)}
+                        onBlur={blur('gwSecret')}
+                      />
+                    </Field>
                   )}
                 </div>
-              ))}
-              {msg('headers') && <FieldMessage id={headersErr}>{msg('headers')}</FieldMessage>}
-              <div>
-                <Button
-                  data-add-header
-                  size="sm"
-                  type="button"
-                  onClick={() => set('headers', [...d.headers, { name: '', value: '', secret: false }])}
-                >
-                  Add header
-                </Button>
-              </div>
-            </fieldset>
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-              <Field label="HTTP proxy (optional)" error={msg('proxy')} className="sm:col-span-3">
-                <Input
-                  mono
-                  value={d.proxy}
-                  placeholder="http://proxy:3128"
-                  onChange={(e) => set('proxy', e.target.value)}
-                  onBlur={blur('proxy')}
-                />
-              </Field>
-              {d.proxy.trim() && (
-                <>
-                  <Field label="Proxy user (optional)">
-                    <Input
-                      autoComplete="off"
-                      value={d.proxyUser}
-                      onChange={(e) => set('proxyUser', e.target.value)}
-                    />
-                  </Field>
-                  <Field label="Proxy password (optional)" help="Kept in your keychain.">
-                    <Input
-                      type="password"
-                      autoComplete="off"
-                      value={d.proxySecret}
-                      onChange={(e) => set('proxySecret', e.target.value)}
-                    />
-                  </Field>
-                </>
               )}
             </div>
-            {d.gateway.trim() && (
-              <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-                <Field label="SQL Gateway login">
-                  <Select
-                    value={d.gwSame ? 'same' : d.gwAuth}
-                    onChange={(e) => {
-                      const v = e.target.value;
-                      changed();
-                      setD((x) =>
-                        v === 'same'
-                          ? { ...x, gwSame: true, gwSecret: '' }
-                          : { ...x, gwSame: false, gwAuth: v as Draft['gwAuth'], gwSecret: '' },
-                      );
-                    }}
-                  >
-                    <option value="same">Same as REST</option>
-                    <option value="none">None</option>
-                    <option value="basic">User and password</option>
-                    <option value="bearer">Bearer token</option>
-                  </Select>
-                </Field>
-                {!d.gwSame && d.gwAuth === 'basic' && (
-                  <Field label="SQL Gateway user" required error={msg('gatewayLogin')}>
-                    <Input
-                      autoComplete="off"
-                      value={d.gwUser}
-                      onChange={(e) => set('gwUser', e.target.value)}
-                      onBlur={blur('gatewayLogin')}
-                    />
-                  </Field>
-                )}
-                {!d.gwSame && d.gwAuth !== 'none' && (
-                  <Field
-                    label={d.gwAuth === 'basic' ? 'SQL Gateway password' : 'SQL Gateway token'}
-                    required
-                    help="Kept in your keychain."
-                    error={msg('gwSecret')}
-                  >
-                    <Input
-                      type="password"
-                      autoComplete="off"
-                      value={d.gwSecret}
-                      onChange={(e) => set('gwSecret', e.target.value)}
-                      onBlur={blur('gwSecret')}
-                    />
-                  </Field>
-                )}
-              </div>
-            )}
-          </div>
-        </details>
-        <label className="flex items-center justify-between gap-4 rounded-lg py-2">
-          <span className="flex flex-col">
-            <span className="text-[14px] font-semibold">Read-only connection</span>
-            <span className="text-[13px] text-muted">
-              Hide stop, cancel, rescale and submit for this cluster
+          </details>
+          <label className="flex items-center justify-between gap-4 rounded-lg py-2">
+            <span className="flex flex-col">
+              <span className="text-[14px] font-semibold">Read-only connection</span>
+              <span className="text-[13px] text-muted">
+                Hide stop, cancel, rescale and submit for this cluster
+              </span>
             </span>
-          </span>
-          <input
-            type="checkbox"
-            role="switch"
-            className="sl-focus size-5 accent-rose-600"
-            checked={d.readOnly}
-            onChange={(e) => set('readOnly', e.target.checked)}
-          />
-        </label>
-        {results && (
-          <TestSteps
-            results={results}
-            running={testing}
-            outcome={outcome}
-            onAction={onTestAction}
-            handles={TEST_ACTIONS}
-          />
-        )}
-        {submitted && count > 0 && <ErrorBanner error={new AppError('CONN-FORM-INVALID', { n: count })} />}
+            <input
+              type="checkbox"
+              role="switch"
+              className="sl-focus size-5 accent-rose-600"
+              checked={d.readOnly}
+              onChange={(e) => set('readOnly', e.target.checked)}
+            />
+          </label>
+          {results && (
+            <TestSteps
+              results={results}
+              running={testing}
+              outcome={outcome}
+              onAction={onTestAction}
+              handles={TEST_ACTIONS}
+            />
+          )}
+          {submitted && count > 0 && <ErrorBanner error={new AppError('CONN-FORM-INVALID', { n: count })} />}
+        </fieldset>
         <div className="flex justify-end gap-3 border-t border-line pt-4">
-          <Button type="button" onClick={onCancel}>
+          <Button
+            type="button"
+            onClick={onCancel}
+            {...(saving ? { disabledReason: 'Saving to the keychain.' } : {})}
+          >
             Cancel
           </Button>
           <Button
@@ -776,8 +792,8 @@ export function ConnectionForm({
           >
             {testing ? 'Testing…' : 'Test connection'}
           </Button>
-          <Button type="submit" variant="primary">
-            Save
+          <Button type="submit" variant="primary" loading={saving}>
+            {saving ? 'Saving…' : 'Save'}
           </Button>
         </div>
       </form>

@@ -1,0 +1,17 @@
+# The website (apps/web) on Netlify, deployed by Netlify's own Git connection on every push to main.
+# Static files only: no functions, no server (CLAUDE.md "Frontend only").
+[build]
+  base = "."
+  command = "pnpm --filter @sl/web build"
+  publish = "apps/web/dist"
+
+[build.environment]
+  # As CI (.github/workflows/ci.yml); pnpm comes from package.json's packageManager.
+  NODE_VERSION = "24"
+
+# A single-page app: /learn, /sim/:id, /glossary, /download and the rest are client routes. Files that exist
+# (assets, logo) are served first; any other path gets index.html.
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200

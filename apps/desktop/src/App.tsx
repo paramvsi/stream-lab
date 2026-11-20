@@ -25,6 +25,7 @@ import { AllJobs } from './AllJobs';
 import { Settings } from './Settings';
 import { Welcome } from './Welcome';
 import type { Saved } from './saved';
+import type { View } from './SavedViews';
 
 /**
  * The desktop app (M6). The same React code Tauri wraps (its devUrl); it reaches clusters only through the Rust
@@ -61,6 +62,8 @@ export function App({
 } = {}) {
   const [screen, setScreen] = useState<Screen>({ name: 'home' });
   const [connections, setConnections] = useState<Connection[]>([]);
+  // X18's saved views, for the app's life. ponytail: on disk with the connections once views are asked for there.
+  const [views, setViews] = useState<View[]>([]);
   // Saved connections: read once; written on every change after a read that worked (never over a file that could
   // not be read). A failure is APP-STORE-FAILED, with Try again.
   const [storeError, setStoreError] = useState<AppError | null>(null);
@@ -376,6 +379,8 @@ export function App({
           transport={transport}
           onOpenJob={(id, jid) => setScreen({ name: 'job', id, jid })}
           onFleet={home}
+          views={views}
+          onViews={setViews}
         />
       );
     if (screen.name === 'settings')

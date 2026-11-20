@@ -170,6 +170,18 @@ describe('M11 · A11Y · desktop screens', () => {
     const all = await screen.findByRole('table', { name: 'Jobs on all connections' });
     await within(all).findByRole('button', { name: 'refund-matcher' });
     await check('Jobs · all connections (X18)');
+    await userEvent.click(screen.getByRole('button', { name: 'Save view' }));
+    const sv = await screen.findByRole('dialog', { name: 'Save view' });
+    await userEvent.click(within(sv).getByRole('button', { name: 'Save' })); // with its field error
+    await check('Save view (X18), name missing');
+    await userEvent.type(within(sv).getByLabelText(/^Name/), 'Failing in prod{Enter}');
+    await gone(sv);
+    await check('Jobs · all connections with a saved view (X18)');
+    await userEvent.click(screen.getByRole('button', { name: 'Edit views' }));
+    const ev = await screen.findByRole('dialog', { name: 'Edit views' });
+    await check('Edit views (X18)');
+    await userEvent.click(within(ev).getByRole('button', { name: 'Cancel' }));
+    await gone(ev);
     await userEvent.click(screen.getByRole('button', { name: 'Fleet' }));
     await userEvent.click(await screen.findByRole('button', { name: 'Open payments-prod' }));
     const tms = await screen.findByRole('table', { name: 'TaskManagers' });

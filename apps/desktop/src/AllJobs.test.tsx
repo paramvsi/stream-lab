@@ -3,7 +3,9 @@ import { ToastProvider, TooltipProvider } from '@sl/ui';
 import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
+import { useState } from 'react';
 import { AllJobs } from './AllJobs';
+import type { View } from './SavedViews';
 
 const conn = (id: string, name: string) =>
   ({ id, name, url: `http://${id}:8081`, timeoutMs: 10_000 }) as unknown as Connection;
@@ -270,5 +272,98 @@ describe('JOB-11 · jobs across connections (board X18)', () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+});
+
+describe('X18 saved views (ruled: name dialog, rename, delete)', () => {
+  function WithViews({ transport }: { transport: (c: Connection) => FlinkHttp }) {
+    const [views, setViews] = useState<View[]>([]);
+    return (
+      <TooltipProvider>
+        <ToastProvider>
+          <AllJobs
+            connections={[prod, staging]}
+            transport={transport}
+            onOpenJob={vi.fn()}
+            views={views}
+            onViews={setViews}
+          />
+        </ToastProvider>
+      </TooltipProvider>
+    );
+  }
+  const jobs = (c: Connection) => async () =>
+    ok({
+      jobs:
+        c.id === 'p'
+          ? [row('a1', 'fraud-scoring', 'FAILING'), row('a2', 'refund-matcher', 'RUNNING')]
+          : [row('b2', 'card-velocity', 'FAILED')],
+    });
+  const saveAs = async (name: string) => {
+    await userEvent.click(screen.getByRole('button', { name: 'Save view' }));
+    const d = await screen.findByRole('dialog', { name: 'Save view' });
+    if (name) await userEvent.type(within(d).getByLabelText(/^Name/), name);
+    await userEvent.click(within(d).getByRole('button', { name: 'Save' }));
+    return d;
+  };
+  it('Save view keeps the search and chip; its chip applies them, All clears them', async () => {
+    render(<WithViews transport={jobs} />);
+    const t = await screen.findByRole('table', { name: 'Jobs on all connections' });
+    await vi.waitFor(() => expect(within(t).getAllByRole('row')).toHaveLength(4));
+    await userEvent.click(screen.getByRole('button', { name: /^Failing/ }));
+    await saveAs('Failing in prod');
+    expect(screen.queryByRole('dialog')).toBeNull();
+    const views = screen.getByRole('group', { name: 'Saved views' });
+    expect(within(views).getByRole('button', { name: 'Failing in prod' })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    );
+    await userEvent.click(within(views).getByRole('button', { name: 'All' }));
+    expect(within(t).getAllByRole('row')).toHaveLength(4);
+    await userEvent.click(within(views).getByRole('button', { name: 'Failing in prod' }));
+    expect(
+      within(t)
+        .getAllByRole('row')
+        .slice(1)
+        .map((r) => r.textContent),
+    ).toEqual(expect.arrayContaining([expect.stringContaining('fraud-scoring')]));
+    expect(within(t).queryByText('refund-matcher')).toBeNull();
+  });
+  it('VIEW-NAME-REQUIRED and VIEW-NAME-TAKEN (any case) on the field; nothing saved', async () => {
+    render(<WithViews transport={jobs} />);
+    await saveAs('Mine');
+    const d = await saveAs('');
+    expect(within(d).getByText('Give the view a name.')).toBeInTheDocument();
+    expect(within(d).getByLabelText(/^Name/)).toHaveFocus();
+    await userEvent.type(within(d).getByLabelText(/^Name/), 'MINE');
+    await userEvent.click(within(d).getByRole('button', { name: 'Save' }));
+    expect(within(d).getByText('A view called "MINE" already exists.')).toBeInTheDocument();
+    await userEvent.click(within(d).getByRole('button', { name: 'Cancel' }));
+    expect(within(screen.getByRole('group', { name: 'Saved views' })).getAllByRole('button')).toHaveLength(3); // All, Mine, Edit views
+  });
+  it('Edit views renames and deletes on Done; a clash is VIEW-NAME-TAKEN; Cancel changes nothing', async () => {
+    render(<WithViews transport={jobs} />);
+    await saveAs('One');
+    await saveAs('Two');
+    const edit = async () => {
+      await userEvent.click(screen.getByRole('button', { name: 'Edit views' }));
+      return screen.findByRole('dialog', { name: 'Edit views' });
+    };
+    let d = await edit();
+    await userEvent.clear(within(d).getByLabelText('Name of view 2'));
+    await userEvent.type(within(d).getByLabelText('Name of view 2'), 'one');
+    await userEvent.click(within(d).getByRole('button', { name: 'Done' }));
+    expect(within(d).getByText('A view called "one" already exists.')).toBeInTheDocument();
+    await userEvent.click(within(d).getByRole('button', { name: 'Cancel' }));
+    const group = () => screen.getByRole('group', { name: 'Saved views' });
+    expect(within(group()).getByRole('button', { name: 'Two' })).toBeInTheDocument();
+    d = await edit();
+    await userEvent.clear(within(d).getByLabelText('Name of view 2'));
+    await userEvent.type(within(d).getByLabelText('Name of view 2'), 'Team');
+    await userEvent.click(within(d).getByRole('button', { name: 'Delete view One' }));
+    await vi.waitFor(() => expect(within(d).getByLabelText('Name of view 1')).toHaveFocus());
+    await userEvent.click(within(d).getByRole('button', { name: 'Done' }));
+    expect(within(group()).getByRole('button', { name: 'Team' })).toBeInTheDocument();
+    expect(within(group()).queryByRole('button', { name: 'One' })).toBeNull();
   });
 });

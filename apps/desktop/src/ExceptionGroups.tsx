@@ -1,7 +1,7 @@
 import { AppError, present } from '@sl/errors';
-import { groupExceptions, rootCauseLine, type FlinkException } from '@sl/flink';
+import { exceptionHint, groupExceptions, rootCauseLine, type FlinkException } from '@sl/flink';
 import { Button, EmptyState, useToastOptional } from '@sl/ui';
-import { CircleCheck, Copy } from 'lucide-react';
+import { CircleCheck, Copy, Lightbulb } from 'lucide-react';
 import { Fragment, useId, useState } from 'react';
 
 /** Board X20 "09:12": the viewer's local clock, hours and minutes. */
@@ -14,7 +14,8 @@ const plural = (n: number, w: string) => `${n} ${w}${n === 1 ? '' : 's'}`;
  * JOB-08 / board X20: a job's failures collapsed by root cause type and message (groupExceptions), most frequent
  * first, with count and first / last seen; "Show N" expands to each occurrence (newest first: time, task, cause).
  * Open, a group also shows its newest full stack trace with Copy (D11b).
- * ponytail: D11b's summary line and the "Explain this" hint (J-09) are next slices.
+ * X20's "Explain this" (ruled 2026-11-18: hints from the Flink docs): for the most frequent group with a hint.
+ * ponytail: D11b's summary line is a next slice; X20's "Read the chapter" waits for the site's address.
  */
 export function ExceptionGroups({
   entries,
@@ -50,6 +51,8 @@ export function ExceptionGroups({
     return msg ? `${label} · ${msg}` : label;
   });
   const titles = cut.map((t, i) => (cut.indexOf(t) !== cut.lastIndexOf(t) ? `${t} · row ${i + 1}` : t));
+  // Groups are most frequent first: the first one Flink's docs have a hint for.
+  const hint = groups.map((g) => exceptionHint(g.type, g.message)).find((h) => h) ?? null;
   const th = 'border-b border-line bg-subtle px-3.5 py-2.5 text-left text-[12px] font-medium text-muted';
   const td = 'border-b border-line px-3.5 py-[13px] align-top text-[14px]';
   return (
@@ -131,6 +134,14 @@ export function ExceptionGroups({
           </tbody>
         </table>
       </div>
+      {hint && (
+        <p className="m-0 flex items-start gap-2 text-[14px]">
+          <Lightbulb size={16} aria-hidden="true" className="mt-0.5 shrink-0 text-rose-700" />
+          <span>
+            <strong className="font-semibold">Explain this:</strong> {hint}
+          </span>
+        </p>
+      )}
     </div>
   );
 }

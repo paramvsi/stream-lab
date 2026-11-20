@@ -2,6 +2,7 @@ import { AppError, cleanCause, ErrorBanner, ErrorBoundary, ErrorPage, present } 
 import {
   checkpointingOff,
   getCheckpoints,
+  bottlenecks,
   getBackpressure,
   getExceptions,
   getJob,
@@ -666,11 +667,7 @@ export function JobOverview({
                       )}
                     </div>
                     {/* JOB-10 / D08f: the warning signal's explanation, once an operator has been backpressured (HIGH). */}
-                    {explainBp && (
-                      <div className="flex justify-end">
-                        <Explain term="backpressure" label="Explain backpressure" />
-                      </div>
-                    )}
+                    {explainBp && <BottleneckNote graph={jobGraph(j)} bp={bpShown} />}
                     <JobGraphView
                       graph={jobGraph(j)}
                       selected={openOp}
@@ -787,5 +784,39 @@ export function JobOverview({
         />
       )}
     </main>
+  );
+}
+
+/**
+ * D08f (ruled 2026-11-18: hints from the Flink docs): the likely bottleneck, when the readings show one (an operator
+ * not backpressured itself, fed by one that is HIGH), and the Explain drawer with what to try for it.
+ * FLINK: https://nightlies.apache.org/flink/flink-docs-release-1.20/docs/ops/monitoring/back_pressure/
+ */
+function BottleneckNote({
+  graph,
+  bp,
+}: {
+  graph: ReturnType<typeof jobGraph>;
+  bp: Record<string, Backpressure | null | undefined>;
+}) {
+  const ids = bottlenecks(graph, bp);
+  const op = ids.length === 1 ? graph.nodes.find((n) => n.id === ids[0]) : undefined;
+  const tries = op
+    ? [
+        `Raise ${op.name} parallelism (now ${op.parallelism}).`,
+        `Check what ${op.name} writes to or calls: a slow sink, database or service makes it slow.`,
+        'Look for one hot key: if one subtask is much busier than the others, more parallelism will not help.',
+      ]
+    : [];
+  return (
+    <div className="flex flex-wrap items-center justify-end gap-3">
+      {op && (
+        <p className="m-0 mr-auto text-[14px]">
+          <strong className="font-semibold">{op.name} is the likely bottleneck.</strong> It is not
+          backpressured itself, but what feeds it is, so everything upstream waits for it.
+        </p>
+      )}
+      <Explain term="backpressure" label="Explain backpressure" tries={tries} />
+    </div>
   );
 }

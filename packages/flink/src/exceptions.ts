@@ -120,6 +120,8 @@ const sameProblem = (message: string) =>
 export interface ExceptionGroup {
   /** What groups it (full class + message with per-occurrence ids masked): stable across polls. */
   key: string;
+  /** The root cause's full class (exceptionHint reads it). */
+  type: string;
   name: string;
   /** The newest occurrence's words. */
   message: string;
@@ -148,7 +150,44 @@ export function groupExceptions(entries: readonly FlinkException[]): ExceptionGr
       g.last = Math.max(g.last, e.timestamp);
       g.entries.push(e);
     } else
-      groups.set(key, { key, name, message, count: 1, first: e.timestamp, last: e.timestamp, entries: [e] });
+      groups.set(key, {
+        key,
+        type,
+        name,
+        message,
+        count: 1,
+        first: e.timestamp,
+        last: e.timestamp,
+        entries: [e],
+      });
   }
   return [...groups.values()].sort((a, b) => b.count - a.count || b.last - a.last);
+}
+
+/**
+ * X20's "Explain this" (ruled 2026-11-18: hints from the Flink docs), for the root cause's type and message. Only
+ * the common cases; anything else has no hint (never a guess).
+ * FLINK: https://nightlies.apache.org/flink/flink-docs-release-1.20/docs/connectors/datastream/kafka/
+ * FLINK: https://nightlies.apache.org/flink/flink-docs-release-1.20/docs/ops/state/checkpoints/
+ * FLINK: https://nightlies.apache.org/flink/flink-docs-release-1.20/docs/deployment/memory/mem_trouble/
+ * FLINK: https://nightlies.apache.org/flink/flink-docs-release-1.20/docs/ops/state/task_failure_recovery/
+ */
+export function exceptionHint(type: string, message: string): string | null {
+  const t = type.split('.').at(-1) ?? type;
+  if (t === 'TimeoutException' && /kafka|topic|broker|describeTopics|metadata/i.test(`${type} ${message}`))
+    return 'Repeated Kafka timeouts usually mean the brokers are unreachable from the TaskManagers, not a bug in the job.';
+  if (t === 'CheckpointException' && /expired/i.test(message))
+    return 'The checkpoint took longer than the checkpoint timeout. Backpressure or slow state uploads are the usual cause: find the slow operator, or raise execution.checkpointing.timeout.';
+  if (t === 'OutOfMemoryError')
+    return 'A TaskManager ran out of memory. Look for state or a window that grows without end, or give TaskManagers more memory (taskmanager.memory.process.size).';
+  if (
+    [
+      'NullPointerException',
+      'ClassCastException',
+      'NumberFormatException',
+      'IllegalArgumentException',
+    ].includes(t)
+  )
+    return "This comes from the job's own code. A restart reads the same record again and fails again: fix the code, or filter the record out.";
+  return null;
 }

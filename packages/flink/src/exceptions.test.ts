@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { getExceptions, groupExceptions, recentFailures, rootCauseLine, splitCause } from './exceptions';
+import {
+  exceptionHint,
+  getExceptions,
+  groupExceptions,
+  recentFailures,
+  rootCauseLine,
+  splitCause,
+} from './exceptions';
 import type { FlinkHttp } from './http';
 
 const entry = (ts: number, name: string, msg: string) => ({
@@ -228,5 +235,28 @@ describe('JOB-08 · grouped exceptions (board X20)', () => {
     const t0 = performance.now();
     groupExceptions([ex(1, line)]);
     expect(performance.now() - t0).toBeLessThan(50);
+  });
+});
+
+describe('X20 exceptionHint', () => {
+  it('the common causes, from the Flink docs; anything else none', () => {
+    expect(
+      exceptionHint(
+        'org.apache.kafka.common.errors.TimeoutException',
+        'Timed out waiting for describeTopics',
+      ),
+    ).toMatch(/brokers are unreachable from the TaskManagers/);
+    expect(
+      exceptionHint('java.util.concurrent.TimeoutException', 'Heartbeat of TaskManager timed out.'),
+    ).toBeNull();
+    expect(
+      exceptionHint(
+        'org.apache.flink.runtime.checkpoint.CheckpointException',
+        'Checkpoint expired before completing.',
+      ),
+    ).toMatch(/checkpoint timeout/);
+    expect(exceptionHint('java.lang.NullPointerException', '')).toMatch(/job's own code/);
+    expect(exceptionHint('java.lang.OutOfMemoryError', 'Java heap space')).toMatch(/ran out of memory/);
+    expect(exceptionHint('java.io.IOException', 'Stream closed')).toBeNull();
   });
 });

@@ -58,3 +58,20 @@ export async function getBackpressure(
   const worst = Math.max(0, ...(r.subtasks ?? []).map((s) => s.ratio));
   return { level, pct: Math.round(worst * 100) };
 }
+
+/**
+ * D08f (ruled 2026-11-18: hints from the Flink docs): the likely bottleneck. Flink's guide: backpressure starts at
+ * the first operator downstream of the backpressured ones that is not backpressured itself (it is busy, so its
+ * inputs wait). Here: an operator reading OK whose input reads HIGH. Without a reading for either, nothing is said.
+ * FLINK: https://nightlies.apache.org/flink/flink-docs-release-1.20/docs/ops/monitoring/back_pressure/
+ */
+export function bottlenecks(
+  g: { nodes: readonly { id: string }[]; edges: readonly { from: string; to: string }[] },
+  bp: Readonly<Record<string, Backpressure | null | undefined>>,
+): string[] {
+  return g.nodes
+    .filter(
+      (n) => bp[n.id]?.level === 'ok' && g.edges.some((e) => e.to === n.id && bp[e.from]?.level === 'high'),
+    )
+    .map((n) => n.id);
+}

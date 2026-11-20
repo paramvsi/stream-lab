@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { getBackpressure } from './backpressure';
+import { bottlenecks, getBackpressure } from './backpressure';
 import type { FlinkHttp } from './http';
 
 const sub = (subtask: number, ratio: number, level = 'ok') => ({
@@ -75,5 +75,25 @@ describe('JOB-BACKPRESSURE · vertex backpressure (D08b)', () => {
     for (const state of ['FINISHED', 'FAILED', 'CANCELED', 'RESTARTING'])
       expect(await getBackpressure(http, 'prod', 'j', 'v', state)).toBeNull();
     expect(asked).toBe(0);
+  });
+});
+
+describe('D08f bottlenecks (Flink docs: first not-backpressured operator downstream)', () => {
+  const g = {
+    nodes: [{ id: 'src' }, { id: 'val' }, { id: 'win' }, { id: 'sink' }],
+    edges: [
+      { from: 'src', to: 'val' },
+      { from: 'val', to: 'win' },
+      { from: 'win', to: 'sink' },
+    ],
+  };
+  const hi = { level: 'high' as const, pct: 87 };
+  const ok = { level: 'ok' as const, pct: 2 };
+  it('the OK operator fed by a HIGH one', () => {
+    expect(bottlenecks(g, { src: hi, val: hi, win: ok, sink: ok })).toEqual(['win']);
+  });
+  it('no reading on the candidate, or none HIGH: nothing said', () => {
+    expect(bottlenecks(g, { src: hi, val: hi, win: null, sink: ok })).toEqual([]);
+    expect(bottlenecks(g, { src: ok, val: { level: 'low', pct: 30 }, win: ok, sink: ok })).toEqual([]);
   });
 });

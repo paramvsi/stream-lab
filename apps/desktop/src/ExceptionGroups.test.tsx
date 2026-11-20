@@ -183,3 +183,16 @@ describe('JOB-08 · grouped exceptions (board X20)', () => {
     for (const n of names) expect(n).not.toMatch(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])/); // no lone high surrogate
   });
 });
+
+describe('X20 Explain this (ruled: hints from the Flink docs)', () => {
+  it('the most frequent group with a hint gets it, in words', () => {
+    render(<ExceptionGroups entries={entries} />);
+    expect(
+      screen.getByText(/brokers are unreachable from the TaskManagers, not a bug in the job/),
+    ).toBeInTheDocument();
+  });
+  it('a cause with no hint says nothing (never a guess)', () => {
+    render(<ExceptionGroups entries={[ex(T, 'java.io.IOException: Stream closed')]} />);
+    expect(screen.queryByText(/Explain this/)).toBeNull();
+  });
+});

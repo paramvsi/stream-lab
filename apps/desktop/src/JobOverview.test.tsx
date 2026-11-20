@@ -2206,6 +2206,26 @@ describe('JOB-10 · Explain this (board D08f)', () => {
     expect(screen.getByRole('button', { name: 'Explain backpressure' })).toHaveFocus();
   });
 
+  it('ruled: the OK operator fed by a HIGH one is named the likely bottleneck, and the drawer says what to try', async () => {
+    const withPlan: FlinkHttp = async (req) =>
+      /\/vertices\/v\d\/backpressure$/.test(req.path)
+        ? bp(true)(req)
+        : answer(200, { ...detail, plan: hashPlan })(req);
+    show(withPlan);
+    expect(await screen.findByText('Sink: alerts is the likely bottleneck.')).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: 'Explain backpressure' }));
+    const d = await screen.findByRole('dialog', { name: 'Backpressure' });
+    expect(within(d).getByRole('heading', { name: 'What to try' })).toBeInTheDocument();
+    expect(within(d).getByText('Raise Sink: alerts parallelism (now 2).')).toBeInTheDocument();
+  });
+  it('without a plan (no edges) nothing is named, and no advice is invented', async () => {
+    show(bp(true));
+    await userEvent.click(await screen.findByRole('button', { name: 'Explain backpressure' }));
+    const d = await screen.findByRole('dialog', { name: 'Backpressure' });
+    expect(screen.queryByText(/likely bottleneck/)).toBeNull();
+    expect(within(d).queryByText('What to try')).toBeNull();
+  });
+
   it('with no operator backpressured (readings low), there is nothing to explain', async () => {
     const read = new Set<string>();
     const http = bp(false);

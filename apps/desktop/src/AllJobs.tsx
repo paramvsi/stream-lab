@@ -98,7 +98,10 @@ export function AllJobs({
   const search = useRef<HTMLInputElement>(null);
   const [saving, setSaving] = useState(false);
   const [editing, setEditing] = useState(false);
-  const activeView = views.find((v) => v.q === q && v.bucket === bucket);
+  // The view last picked, while the search and chip are still its own: two views with the same filter, or one with
+  // none (as All), are told apart by which was picked.
+  const [picked, setPicked] = useState<string | null>(null);
+  const activeView = views.find((v) => v.id === picked && v.q === q && v.bucket === bucket);
   const counts = bucketCounts(all);
   const rows = queryJobs(all, { ...(bucket ? { bucket } : {}), q });
   // No data and an error: its jobs are missing (FLEET-PARTIAL). With data, each Feed shows its own §4 states.
@@ -167,9 +170,10 @@ export function AllJobs({
         <div role="group" aria-label="Saved views" className="flex flex-wrap items-center gap-2">
           <Button
             size="sm"
-            variant={!q && !bucket ? 'secondary' : 'ghost'}
-            aria-pressed={!q && !bucket}
+            variant={!activeView && !q && !bucket ? 'secondary' : 'ghost'}
+            aria-pressed={!activeView && !q && !bucket}
             onClick={() => {
+              setPicked(null);
               setQ('');
               setBucket(undefined);
             }}
@@ -183,6 +187,7 @@ export function AllJobs({
               variant={activeView?.id === v.id ? 'secondary' : 'ghost'}
               aria-pressed={activeView?.id === v.id}
               onClick={() => {
+                setPicked(v.id);
                 setQ(v.q);
                 setBucket(v.bucket);
               }}
@@ -202,7 +207,9 @@ export function AllJobs({
           taken={views.map((v) => v.name)}
           onClose={() => setSaving(false)}
           onSave={(name) => {
-            onViews([...views, { id: crypto.randomUUID(), name, q, ...(bucket ? { bucket } : {}) }]);
+            const id = crypto.randomUUID();
+            onViews([...views, { id, name, q, ...(bucket ? { bucket } : {}) }]);
+            setPicked(id);
             setSaving(false);
           }}
         />
@@ -214,6 +221,8 @@ export function AllJobs({
           onDone={(v) => {
             onViews(v);
             setEditing(false);
+            // None left: the chip row and its Edit views go, so focus goes to the heading (not the page body).
+            if (!v.length) setTimeout(() => h1.current?.focus(), 0);
           }}
         />
       )}

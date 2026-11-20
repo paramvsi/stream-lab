@@ -277,3 +277,15 @@ describe('audit of 9e989a0', () => {
     ).toBeNull();
   });
 });
+
+describe('audit of 08c0e9b #5/#6', () => {
+  it('a proxy user with an empty password still gets a keychain entry (empty), so a lost one is told apart and a cleared one replaces the old', async () => {
+    const onSave = form();
+    await basics();
+    await userEvent.type(screen.getByLabelText(/HTTP proxy/), 'http://proxy:3128');
+    await userEvent.type(screen.getByLabelText(/Proxy user/), 'ops');
+    await userEvent.click(screen.getByRole('button', { name: 'Save' }));
+    const { secrets } = onSave.mock.calls[0]![0];
+    expect(secrets).toEqual([{ key: expect.stringMatching(/\/proxy$/), value: '' }]);
+  });
+});

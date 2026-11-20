@@ -349,7 +349,9 @@ export function ConnectionForm({
         ...(connection.gateway && !connection.gateway.sameLogin && d.gwAuth !== 'none' && d.gwSecret
           ? [{ key: secretKey(id, 'gateway'), value: d.gwSecret }]
           : []),
-        ...(connection.transport.type === 'proxy' && d.proxySecret
+        // With a proxy user, always an entry, empty or not: a missing one then means a lost secret (CONN-KEYCHAIN),
+        // and a password cleared before Save replaces the old one.
+        ...(connection.transport.type === 'proxy' && connection.transport.user
           ? [{ key: secretKey(id, 'proxy'), value: d.proxySecret }]
           : []),
       ],

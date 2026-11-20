@@ -1213,3 +1213,37 @@ describe('audit of b8e3cf4 #5', () => {
     expect(screen.queryByText('payments-prod')).toBeNull();
   });
 });
+
+describe('audit of 08c0e9b #4', () => {
+  it('a Save of another connection while the keychain is busy keeps both', async () => {
+    const finish: (() => void)[] = [];
+    const keep = vi.fn().mockImplementation(() => new Promise<void>((r) => finish.push(r)));
+    render(
+      <TooltipProvider>
+        <ToastProvider>
+          <App keep={keep} />
+        </ToastProvider>
+      </TooltipProvider>,
+    );
+    const fill = async (name: string) => {
+      await userEvent.click(screen.getByRole('radio', { name: /Self-managed/ }));
+      await userEvent.click(screen.getByRole('button', { name: 'Continue' }));
+      await userEvent.type(screen.getByLabelText(/^Name/), name);
+      await userEvent.selectOptions(screen.getByLabelText(/^Environment/), 'dev');
+      await userEvent.type(screen.getByLabelText(/JobManager REST URL/), `https://${name}:8081`);
+      await userEvent.selectOptions(screen.getByLabelText('Login method'), 'bearer');
+      await userEvent.type(screen.getByLabelText(/^Token/), 's3cret');
+      await userEvent.click(screen.getByRole('button', { name: 'Save' }));
+    };
+    await userEvent.click(screen.getByRole('button', { name: 'Add a connection' }));
+    await fill('payments-a');
+    await userEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+    await fill('payments-c');
+    finish[0]!();
+    await vi.waitFor(() => expect(keep).toHaveBeenCalledTimes(2));
+    finish[1]!();
+    await screen.findByRole('heading', { level: 1, name: 'Connections' });
+    await vi.waitFor(() => expect(screen.getByText('payments-c')).toBeTruthy());
+    expect(screen.getByText('payments-a')).toBeTruthy();
+  });
+});

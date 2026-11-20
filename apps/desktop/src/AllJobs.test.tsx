@@ -367,3 +367,52 @@ describe('X18 saved views (ruled: name dialog, rename, delete)', () => {
     expect(within(group()).queryByRole('button', { name: 'One' })).toBeNull();
   });
 });
+
+describe('audit of 7375b3f #7/#8', () => {
+  function WithViews() {
+    const [views, setViews] = useState<View[]>([]);
+    return (
+      <TooltipProvider>
+        <ToastProvider>
+          <AllJobs
+            connections={[prod]}
+            transport={() => async () => ok({ jobs: [row('a1', 'fraud-scoring', 'RUNNING')] })}
+            onOpenJob={vi.fn()}
+            views={views}
+            onViews={setViews}
+          />
+        </ToastProvider>
+      </TooltipProvider>
+    );
+  }
+  const saveAs = async (name: string) => {
+    await userEvent.click(screen.getByRole('button', { name: 'Save view' }));
+    const d = await screen.findByRole('dialog', { name: 'Save view' });
+    await userEvent.type(within(d).getByLabelText(/^Name/), `${name}{Enter}`);
+  };
+  it('two views with the same filter, and one with none: the chip picked is the one pressed, not All', async () => {
+    render(<WithViews />);
+    await saveAs('Everything');
+    await saveAs('Oncall');
+    const g = () => screen.getByRole('group', { name: 'Saved views' });
+    const pressed = () =>
+      within(g())
+        .getAllByRole('button')
+        .filter((b) => b.getAttribute('aria-pressed') === 'true')
+        .map((b) => b.textContent);
+    expect(pressed()).toEqual(['Oncall']);
+    await userEvent.click(within(g()).getByRole('button', { name: 'Everything' }));
+    expect(pressed()).toEqual(['Everything']);
+    await userEvent.click(within(g()).getByRole('button', { name: 'All' }));
+    expect(pressed()).toEqual(['All']);
+  });
+  it('deleting every view in Edit views puts focus on the heading', async () => {
+    render(<WithViews />);
+    await saveAs('Only');
+    await userEvent.click(screen.getByRole('button', { name: 'Edit views' }));
+    const d = await screen.findByRole('dialog', { name: 'Edit views' });
+    await userEvent.click(within(d).getByRole('button', { name: 'Delete view Only' }));
+    await userEvent.click(within(d).getByRole('button', { name: 'Done' }));
+    await vi.waitFor(() => expect(screen.getByRole('heading', { level: 1, name: 'Jobs' })).toHaveFocus());
+  });
+});

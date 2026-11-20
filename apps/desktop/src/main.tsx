@@ -21,7 +21,12 @@ createRoot(document.getElementById('root')!).render(
             test={(c, secret, more) =>
               tauriHttp(
                 c,
-                Object.fromEntries(Object.entries({ login: secret, ...more }).filter(([, v]) => v)),
+                Object.fromEntries(
+                  Object.entries({ login: secret, ...more }).filter(
+                    // An empty proxy password is still the one to use (else Test looks in the keychain).
+                    ([k, v]) => v || (k === 'proxy' && c.transport.type === 'proxy' && !!c.transport.user),
+                  ),
+                ),
               )
             }
             keep={saveSecrets}

@@ -99,11 +99,15 @@ export function App({
   }, [saved, readOk, connections, saveTry]);
   const [importing, setImporting] = useState(false);
   // A save whose secrets the keychain refused: the form stays (nothing typed is lost) and the dialog says so.
-  const [keepFailed, setKeepFailed] = useState<{ error: AppError; retry: () => void } | null>(null);
-  // One keychain write at a time: a second Try again of the same save is dropped (it would add the connection
-  // twice); a newer Save (edited meanwhile) waits and then wins, so what was typed last is what is saved.
-  const saving = useRef<(() => unknown) | null>(null);
-  const queued = useRef<(() => unknown) | null>(null);
+  const [keepFailed, setKeepFailed] = useState<{ id: string; error: AppError; retry: () => void } | null>(
+    null,
+  );
+  // One keychain write at a time. A second Try again of the same save is dropped (it would add the connection
+  // twice). A newer Save of the same connection (edited meanwhile) waits and then wins, so what was typed last is
+  // saved; a Save of another connection (Cancel, then a new form) waits and then runs too: both are kept.
+  type Run = { id: string; run: () => unknown };
+  const saving = useRef<Run | null>(null);
+  const queued = useRef<Run | null>(null);
   const [fleetCache] = useState(() => new Map<string, CardState>());
   // JOB-06: one history store for the app's life (SQLite with the Rust side).
   const [history] = useState(memoryHistory);
@@ -339,32 +343,40 @@ export function App({
               setScreen({ name: 'home' });
             };
             if (!keep) return done();
+            const id = connection.id;
             const attempt = (): unknown => {
-              if (saving.current === attempt) return;
-              if (saving.current) return void (queued.current = attempt);
-              saving.current = attempt;
+              if (saving.current?.run === attempt) return;
+              if (saving.current) return void (queued.current = { id, run: attempt });
+              saving.current = { id, run: attempt };
+              // The save waiting behind this one; `newer`: the same connection, so this one's outcome is skipped.
               const next = () => {
                 saving.current = null;
                 const q = queued.current;
                 queued.current = null;
-                return q;
+                return { q, newer: q?.id === id };
               };
               // A save with no secrets still waits its turn (else it could land between and add twice).
               return (secrets.length ? keep(connection.name, secrets) : Promise.resolve()).then(
                 () => {
-                  const q = next();
-                  if (q) return q(); // a newer Save: its outcome is the one shown
-                  setKeepFailed(null);
-                  done();
+                  const { q, newer } = next();
+                  if (!newer) {
+                    setKeepFailed((k) => (k?.id === id ? null : k));
+                    done();
+                  }
+                  return q?.run();
                 },
                 (e: unknown) => {
-                  const q = next();
-                  if (q) return q();
-                  setKeepFailed({
-                    error:
-                      e instanceof AppError ? e : new AppError('CONN-KEYCHAIN', { conn: connection.name }, e),
-                    retry: attempt,
-                  });
+                  const { q, newer } = next();
+                  if (!newer)
+                    setKeepFailed({
+                      id,
+                      error:
+                        e instanceof AppError
+                          ? e
+                          : new AppError('CONN-KEYCHAIN', { conn: connection.name }, e),
+                      retry: attempt,
+                    });
+                  return q?.run();
                 },
               );
             };

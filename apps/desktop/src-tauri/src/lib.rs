@@ -284,8 +284,9 @@ async fn flink_request(
         let mut px =
             reqwest::Proxy::all(p).map_err(|_| Failure::io(&host, "invalid proxy address"))?;
         if let Some(u) = user {
-            // The proxy's password may be empty (the form does not require one): no entry is an empty one.
-            let pw = secret("proxy").map_err(keychain)?.unwrap_or_default();
+            // Saved with a proxy user, there is always an entry (an empty password is an empty one): none is a lost
+            // secret, as for the login.
+            let pw = need("proxy")?;
             px = px.basic_auth(u, &pw);
         }
         proxy_url = Some(p.clone());
@@ -392,15 +393,49 @@ fn secret_delete(key: String) -> Result<(), String> {
     }
 }
 
+/// Saved connections (no secrets: those are in the keychain), ARCHITECTURE.md "State": connections.json in the
+/// app's data folder. Our own two commands rather than the store plugin, which drops its read and parse errors
+/// (a broken file would read as empty and then be written over). Every failure reaches JS (APP-STORE-FAILED).
+fn connections_path(app: &tauri::AppHandle) -> Result<std::path::PathBuf, String> {
+    use tauri::Manager;
+    let dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
+    Ok(dir.join("connections.json"))
+}
+
+/// The file's text, read from disk every time; None when there is no file yet (first run).
+#[tauri::command]
+fn connections_read(app: tauri::AppHandle) -> Result<Option<String>, String> {
+    match std::fs::read_to_string(connections_path(&app)?) {
+        Ok(s) => Ok(Some(s)),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(e) => Err(e.to_string()),
+    }
+}
+
+/// Written whole and atomically: a temporary file, then renamed over the old one (a crash leaves one or the other).
+#[tauri::command]
+fn connections_write(app: tauri::AppHandle, text: String) -> Result<(), String> {
+    write_atomic(&connections_path(&app)?, &text).map_err(|e| e.to_string())
+}
+
+fn write_atomic(path: &std::path::Path, text: &str) -> std::io::Result<()> {
+    if let Some(dir) = path.parent() {
+        std::fs::create_dir_all(dir)?;
+    }
+    let tmp = path.with_extension("json.tmp");
+    std::fs::write(&tmp, text)?;
+    std::fs::rename(&tmp, path)
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
-        // Saved connections (no secrets: those are in the keychain), ARCHITECTURE.md "State".
-        .plugin(tauri_plugin_store::Builder::new().build())
         .invoke_handler(tauri::generate_handler![
             flink_request,
             secret_set,
-            secret_delete
+            secret_delete,
+            connections_read,
+            connections_write
         ])
         .run(tauri::generate_context!())
         .expect("error while running Stream Lab");
@@ -465,7 +500,8 @@ mod tests {
     }
 
     #[test]
-    fn a_proxy_user_with_no_password_is_sent_through_the_proxy() {
+    fn a_proxy_user_with_an_empty_password_is_sent_through_the_proxy_and_a_lost_one_is_conn_keychain(
+    ) {
         // The one-shot server stands in for the proxy (a plain-http target goes in absolute form).
         let (port, t) = serve(Some("HTTP/1.1 200 OK\r\nContent-Length: 0\r\n\r\n"));
         let c: Conn = serde_json::from_str(&format!(
@@ -474,8 +510,19 @@ mod tests {
               "timeoutMs":1000}}"#
         ))
         .unwrap();
-        assert_eq!(get(c).unwrap().status, 200);
+        let req: Req = serde_json::from_str(r#"{"method":"GET","path":"/config"}"#).unwrap();
+        let inline = HashMap::from([("proxy".to_string(), String::new())]);
+        let r = tauri::async_runtime::block_on(flink_request(c, req, Some(inline))).unwrap();
+        assert_eq!(r.status, 200);
         assert!(t.join().unwrap().contains("proxy-authorization: basic"));
+        // Saved, with no keychain entry: the secret is lost, never sent empty.
+        let lost: Conn = serde_json::from_str(
+            r#"{"id":"px-lost","url":"http://flink.invalid:8081","basePath":"","auth":{"type":"none"},
+              "headers":[],"transport":{"type":"proxy","url":"http://127.0.0.1:9","user":"alice"},
+              "timeoutMs":1000}"#,
+        )
+        .unwrap();
+        assert_eq!(get(lost).err().unwrap().kind, "keychain");
     }
 
     #[test]
@@ -495,6 +542,17 @@ mod tests {
         .err()
         .unwrap();
         assert_eq!(f.kind, "keychain");
+    }
+
+    #[test]
+    fn write_atomic_replaces_the_file_and_leaves_no_temporary() {
+        let dir = std::env::temp_dir().join(format!("sl-{}", std::process::id()));
+        let p = dir.join("connections.json");
+        write_atomic(&p, "[1]").unwrap();
+        write_atomic(&p, "[2]").unwrap();
+        assert_eq!(std::fs::read_to_string(&p).unwrap(), "[2]");
+        assert!(!p.with_extension("json.tmp").exists());
+        std::fs::remove_dir_all(dir).unwrap();
     }
 
     #[test]

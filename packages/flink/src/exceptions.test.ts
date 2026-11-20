@@ -252,7 +252,7 @@ describe('X20 exceptionHint', () => {
         'org.apache.flink.util.FlinkRuntimeException',
         'Exceeded checkpoint tolerable failure threshold. The latest checkpoint failed due to Checkpoint expired before completing., view the Checkpoint History tab or the Job Manager log to find out why continuous checkpoints failed.',
       ),
-    ).toMatch(/execution.checkpointing.timeout/);
+    ).toMatch(/the latest one expired/);
   });
   it('audit D4: each OutOfMemoryError kind its own fix; an unknown kind none', () => {
     expect(h('java.lang.OutOfMemoryError', 'Metaspace')).toMatch(/jvm-metaspace.size/);

@@ -53,7 +53,7 @@ export function ExceptionGroups({
   const titles = cut.map((t, i) => (cut.indexOf(t) !== cut.lastIndexOf(t) ? `${t} · row ${i + 1}` : t));
   // Groups are most frequent first: the first one Flink's docs have a hint for.
   // Named: it may not be the top row's (audit D7).
-  const hinted = groups.map((g) => ({ g, text: exceptionHint(g.type, g.message) })).find((x) => x.text);
+  const hinted = groups.map((g, i) => ({ i, text: exceptionHint(g.type, g.message) })).find((x) => x.text);
   const th = 'border-b border-line bg-subtle px-3.5 py-2.5 text-left text-[12px] font-medium text-muted';
   const td = 'border-b border-line px-3.5 py-[13px] align-top text-[14px]';
   return (
@@ -139,8 +139,7 @@ export function ExceptionGroups({
         <p className="m-0 flex items-start gap-2 text-[14px]">
           <Lightbulb size={16} aria-hidden="true" className="mt-0.5 shrink-0 text-rose-700" />
           <span>
-            <strong className="font-semibold">Explain this ({hinted.g.name || 'Exception'}):</strong>{' '}
-            {hinted.text}
+            <strong className="font-semibold">Explain this ({titles[hinted.i]}):</strong> {hinted.text}
           </span>
         </p>
       )}

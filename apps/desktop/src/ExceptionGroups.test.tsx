@@ -201,7 +201,30 @@ describe('X20 Explain this (ruled: hints from the Flink docs)', () => {
         ]}
       />,
     );
-    expect(screen.getByText('Explain this (NullPointerException):')).toBeInTheDocument();
+    expect(screen.getByText('Explain this (NullPointerException · ScoreFunction.map):')).toBeInTheDocument();
+  });
+  it('audit of 3a0c016 #2: two groups of one class are told apart by their row title', () => {
+    render(
+      <ExceptionGroups
+        entries={[
+          ex(
+            T + 2,
+            'java.lang.ClassCastException: class java.lang.String cannot be cast to class java.lang.Long',
+          ),
+          ex(
+            T + 1,
+            'java.lang.ClassCastException: class java.lang.String cannot be cast to class java.lang.Long',
+          ),
+          ex(
+            T,
+            'java.lang.ClassCastException: class com.acme.Payment cannot be cast to class com.acme.Payment',
+          ),
+        ]}
+      />,
+    );
+    expect(
+      screen.getByText(/^Explain this \(ClassCastException · class com\.acme\.Payment cannot be cast/),
+    ).toBeInTheDocument();
   });
   it('a cause with no hint says nothing (never a guess)', () => {
     render(<ExceptionGroups entries={[ex(T, 'java.io.IOException: Stream closed')]} />);
